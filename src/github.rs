@@ -42,6 +42,7 @@ struct AppState {
 }
 
 /// Runs an HTTP server to handle GitHub hooks
+#[tokio::main]
 pub async fn hook_server() {
     let app = Router::new()
         .route("/", get(index))

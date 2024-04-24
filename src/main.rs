@@ -2,8 +2,7 @@ mod check;
 mod cli;
 mod github;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
 
@@ -11,7 +10,7 @@ async fn main() {
     let cmd = args.next();
     let subcommand = args.next();
     if Some("server") == subcommand.as_deref() {
-        github::hook_server().await;
+        github::hook_server();
     } else if Some("check") == subcommand.as_deref() {
         cli::main(args.next().unwrap());
     } else {

@@ -1,25 +1,26 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::OnceLock,
 };
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
-use comemo::Prehashed;
+use comemo::{Prehashed, Track};
 use ecow::{eco_format, EcoString};
 use fontdb::Database;
 use parking_lot::Mutex;
-use reqwest::StatusCode;
 use tracing::debug;
 use typst::{
-    diag::{FileError, FileResult, PackageError, PackageResult, Severity, SourceDiagnostic},
+    diag::{FileError, FileResult, Severity, SourceDiagnostic},
+    engine::Route,
     eval::Tracer,
     foundations::{Bytes, Datetime},
     model::Document,
     syntax::{
+        ast::{self, AstNode, Expr, Ident},
         package::{PackageManifest, PackageSpec},
-        FileId, Source, Span, VirtualPath,
+        FileId, Source, Span, SyntaxNode, VirtualPath,
     },
     text::{Font, FontBook, FontInfo},
     Library, World, WorldExt,
@@ -37,12 +38,13 @@ pub fn all_checks(
 ) -> (SystemWorld, Diagnostics) {
     let mut diags = Diagnostics::default();
     let (_, _, world) = check_manifest(packages_root, &mut diags, package_spec);
-    let (world, _doc) = check_compile(&mut diags, world);
+    check_compile(&mut diags, &world);
+    check_kebab_case(&mut diags, &world);
 
     (world, diags)
 }
 
-pub fn check_manifest(
+fn check_manifest(
     packages_root: PathBuf,
     diags: &mut Diagnostics,
     package_spec: &PackageSpec,
@@ -64,10 +66,10 @@ pub fn check_manifest(
     let manifest_file_id = FileId::new(None, VirtualPath::new("typst.toml"));
     world.file(manifest_file_id).ok(); // TODO: is this really necessary?
 
-    let mut manifest_lines = manifest_contents.lines().scan(1, |start, line| {
+    let mut manifest_lines = manifest_contents.lines().scan(0, |start, line| {
         let end = *start + line.len();
         let range = *start..end;
-        *start = end;
+        *start = end + 1;
         Some((line, range))
     });
     let name_line = manifest_lines
@@ -112,23 +114,142 @@ pub fn check_manifest(
     (package_dir, manifest, world)
 }
 
-pub fn check_compile(
-    diags: &mut Diagnostics,
-    world: SystemWorld,
-) -> (SystemWorld, Option<Document>) {
+fn check_compile(diags: &mut Diagnostics, world: &SystemWorld) -> Option<Document> {
     let mut tracer = Tracer::new();
-    let result = typst::compile(&world, &mut tracer);
+    let result = typst::compile(world, &mut tracer);
     diags
         .warnings
         .extend(convert_diagnostics(&world, tracer.warnings()));
 
     match result {
-        Ok(doc) => (world, Some(doc)),
+        Ok(doc) => Some(doc),
         Err(errors) => {
             diags.errors.extend(convert_diagnostics(&world, errors));
-            (world, None)
+            None
         }
     }
+}
+
+// Check that all public identifiers are in kebab-case
+// TODO: what about constants? Should MY_VALUE be MY-VALUE?
+fn check_kebab_case(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
+    let public_names: HashSet<_> = {
+        let world = <dyn World>::track(world);
+        let mut tracer = Tracer::new();
+
+        let module = typst::eval::eval(
+            world,
+            Route::default().track(),
+            tracer.track_mut(),
+            &world.main(),
+        )
+        .ok()?;
+        let scope = module.scope();
+        scope.iter().map(|(name, _)| name.clone()).collect()
+    };
+
+    fn check_source(
+        src: Source,
+        world: &SystemWorld,
+        public_names: &HashSet<EcoString>,
+        diags: &mut Diagnostics,
+        visited: &mut HashSet<FileId>,
+    ) -> Option<()> {
+        if visited.contains(&src.id()) {
+            return Some(());
+        }
+        visited.insert(src.id());
+
+        // Check all let bindings
+        for binding in src
+            .root()
+            .children()
+            .filter_map(|c| c.cast::<ast::LetBinding>())
+        {
+            let Some(name) = find_first::<Ident>(binding.to_untyped()) else {
+                continue;
+            };
+
+            if !public_names.contains(name.get()) {
+                continue;
+            }
+
+            if name.as_str() != casbab::kebab(name.as_str()) {
+                diags.warnings.push(Diagnostic {
+                    severity: codespan_reporting::diagnostic::Severity::Warning,
+                    message:
+                        "This value seems to be public. It is recommended to use kebab-case names."
+                            .to_owned(),
+                    labels: label(world, name.span()).into_iter().collect(),
+                    notes: Vec::new(),
+                    code: None,
+                })
+            }
+
+            if let Some(Expr::Closure(func)) = binding.init() {
+                for param in func.params().children() {
+                    let (name, span) = match param {
+                        ast::Param::Named(named) => (named.name().as_str(), named.span()),
+                        ast::Param::Spread(spread) => {
+                            let Some(sink) = spread.sink_ident() else {
+                                continue;
+                            };
+                            (sink.as_str(), sink.span())
+                        }
+                        ast::Param::Pos(ast::Pattern::Normal(Expr::Ident(i))) => {
+                            (i.as_str(), i.span())
+                        }
+                        _ => continue,
+                    };
+
+                    if name != casbab::kebab(name) {
+                        diags.warnings.push(Diagnostic {
+                            severity: codespan_reporting::diagnostic::Severity::Warning,
+                            message:
+                                "This argument seems to be part of public function. It is recommended to use kebab-case names."
+                                    .to_owned(),
+                            labels: label(world, span).into_iter().collect(),
+                            notes: Vec::new(),
+                            code: None,
+                        })
+                    }
+                }
+            }
+        }
+
+        // Check imported files recursively.
+        //
+        // Because we evaluated the module above, we know that no cyclic import
+        // will occur. `visited` still exist because some modules may be imported
+        // multiple times.
+        //
+        // Only imports at the root will be checked, as this is the most common
+        // case anyway.
+        for import in src
+            .root()
+            .children()
+            .filter_map(|c| c.cast::<ast::ModuleImport>())
+        {
+            let file_path = match import.source() {
+                Expr::Str(s) => src.id().vpath().join(s.get().as_str()),
+                _ => continue,
+            };
+            let fid = FileId::new(None, file_path);
+            let Ok(source) = world.source(fid) else {
+                continue;
+            };
+
+            check_source(source, world, public_names, diags, visited);
+        }
+
+        Some(())
+    }
+
+    let main = world.main();
+    let mut visited = HashSet::new();
+    check_source(main, world, &public_names, diags, &mut visited);
+
+    Some(())
 }
 
 fn convert_diagnostics<'a>(
@@ -151,6 +272,20 @@ fn convert_diagnostics<'a>(
 /// Create a label for a span.
 fn label(world: &SystemWorld, span: Span) -> Option<Label<FileId>> {
     Some(Label::primary(span.id()?, world.range(span)?))
+}
+
+/// Find the first child of a given type in a syntax tree
+fn find_first<'a, T: AstNode<'a>>(node: &'a SyntaxNode) -> Option<T> {
+    for ch in node.children() {
+        if let Some(cast) = ch.cast() {
+            return Some(cast);
+        }
+
+        if let Some(x) = find_first(ch) {
+            return Some(x);
+        }
+    }
+    None
 }
 
 // Copied from typst-cli, should probably be moved to its own module and
@@ -379,16 +514,21 @@ impl<T: Clone> SlotCell<T> {
 fn system_path(project_root: &Path, id: FileId) -> FileResult<PathBuf> {
     // Determine the root path relative to which the file path
     // will be resolved.
-    let buf;
-    let mut root = project_root;
-    if let Some(spec) = id.package() {
-        buf = prepare_package(spec)?;
-        root = &buf;
-    }
-
-    // Join the path to the root. If it tries to escape, deny
-    // access. Note: It can still escape via symlinks.
-    id.vpath().resolve(root).ok_or(FileError::AccessDenied)
+    let root = if let Some(spec) = id.package() {
+        project_root // version folder
+            .parent() // package folder
+            .unwrap()
+            .parent() // namespace folder
+            .unwrap()
+            .parent() // root folder
+            .unwrap()
+            .join(spec.namespace.as_str())
+            .join(spec.name.as_str())
+            .join(spec.version.to_string())
+    } else {
+        project_root.to_owned()
+    };
+    id.vpath().resolve(&root).ok_or(FileError::AccessDenied)
 }
 
 /// Reads a file from a `FileId`.
@@ -548,71 +688,4 @@ impl FontSearcher {
             }
         }
     }
-}
-
-/// PACKAGE.RS
-
-const HOST: &str = "https://packages.typst.org";
-
-/// Make a package available in the on-disk cache.
-pub fn prepare_package(spec: &PackageSpec) -> PackageResult<PathBuf> {
-    let subdir = format!(
-        "typst/packages/{}/{}/{}",
-        spec.namespace, spec.name, spec.version
-    );
-
-    if let Some(data_dir) = dirs::data_dir() {
-        let dir = data_dir.join(&subdir);
-        if dir.exists() {
-            return Ok(dir);
-        }
-    }
-
-    if let Some(cache_dir) = dirs::cache_dir() {
-        let dir = cache_dir.join(&subdir);
-        if dir.exists() {
-            return Ok(dir);
-        }
-
-        // Download from network if it doesn't exist yet.
-        if spec.namespace == "preview" {
-            download_package(spec, &dir)?;
-            if dir.exists() {
-                return Ok(dir);
-            }
-        }
-    }
-
-    Err(PackageError::NotFound(spec.clone()))
-}
-
-/// Download a package over the network.
-fn download_package(spec: &PackageSpec, package_dir: &Path) -> PackageResult<()> {
-    // The `@preview` namespace is the only namespace that supports on-demand
-    // fetching.
-    assert_eq!(spec.namespace, "preview");
-
-    let url = format!("{HOST}/preview/{}-{}.tar.gz", spec.name, spec.version);
-
-    let data = match download(&url) {
-        Ok(data) => tokio::runtime::Handle::current()
-            .block_on(data.bytes())
-            .unwrap(),
-        Err(err) if err.status() == Some(StatusCode::NOT_FOUND) => {
-            return Err(PackageError::NotFound(spec.clone()))
-        }
-        Err(err) => return Err(PackageError::NetworkFailed(Some(eco_format!("{err}")))),
-    };
-
-    let decompressed = flate2::read::GzDecoder::new(&data[..]);
-    tar::Archive::new(decompressed)
-        .unpack(package_dir)
-        .map_err(|err| {
-            std::fs::remove_dir_all(package_dir).ok();
-            PackageError::MalformedArchive(Some(eco_format!("{err}")))
-        })
-}
-
-fn download(url: &str) -> Result<reqwest::Response, reqwest::Error> {
-    tokio::runtime::Handle::current().block_on(reqwest::get(url))
 }
