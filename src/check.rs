@@ -84,8 +84,9 @@ pub fn check_manifest(
                     name_line.map(|l| l.1).unwrap_or_default(),
                 )])
                 .with_message(format!(
-                    "Unexpected package name. `{}` was expected.",
-                    package_spec.name
+                    "Unexpected package name. `{name}` was expected. If you want to publish a new package, create a new directory in `packages/{namespace}/`.",
+                    name = package_spec.name,
+                    namespace = package_spec.namespace,
                 )),
         )
     }
@@ -99,8 +100,10 @@ pub fn check_manifest(
                     version_line.map(|l| l.1).unwrap_or_default(),
                 )])
                 .with_message(format!(
-                    "Unexpected version number. `{}` was expected.",
-                    package_spec.version
+                    "Unexpected version number. `{version}` was expected. If you want to publish a new version, create a new directory in `packages/{namespace}/{name}`.",
+                    version = package_spec.version,
+                    name = package_spec.name,
+                    namespace = package_spec.namespace,
                 )),
         )
     }
@@ -137,14 +140,10 @@ fn convert_diagnostics<'a>(
             Severity::Error => Diagnostic::error(),
             Severity::Warning => Diagnostic::warning(),
         }
-        .with_message(diagnostic.message.clone())
-        .with_notes(
-            diagnostic
-                .hints
-                .iter()
-                .map(|e| (eco_format!("hint: {e}")).into())
-                .collect(),
-        )
+        .with_message(format!(
+            "The following error was reported by the Typst compiler: {}",
+            diagnostic.message
+        ))
         .with_labels(label(world, diagnostic.span).into_iter().collect())
     })
 }
