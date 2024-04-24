@@ -80,9 +80,8 @@ impl SystemWorld {
 
     /// Lookup a source file by id.
     #[track_caller]
-    pub fn lookup(&self, id: FileId) -> Source {
+    pub fn lookup(&self, id: FileId) -> FileResult<Source> {
         self.source(id)
-            .expect("file id does not point to any source file")
     }
 }
 

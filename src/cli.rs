@@ -62,11 +62,20 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
     }
 
     fn source(&'a self, id: FileId) -> CodespanResult<Self::Source> {
-        Ok(self.lookup(id))
+        match self.lookup(id) {
+            Ok(x) => Ok(x),
+            // Hack to be able to report errors on files that are not UTF-8. The
+            // error range should always be 0..0 for this to work.
+            Err(typst::diag::FileError::InvalidUtf8) => Ok(Source::new(id, String::new())),
+            Err(e) => Err(CodespanError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                e,
+            ))),
+        }
     }
 
     fn line_index(&'a self, id: FileId, given: usize) -> CodespanResult<usize> {
-        let source = self.lookup(id);
+        let source = self.source(id)?;
         source
             .byte_to_line(given)
             .ok_or_else(|| CodespanError::IndexTooLarge {
@@ -76,7 +85,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
     }
 
     fn line_range(&'a self, id: FileId, given: usize) -> CodespanResult<std::ops::Range<usize>> {
-        let source = self.lookup(id);
+        let source = self.source(id)?;
         source
             .line_to_range(given)
             .ok_or_else(|| CodespanError::LineTooLarge {
@@ -86,7 +95,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
     }
 
     fn column_number(&'a self, id: FileId, _: usize, given: usize) -> CodespanResult<usize> {
-        let source = self.lookup(id);
+        let source = self.source(id)?;
         source.byte_to_column(given).ok_or_else(|| {
             let max = source.len_bytes();
             if given <= max {
