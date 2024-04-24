@@ -4,7 +4,7 @@ use codespan_reporting::{diagnostic::Diagnostic, term};
 use ecow::eco_format;
 use typst::syntax::{FileId, Source};
 
-use crate::check::{all_checks, SystemWorld};
+use crate::{check::all_checks, world::SystemWorld};
 
 pub fn main(package_spec: String) {
     let package_spec = package_spec.parse().unwrap();

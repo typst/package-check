@@ -19,7 +19,7 @@ use jwt_simple::prelude::*;
 use tracing::info;
 use typst::syntax::{package::PackageSpec, FileId};
 
-use crate::check::{self, SystemWorld};
+use crate::{check, world::SystemWorld};
 
 use api::*;
 

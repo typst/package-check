@@ -1,6 +1,7 @@
 mod check;
 mod cli;
 mod github;
+mod world;
 
 fn main() {
     dotenvy::dotenv().ok();
