@@ -8,7 +8,7 @@ use crate::check::{all_checks, SystemWorld};
 
 pub fn main(package_spec: String) {
     let package_spec = package_spec.parse().unwrap();
-    let (world, diags) = all_checks(PathBuf::new(), package_spec);
+    let (world, diags) = all_checks(PathBuf::new(), &package_spec);
     print_diagnostics(&world, &diags.errors, &diags.warnings)
         .map_err(|err| eco_format!("failed to print diagnostics ({err})"))
         .unwrap();

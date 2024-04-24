@@ -11,7 +11,7 @@ async fn main() {
     let cmd = args.next();
     let subcommand = args.next();
     if Some("server") == subcommand.as_deref() {
-        github::main().await;
+        github::hook_server().await;
     } else if Some("check") == subcommand.as_deref() {
         cli::main(args.next().unwrap());
     } else {

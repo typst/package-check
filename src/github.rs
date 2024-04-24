@@ -1,37 +1,61 @@
 use std::{
-    fmt::Display,
+    ffi::OsStr,
     path::{Path, PathBuf},
 };
 
 use axum::{
     body::Body,
-    extract::{FromRequest, FromRequestParts, Request, State},
-    http::{request::Parts, Response, StatusCode},
+    extract::State,
+    http::{Response, StatusCode},
     response::IntoResponse,
     routing::{get, post},
     Router,
 };
-use codespan_reporting::{diagnostic::Severity, files::Files};
-use hmac::Mac;
+use codespan_reporting::{
+    diagnostic::{Diagnostic, Severity},
+    files::Files,
+};
 use jwt_simple::prelude::*;
-use reqwest::RequestBuilder;
-use serde::Deserialize;
-use tokio::process::Command;
-use tracing::{debug, info, warn};
-use typst::syntax::package::PackageSpec;
+use tracing::info;
+use typst::syntax::{package::PackageSpec, FileId};
 
-use crate::check;
+use crate::check::{self, SystemWorld};
 
-pub async fn main() {
+use api::*;
+
+mod api;
+mod git;
+
+use self::{
+    api::check::{Annotation, AnnotationLevel, CheckRunOutput, CheckSuiteAction},
+    git::GitRepo,
+    hook::{CheckSuitePayload, HookPayload},
+};
+
+/// Application configuration, read from .env file.
+#[derive(Clone)]
+struct AppState {
+    webhook_secret: Vec<u8>,
+    private_key: String,
+    app_id: String,
+    git_dir: String,
+}
+
+/// Runs an HTTP server to handle GitHub hooks
+pub async fn hook_server() {
     let app = Router::new()
         .route("/", get(index))
         .route("/github-hook", post(github_hook))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(AppState {
-            webhook_secret: std::env::var("GITHUB_WEBHOOK_SECRET").unwrap().into_bytes(),
-            private_key: std::env::var("GITHUB_PRIVATE_KEY").unwrap(),
-            app_id: std::env::var("GITHUB_APP_IDENTIFIER").unwrap(),
-            git_dir: std::env::var("PACKAGES_DIR").unwrap(),
+            webhook_secret: std::env::var("GITHUB_WEBHOOK_SECRET")
+                .expect("GITHUB_WEBHOOK_SECRET is not set.")
+                .into_bytes(),
+            private_key: std::env::var("GITHUB_PRIVATE_KEY")
+                .expect("GITHUB_PRIVATE_KEY is not set."),
+            app_id: std::env::var("GITHUB_APP_IDENTIFIER")
+                .expect("GITHUB_APP_IDENTIFIER is not set."),
+            git_dir: std::env::var("PACKAGES_DIR").expect("PACKAGES_DIR is not set."),
         });
 
     info!("Starting…");
@@ -39,10 +63,12 @@ pub async fn main() {
     axum::serve(listener, app).await.unwrap();
 }
 
+/// The page served on `/`, just to check that everything runs properly.
 async fn index() -> &'static str {
     "typst-package-check is running"
 }
 
+/// The route to handle GitHub hooks. Mounted on `/github-hook`.
 async fn github_hook(
     State(state): State<AppState>,
     mut api_client: GitHub,
@@ -73,61 +99,34 @@ async fn github_hook(
 
     tokio::spawn(async move {
         // TODO: test one package at a time
-        Command::new("/usr/bin/git")
-            .args(&["-C", &state.git_dir, "fetch", "origin", &head_sha])
-            .spawn()
-            .unwrap()
-            .wait()
-            .await
-            .unwrap();
-
-        Command::new("/usr/bin/git")
-            .args(&["-C", &state.git_dir, "checkout", &head_sha])
-            .spawn()
-            .unwrap()
-            .wait()
-            .await
-            .unwrap();
-
-        let touched_files = String::from_utf8(
-            Command::new("git")
-                .args(&[
-                    "-C",
-                    &state.git_dir,
-                    "diff-tree",
-                    "--no-commit-id",
-                    "--name-only",
-                    "-r",
-                    &head_sha,
-                    "main",
-                ])
-                .output()
-                .await
-                .unwrap()
-                .stdout,
-        )
-        .unwrap();
+        let git_repo = GitRepo::open(Path::new(&state.git_dir));
+        git_repo.fetch_commit(&head_sha).await?;
+        git_repo.checkout_commit(&head_sha).await?;
+        let touched_files = git_repo.files_touched_by(&head_sha).await?;
 
         let touched_packages = touched_files
-            .lines()
+            .into_iter()
             .filter_map(|line| {
-                let (_, path) = line.split_once("packages/preview/")?;
-                let mut components = path.split('/');
-                let name = components.next()?;
-                let version = components.next()?;
-                let version = version.parse().ok()?;
-                Some((name, version))
+                let mut components = line.components();
+                if components.next()?.as_os_str() != OsStr::new("packages") {
+                    return None;
+                }
+
+                let namespace = components.next()?.as_os_str().to_str()?.into();
+                let name = components.next()?.as_os_str().to_str()?.into();
+                let version = components.next()?.as_os_str().to_str()?.parse().ok()?;
+                Some(PackageSpec {
+                    namespace,
+                    name,
+                    version,
+                })
             })
             .collect::<HashSet<_>>();
 
-        for (name, version) in touched_packages {
+        for ref package in touched_packages {
             let (world, diags) = check::all_checks(
                 PathBuf::new().join(&state.git_dir).join("packages"),
-                PackageSpec {
-                    namespace: "preview".into(),
-                    name: name.into(),
-                    version,
-                },
+                package,
             );
 
             api_client
@@ -147,221 +146,58 @@ async fn github_hook(
                             .errors
                             .into_iter()
                             .chain(diags.warnings)
-                            .filter_map(|diag| {
-                                dbg!(&diag);
-                                let label = diag.labels.get(0)?;
-                                dbg!(label);
-                                let start_line =
-                                    world.line_index(label.file_id, label.range.start).ok()?;
-                                let end_line =
-                                    world.line_index(label.file_id, label.range.end).ok()?;
-                                dbg!(start_line, end_line);
-                                let (start_column, end_column) = if start_line == end_line {
-                                    let start = world
-                                        .column_number(label.file_id, start_line, label.range.start)
-                                        .ok();
-                                    let end = world
-                                        .column_number(label.file_id, start_line, label.range.end)
-                                        .ok();
-                                    (start, end)
-                                } else {
-                                    (None, None)
-                                };
-                                dbg!(start_column, end_column);
-                                Some(Annotation {
-                                    path: Path::new("packages")
-                                        .join("preview")
-                                        .join(name)
-                                        .join(version.to_string())
-                                        .join(label.file_id.vpath().as_rootless_path())
-                                        .to_str()?
-                                        .to_owned(),
-                                    // Lines are 1-indexed on GitHub but not for codespan
-                                    start_line: start_line + 1,
-                                    end_line: end_line + 1,
-                                    start_column,
-                                    end_column,
-                                    annotation_level: if diag.severity == Severity::Warning {
-                                        AnnotationLevel::Warning
-                                    } else {
-                                        AnnotationLevel::Failure
-                                    },
-                                    message: diag.message,
-                                })
-                            })
+                            .filter_map(|diag| diagnostic_to_annotation(&world, package, diag))
                             .collect::<Vec<_>>(),
                     },
                 )
                 .await
                 .unwrap();
         }
+        Some(())
     });
 
     Ok(())
 }
 
-enum HookPayload {
-    Installation(InstallationPayload),
-    CheckSuite(CheckSuitePayload),
-    CheckRun(CheckRunPayload),
-}
-
-impl HookPayload {
-    fn installation(&self) -> &Installation {
-        match self {
-            HookPayload::CheckSuite(cs) => &cs.installation,
-            HookPayload::Installation(i) => &i.installation,
-            HookPayload::CheckRun(cr) => &cr.installation,
-        }
-    }
-}
-
-#[derive(Deserialize)]
-struct InstallationPayload {
-    installation: Installation,
-}
-
-#[derive(Deserialize)]
-struct CheckSuitePayload {
-    action: CheckSuiteAction,
-    installation: Installation,
-    repository: Repository,
-    check_suite: CheckSuite,
-}
-
-#[derive(Deserialize)]
-struct CheckRunPayload {
-    installation: Installation,
-}
-
-#[derive(Deserialize)]
-struct CheckSuite {
-    head_sha: String,
-}
-
-#[derive(Deserialize)]
-struct Repository {
-    full_name: String,
-}
-
-impl Repository {
-    fn owner(&self) -> OwnerId {
-        OwnerId(self.full_name.split_once('/').unwrap().0.to_owned())
-    }
-
-    fn name(&self) -> RepoId {
-        RepoId(self.full_name.split_once('/').unwrap().1.to_owned())
-    }
-}
-
-#[derive(Deserialize)]
-struct Installation {
-    id: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum CheckSuiteAction {
-    // TODO: update this doc comment
-    /// App was installed by a new user/org
-    Created,
-    /// A check suite was requested (when code is pushed)
-    Requested,
-    /// A check suite was re-requested (when re-running on code that was previously pushed)
-    Rerequested,
-    /// A check suite has finished running
-    Completed,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum CheckRunAction {
-    Created,
-    RequestedAction,
-    Rerequested,
-    Completed,
-}
-
-#[derive(Deserialize)]
-struct InstallationToken {
-    token: String,
-}
-
-#[derive(Clone)]
-struct AppState {
-    webhook_secret: Vec<u8>,
-    private_key: String,
-    app_id: String,
-    git_dir: String,
-}
-
-#[async_trait::async_trait]
-impl FromRequest<AppState> for HookPayload {
-    type Rejection = (StatusCode, &'static str);
-
-    async fn from_request<'s>(req: Request, state: &'s AppState) -> Result<Self, Self::Rejection> {
-        let Some(their_signature_header) = req.headers().get("X-Hub-Signature") else {
-            return Err((StatusCode::UNAUTHORIZED, "X-Hub-Signature is missing"));
-        };
-        let event_type = req
-            .headers()
-            .get("X-GitHub-Event")
-            .map(|v| v.as_bytes().to_owned());
-        let their_signature_header = their_signature_header
-            .to_str()
-            .unwrap_or_default()
-            .to_owned();
-        let raw_payload = String::from_request(req, state).await.unwrap();
-        let (method, their_digest) = their_signature_header.split_once('=').unwrap();
-
-        if method != "sha1" {
-            warn!(
-                "A hook with a {} signature was received, and rejected",
-                method
-            );
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Unsupported signature type",
-            ));
-        }
-
-        let our_digest = {
-            let mut mac = hmac::Hmac::<sha1::Sha1>::new_from_slice(&state.webhook_secret).unwrap();
-            mac.update(raw_payload.as_bytes());
-            mac
-        };
-        let parsed_digest: Vec<_> = (0..their_digest.len() / 2)
-            .filter_map(|idx| {
-                let slice = &their_digest[idx * 2..idx * 2 + 2];
-                u8::from_str_radix(slice, 16).ok()
-            })
-            .collect();
-        if our_digest.verify_slice(&parsed_digest).is_err() {
-            debug!("Invalid hook signature");
-            return Err((StatusCode::UNAUTHORIZED, "Invalid hook signature"));
-        }
-
-        match event_type.as_deref() {
-            Some(b"installation") => Ok(HookPayload::Installation(
-                serde_json::from_str(&raw_payload).unwrap(),
-            )),
-            Some(b"check_suite") => Ok(HookPayload::CheckSuite(
-                serde_json::from_str(&raw_payload).unwrap(),
-            )),
-            Some(b"check_run") => Ok(HookPayload::CheckRun(
-                serde_json::from_str(&raw_payload).unwrap(),
-            )),
-            Some(x) => {
-                debug!(
-                    "Uknown event type: {}",
-                    std::str::from_utf8(x).unwrap_or("ERR")
-                );
-                debug!("Payload was: {}", raw_payload);
-                Err((StatusCode::BAD_REQUEST, "Unknown event type"))
-            }
-            None => Err((StatusCode::BAD_REQUEST, "Unspecified event type")),
-        }
-    }
+fn diagnostic_to_annotation(
+    world: &SystemWorld,
+    package: &PackageSpec,
+    diag: Diagnostic<FileId>,
+) -> Option<Annotation> {
+    let label = diag.labels.get(0)?;
+    let start_line = world.line_index(label.file_id, label.range.start).ok()?;
+    let end_line = world.line_index(label.file_id, label.range.end).ok()?;
+    let (start_column, end_column) = if start_line == end_line {
+        let start = world
+            .column_number(label.file_id, start_line, label.range.start)
+            .ok();
+        let end = world
+            .column_number(label.file_id, start_line, label.range.end)
+            .ok();
+        (start, end)
+    } else {
+        (None, None)
+    };
+    Some(Annotation {
+        path: Path::new("packages")
+            .join(&package.namespace.to_string())
+            .join(&package.name.to_string())
+            .join(package.version.to_string())
+            .join(label.file_id.vpath().as_rootless_path())
+            .to_str()?
+            .to_owned(),
+        // Lines are 1-indexed on GitHub but not for codespan
+        start_line: start_line + 1,
+        end_line: end_line + 1,
+        start_column,
+        end_column,
+        annotation_level: if diag.severity == Severity::Warning {
+            AnnotationLevel::Warning
+        } else {
+            AnnotationLevel::Failure
+        },
+        message: diag.message,
+    })
 }
 
 #[derive(Debug)]
@@ -383,196 +219,5 @@ impl IntoResponse for WebError {
 impl From<ApiError> for WebError {
     fn from(value: ApiError) -> Self {
         WebError::Api(value)
-    }
-}
-
-#[derive(Debug)]
-enum ApiError {
-    #[allow(dead_code)]
-    Reqwest(reqwest::Error),
-}
-
-impl From<reqwest::Error> for ApiError {
-    fn from(value: reqwest::Error) -> Self {
-        ApiError::Reqwest(value)
-    }
-}
-
-type ApiResult<T> = Result<T, ApiError>;
-
-struct GitHub {
-    jwt: String,
-    req: reqwest::Client,
-}
-
-struct OwnerId(String);
-struct RepoId(String);
-
-#[derive(Deserialize, Clone, Copy)]
-#[serde(transparent)]
-struct CheckRunId(u64);
-
-impl Display for OwnerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Display for RepoId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Display for CheckRunId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Deserialize)]
-struct CheckRun {
-    id: CheckRunId,
-}
-
-#[derive(Debug, Serialize)]
-struct CheckRunOutput<'a> {
-    title: &'a str,
-    summary: &'a str,
-    annotations: &'a [Annotation],
-}
-
-#[derive(Debug, Serialize)]
-struct Annotation {
-    path: String,
-    start_line: usize,
-    end_line: usize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    start_column: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    end_column: Option<usize>,
-    annotation_level: AnnotationLevel,
-    message: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum AnnotationLevel {
-    Warning,
-    Failure,
-}
-
-impl GitHub {
-    async fn auth_installation(&mut self, payload: &HookPayload) -> ApiResult<()> {
-        let installation = &payload.installation().id;
-        let res = self
-            .post(format!("app/installations/{installation}/access_tokens"))
-            .text()
-            .await?;
-        let res: InstallationToken = serde_json::from_str(&res).unwrap();
-        self.jwt = res.token;
-
-        Ok(())
-    }
-
-    async fn create_check_run(
-        &self,
-        owner: OwnerId,
-        repo: RepoId,
-        check_run_name: String,
-        head_sha: String,
-    ) -> ApiResult<CheckRun> {
-        let result = self
-            .post(format!("repos/{owner}/{repo}/check-runs"))
-            .body(
-                serde_json::to_string(&serde_json::json!({
-                    "name": check_run_name,
-                    "head_sha": head_sha,
-                    "status": "in_progress",
-                }))
-                .unwrap(),
-            )
-            .send()
-            .await?
-            .json()
-            .await?;
-        Ok(result)
-    }
-
-    async fn update_check_run<'a>(
-        &self,
-        owner: OwnerId,
-        repo: RepoId,
-        check_run: CheckRunId,
-        success: bool,
-        output: CheckRunOutput<'a>,
-    ) -> ApiResult<()> {
-        dbg!(&output);
-        let res = self
-            .patch(format!("repos/{owner}/{repo}/check-runs/{check_run}"))
-            .body(
-                serde_json::to_string(&serde_json::json!({
-                    "status": "completed",
-                    "conclusion": if success { "success" } else { "failure" },
-                    "output": output,
-                }))
-                .unwrap(),
-            )
-            .send()
-            .await?
-            .text()
-            .await?;
-        debug!("GitHub said: {}", res);
-        Ok(())
-    }
-
-    fn patch(&self, url: impl AsRef<str>) -> RequestBuilder {
-        self.with_headers(self.req.patch(Self::url(url)))
-    }
-
-    fn post(&self, url: impl AsRef<str>) -> RequestBuilder {
-        self.with_headers(self.req.post(Self::url(url)))
-    }
-
-    fn with_headers(&self, req: RequestBuilder) -> RequestBuilder {
-        req.bearer_auth(&self.jwt)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "Typst package check")
-    }
-
-    fn url<S: AsRef<str>>(path: S) -> String {
-        format!("https://api.github.com/{}", path.as_ref())
-    }
-}
-
-#[async_trait::async_trait]
-trait BodyOnly {
-    async fn text(self) -> reqwest::Result<String>;
-}
-
-#[async_trait::async_trait]
-impl BodyOnly for RequestBuilder {
-    async fn text(self) -> reqwest::Result<String> {
-        self.send().await?.text().await
-    }
-}
-
-#[async_trait::async_trait]
-impl FromRequestParts<AppState> for GitHub {
-    type Rejection = StatusCode;
-
-    async fn from_request_parts<'a, 's>(
-        _parts: &'a mut Parts,
-        state: &'s AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let private_key = RS256KeyPair::from_pem(&state.private_key).unwrap();
-        let claims = Claims::create(Duration::from_mins(10)).with_issuer(&state.app_id);
-        let token = private_key.sign(claims).unwrap();
-
-        Ok(Self {
-            jwt: token,
-            req: reqwest::Client::new(),
-        })
     }
 }

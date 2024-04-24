@@ -31,9 +31,12 @@ pub struct Diagnostics {
     pub errors: Vec<Diagnostic<FileId>>,
 }
 
-pub fn all_checks(packages_root: PathBuf, package_spec: PackageSpec) -> (SystemWorld, Diagnostics) {
+pub fn all_checks(
+    packages_root: PathBuf,
+    package_spec: &PackageSpec,
+) -> (SystemWorld, Diagnostics) {
     let mut diags = Diagnostics::default();
-    let (_, _, world) = check_manifest(packages_root, &mut diags, &package_spec);
+    let (_, _, world) = check_manifest(packages_root, &mut diags, package_spec);
     let (world, _doc) = check_compile(&mut diags, world);
 
     (world, diags)
