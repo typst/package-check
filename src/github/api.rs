@@ -68,7 +68,7 @@ impl GitHub {
         owner: OwnerId,
         repo: RepoId,
         check_run_name: String,
-        head_sha: String,
+        head_sha: &str,
     ) -> ApiResult<CheckRun> {
         let result = self
             .post(format!("repos/{owner}/{repo}/check-runs"))

@@ -146,8 +146,12 @@ fn exclude_large_files(
     package_dir: &Path,
     manifest: &toml_edit::ImDocument<&String>,
 ) {
+    let empty_array = toml_edit::Array::new();
     let mut exclude_globs = GlobSet::builder();
-    let exclude = manifest["package"]["exclude"].as_array().unwrap();
+    let exclude = manifest["package"]
+        .get("exclude")
+        .and_then(|item| item.as_array())
+        .unwrap_or(&empty_array);
     for glob in exclude {
         exclude_globs.add(Glob::new(glob.as_str().unwrap()).unwrap());
     }

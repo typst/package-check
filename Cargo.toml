@@ -28,7 +28,7 @@ serde_json = "1.0.116"
 sha1 = "0.10.6"
 stringcase = "0.2.1"
 tar = "0.4.40"
-tokio = { version = "1.37.0", features = ["rt-multi-thread", "process"] }
+tokio = { version = "1.37.0", features = ["rt-multi-thread", "process", "fs"] }
 toml_edit = "0.22.12"
 tower-http = { version = "0.5", features = ["trace"] }
 tracing = "0.1.40"

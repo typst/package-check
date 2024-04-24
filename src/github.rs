@@ -77,32 +77,20 @@ async fn github_hook(
 ) -> Result<(), WebError> {
     api_client.auth_installation(&payload).await?;
 
-    let (check_run, head_sha, repository) = match payload {
+    let (head_sha, repository) = match payload {
         HookPayload::CheckSuite(CheckSuitePayload {
             action: CheckSuiteAction::Requested | CheckSuiteAction::Rerequested,
             repository,
             check_suite,
             ..
-        }) => {
-            let check_run = api_client
-                .create_check_run(
-                    repository.owner(),
-                    repository.name(),
-                    "Automated package check".to_owned(),
-                    check_suite.head_sha.clone(),
-                )
-                .await?;
-            (check_run, check_suite.head_sha, repository)
-        }
+        }) => (check_suite.head_sha, repository),
         HookPayload::CheckRun(_) => return Ok(()),
         _ => return Err(WebError::UnexpectedEvent),
     };
 
     tokio::spawn(async move {
-        // TODO: test one package at a time
         let git_repo = GitRepo::open(Path::new(&state.git_dir));
         git_repo.fetch_commit(&head_sha).await?;
-        git_repo.checkout_commit(&head_sha).await?;
         let touched_files = git_repo.files_touched_by(&head_sha).await?;
 
         let touched_packages = touched_files
@@ -125,10 +113,27 @@ async fn github_hook(
             .collect::<HashSet<_>>();
 
         for ref package in touched_packages {
-            let (world, diags) = check::all_checks(
-                PathBuf::new().join(&state.git_dir).join("packages"),
-                package,
-            );
+            let check_run = api_client
+                .create_check_run(
+                    repository.owner(),
+                    repository.name(),
+                    format!(
+                        "@{}/{}:{}",
+                        package.namespace, package.name, package.version
+                    ),
+                    &head_sha,
+                )
+                .await
+                .unwrap();
+
+            let checkout_dir = format!("checkout-{}", head_sha);
+            git_repo
+                .checkout_commit(&head_sha, &checkout_dir)
+                .await
+                .unwrap();
+
+            let (world, diags) =
+                check::all_checks(PathBuf::new().join(&checkout_dir).join("packages"), package);
 
             api_client
                 .update_check_run(
@@ -139,7 +144,7 @@ async fn github_hook(
                     CheckRunOutput {
                         title: "Automated report",
                         summary: &format!(
-                            "{} errors, {} warnings.",
+                            "Our bots have automatically run some checks on your packages. They found {} errors and {} warnings.\n\nA human being will soon review your package too.",
                             diags.errors.len(),
                             diags.warnings.len()
                         ),
@@ -153,6 +158,8 @@ async fn github_hook(
                 )
                 .await
                 .unwrap();
+
+            tokio::fs::remove_dir_all(checkout_dir).await.ok()?;
         }
         Some(())
     });

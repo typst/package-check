@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use tokio::process::Command;
+use tracing::debug;
 
 pub struct GitRepo<'a> {
     dir: &'a Path,
@@ -24,9 +25,29 @@ impl<'a> GitRepo<'a> {
         Some(())
     }
 
-    pub async fn checkout_commit(&self, sha: impl AsRef<str>) -> Option<()> {
+    /// Checks out a commit in a new working tree
+    pub async fn checkout_commit(
+        &self,
+        sha: impl AsRef<str>,
+        working_tree: impl AsRef<Path>,
+    ) -> Option<()> {
+        debug!(
+            "Checking out {} in {}",
+            sha.as_ref(),
+            working_tree.as_ref().display()
+        );
+        tokio::fs::create_dir_all(&working_tree).await.ok()?;
+        let working_tree = working_tree.as_ref().canonicalize().unwrap();
         Command::new("git")
-            .args(&["-C", self.dir.to_str()?, "checkout", sha.as_ref()])
+            .args(&[
+                "-C",
+                self.dir.to_str()?,
+                &format!("--work-tree={}", working_tree.display()),
+                "checkout",
+                sha.as_ref(),
+                "--",
+                ".",
+            ])
             .spawn()
             .ok()?
             .wait()
