@@ -1,16 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::{ops::Range, path::Path};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ecow::eco_format;
 use globset::{Glob, GlobSet};
 use serde::Deserialize;
 use tracing::debug;
-use typst::{
-    syntax::{
-        package::{PackageSpec, PackageVersion},
-        FileId, VirtualPath,
-    },
-    World,
+use typst::syntax::{
+    package::{PackageSpec, PackageVersion},
+    FileId, VirtualPath,
 };
 
 use crate::{check::file_size, world::SystemWorld};
@@ -82,7 +79,7 @@ pub enum Category {
 }
 
 pub fn check(
-    package_dir: PathBuf,
+    package_dir: &Path,
     diags: &mut Diagnostics,
     package_spec: &PackageSpec,
 ) -> SystemWorld {
@@ -92,22 +89,78 @@ pub fn check(
     let manifest = toml_edit::ImDocument::parse(&manifest_contents).unwrap();
 
     let entrypoint = package_dir.join(manifest["package"]["entrypoint"].as_str().unwrap());
-    let world = SystemWorld::new(entrypoint, package_dir.clone())
+    let world = SystemWorld::new(entrypoint, package_dir.to_owned())
         .map_err(|err| eco_format!("{err}"))
         .unwrap();
 
     let manifest_file_id = FileId::new(None, VirtualPath::new("typst.toml"));
-    world.file(manifest_file_id).ok(); // TODO: is this really necessary?
 
-    let name = &manifest["package"]["name"];
-    if name.as_str().unwrap() != package_spec.name {
+    if !manifest.contains_table("package") {
         diags.errors.push(
             Diagnostic::error()
-                .with_labels(vec![Label::new(
-                    codespan_reporting::diagnostic::LabelStyle::Primary,
-                    manifest_file_id,
-                    name.span().unwrap_or_default()
-                )])
+                .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
+                .with_message(
+                    "All `typst.toml` must contain a [package] section. See the README.md file of this repository for details about the manifest format."
+                ),
+        );
+        return world;
+    }
+
+    check_name(diags, manifest_file_id, &manifest, package_spec);
+    check_version(diags, manifest_file_id, &manifest, package_spec);
+    exclude_large_files(diags, &package_dir, &manifest);
+    check_file_names(diags, &package_dir);
+    dont_over_exclude(diags, manifest_file_id, &manifest);
+
+    // TODO: other common checks
+
+    world
+}
+
+fn check_name(
+    diags: &mut Diagnostics,
+    manifest_file_id: FileId,
+    manifest: &toml_edit::ImDocument<&String>,
+    package_spec: &PackageSpec,
+) {
+    let Some(name) = manifest["package"].get("name") else {
+        diags.errors.push(
+            Diagnostic::error()
+                .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
+                .with_message(
+                    "All `typst.toml` must contain a `name` field. See the README.md file of this repository for details about the manifest format."
+                ),
+        );
+        return;
+    };
+
+    let error = Diagnostic::error().with_labels(vec![Label::primary(
+        manifest_file_id,
+        name.span().unwrap_or_default(),
+    )]);
+    let warning = Diagnostic::warning().with_labels(vec![Label::primary(
+        manifest_file_id,
+        name.span().unwrap_or_default(),
+    )]);
+
+    let Some(name) = name.as_str() else {
+        diags
+            .errors
+            .push(error.with_message("`name` must be a string."));
+        return;
+    };
+
+    // TODO: should package names be kebab-case?
+
+    if name.contains("typst") {
+        diags
+            .errors
+            .push(warning.with_message("Package names should generally not include \"typst\"."));
+    }
+
+    if name != package_spec.name {
+        diags.errors.push(
+            error
                 .with_message(format!(
                     "Unexpected package name. `{name}` was expected. If you want to publish a new package, create a new directory in `packages/{namespace}/`.",
                     name = package_spec.name,
@@ -115,16 +168,47 @@ pub fn check(
                 )),
         )
     }
+}
 
-    let version = &manifest["package"]["version"];
-    if version.as_str().unwrap().parse::<PackageVersion>().unwrap() != package_spec.version {
+fn check_version(
+    diags: &mut Diagnostics,
+    manifest_file_id: FileId,
+    manifest: &toml_edit::ImDocument<&String>,
+    package_spec: &PackageSpec,
+) {
+    let Some(version) = manifest["package"].get("version") else {
         diags.errors.push(
             Diagnostic::error()
-                .with_labels(vec![Label::new(
-                    codespan_reporting::diagnostic::LabelStyle::Primary,
-                    manifest_file_id,
-                    version.span().unwrap_or_default(),
-                )])
+                .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
+                .with_message(
+                    "All `typst.toml` must contain a `version` field. See the README.md file of this repository for details about the manifest format."
+                ),
+        );
+        return;
+    };
+
+    let error = Diagnostic::error().with_labels(vec![Label::primary(
+        manifest_file_id,
+        version.span().unwrap_or_default(),
+    )]);
+
+    let Some(version) = version.as_str() else {
+        diags
+            .errors
+            .push(error.with_message("`version` must be a string."));
+        return;
+    };
+
+    let Ok(version) = version.parse::<PackageVersion>() else {
+        diags
+            .errors
+            .push(error.with_message("`version` must be a valid semantic version (i.e follow the `MAJOR.MINOR.PATCH` format)."));
+        return;
+    };
+
+    if version != package_spec.version {
+        diags.errors.push(
+            error
                 .with_message(format!(
                     "Unexpected version number. `{version}` was expected. If you want to publish a new version, create a new directory in `packages/{namespace}/{name}`.",
                     version = package_spec.version,
@@ -133,12 +217,6 @@ pub fn check(
                 )),
         )
     }
-
-    exclude_large_files(diags, &package_dir, &manifest);
-
-    // TODO: other common checks
-
-    world
 }
 
 fn exclude_large_files(
@@ -146,16 +224,7 @@ fn exclude_large_files(
     package_dir: &Path,
     manifest: &toml_edit::ImDocument<&String>,
 ) {
-    let empty_array = toml_edit::Array::new();
-    let mut exclude_globs = GlobSet::builder();
-    let exclude = manifest["package"]
-        .get("exclude")
-        .and_then(|item| item.as_array())
-        .unwrap_or(&empty_array);
-    for glob in exclude {
-        exclude_globs.add(Glob::new(glob.as_str().unwrap()).unwrap());
-    }
-    let exclude_globs = exclude_globs.build().unwrap();
+    let (exclude, _) = read_exclude(manifest);
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
 
@@ -168,7 +237,7 @@ fn exclude_large_files(
                 "This file is really large ({size}MB). If possible, do not include it in this repository at all.",
                 size = size / 1024 / 1024
             )
-        } else if !exclude_globs.is_match(path) {
+        } else if !exclude.is_match(path) {
             format!(
                 "This file is quite large ({size}MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.",
                 size = size / 1024 / 1024
@@ -179,12 +248,108 @@ fn exclude_large_files(
 
         diags.warnings.push(
             Diagnostic::warning()
-                .with_labels(vec![Label::new(
-                    codespan_reporting::diagnostic::LabelStyle::Primary,
-                    fid,
-                    0..0,
-                )])
+                .with_labels(vec![Label::primary(fid, 0..0)])
                 .with_message(message),
         )
     }
+
+    // Also exclude examples
+    for ch in std::fs::read_dir(package_dir).unwrap() {
+        let Ok(ch) = ch else {
+            continue;
+        };
+
+        if ch.file_name().to_string_lossy().contains("example") {
+            let file_id = FileId::new(None, VirtualPath::new(ch.file_name()));
+            diags.warnings.push(
+                Diagnostic::warning()
+                    .with_labels(vec![Label::primary(file_id, 0..0)])
+                    .with_message("This file seems to be an example, and should probably be added to `exclude` in your `typst.toml`.")
+            );
+        }
+    }
+}
+
+fn dont_over_exclude(
+    diags: &mut Diagnostics,
+    manifest_file_id: FileId,
+    manifest: &toml_edit::ImDocument<&String>,
+) {
+    let (exclude, span) = read_exclude(manifest);
+
+    let warning = Diagnostic::warning().with_labels(vec![Label::primary(manifest_file_id, span)]);
+
+    if exclude.is_match("LICENSE") {
+        diags.warnings.push(
+            warning
+                .clone()
+                .with_message("Your LICENSE file should not be excluded."),
+        );
+    }
+
+    if exclude.is_match("README.md") {
+        diags
+            .warnings
+            .push(warning.with_message("Your README.md file should not be excluded."));
+    }
+}
+
+fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) {
+    for ch in std::fs::read_dir(package_dir).unwrap() {
+        let mut error_for_file = |path, message| {
+            let file_id = FileId::new(None, VirtualPath::new(path));
+            diags.errors.push(
+                Diagnostic::error()
+                    .with_labels(vec![Label::primary(file_id, 0..0)])
+                    .with_message(message),
+            )
+        };
+
+        let Ok(ch) = ch else {
+            continue;
+        };
+        let Ok(meta) = ch.metadata() else {
+            continue;
+        };
+        if !meta.is_file() {
+            continue;
+        }
+
+        let file_name = ch.file_name();
+        let file_path = Path::new(&file_name);
+        let stem = file_path
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned());
+        let stem_uppercase = stem.as_ref().map(|s| s.to_uppercase());
+
+        if stem_uppercase.as_deref() == Some("LICENCE") {
+            error_for_file(file_path, "This file should be named LICENSE.");
+        }
+
+        if (stem_uppercase.as_deref() == Some("LICENSE")
+            || stem_uppercase.as_deref() == Some("README"))
+            && stem_uppercase != stem
+        {
+            let fixed = if let Some(ext) = file_path.extension() {
+                format!("{}.{}", stem.unwrap().to_uppercase(), ext.to_string_lossy())
+            } else {
+                stem.unwrap().to_uppercase()
+            };
+            error_for_file(file_path, &format!("To keep consistency, please use ALL CAPS for the name of this file (i.e. {fixed})"))
+        }
+    }
+}
+
+fn read_exclude(manifest: &toml_edit::ImDocument<&String>) -> (GlobSet, Range<usize>) {
+    let empty_array = toml_edit::Array::new();
+    let exclude = manifest["package"]
+        .get("exclude")
+        .and_then(|item| item.as_array())
+        .unwrap_or(&empty_array);
+
+    let mut exclude_globs = GlobSet::builder();
+    for glob in exclude {
+        exclude_globs.add(Glob::new(glob.as_str().unwrap()).unwrap());
+    }
+    (exclude_globs.build().unwrap(), exclude.span().unwrap())
 }

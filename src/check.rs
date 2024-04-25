@@ -10,6 +10,7 @@ use crate::world::SystemWorld;
 
 mod compile;
 mod file_size;
+mod imports;
 mod kebab_case;
 mod manifest;
 
@@ -29,9 +30,10 @@ pub fn all_checks(
         .join(package_spec.name.to_string())
         .join(package_spec.version.to_string());
 
-    let world = manifest::check(package_dir, &mut diags, package_spec);
+    let world = manifest::check(&package_dir, &mut diags, package_spec);
     compile::check(&mut diags, &world);
     kebab_case::check(&mut diags, &world);
+    imports::check(&mut diags, &package_dir, &world);
 
     (world, diags)
 }
