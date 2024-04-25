@@ -30,7 +30,7 @@ pub fn print_diagnostics(
             &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Always),
             &config,
             world,
-            &diagnostic,
+            diagnostic,
         )?;
     }
 

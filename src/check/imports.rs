@@ -39,7 +39,7 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> Op
         if path.extension().and_then(|ext| ext.to_str()) == Some("typ") {
             let fid = FileId::new(
                 None,
-                VirtualPath::new(&path.strip_prefix(&root_path).unwrap()),
+                VirtualPath::new(path.strip_prefix(root_path).unwrap()),
             );
             let source = world.lookup(fid).ok()?;
             let imports = source

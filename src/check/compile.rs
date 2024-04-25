@@ -15,12 +15,12 @@ pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<Document> {
     let result = typst::compile(world, &mut tracer);
     diags
         .warnings
-        .extend(convert_diagnostics(&world, tracer.warnings()));
+        .extend(convert_diagnostics(world, tracer.warnings()));
 
     match result {
         Ok(doc) => Some(doc),
         Err(errors) => {
-            diags.errors.extend(convert_diagnostics(&world, errors));
+            diags.errors.extend(convert_diagnostics(world, errors));
             None
         }
     }

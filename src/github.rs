@@ -172,7 +172,7 @@ fn diagnostic_to_annotation(
     package: &PackageSpec,
     diag: Diagnostic<FileId>,
 ) -> Option<Annotation> {
-    let label = diag.labels.get(0)?;
+    let label = diag.labels.first()?;
     let start_line = world.line_index(label.file_id, label.range.start).ok()?;
     let end_line = world.line_index(label.file_id, label.range.end).ok()?;
     let (start_column, end_column) = if start_line == end_line {
@@ -188,8 +188,8 @@ fn diagnostic_to_annotation(
     };
     Some(Annotation {
         path: Path::new("packages")
-            .join(&package.namespace.to_string())
-            .join(&package.name.to_string())
+            .join(package.namespace.to_string())
+            .join(package.name.to_string())
             .join(package.version.to_string())
             .join(label.file_id.vpath().as_rootless_path())
             .to_str()?

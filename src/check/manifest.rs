@@ -108,8 +108,8 @@ pub fn check(
 
     check_name(diags, manifest_file_id, &manifest, package_spec);
     check_version(diags, manifest_file_id, &manifest, package_spec);
-    exclude_large_files(diags, &package_dir, &manifest);
-    check_file_names(diags, &package_dir);
+    exclude_large_files(diags, package_dir, &manifest);
+    check_file_names(diags, package_dir);
     dont_over_exclude(diags, manifest_file_id, &manifest);
 
     // TODO: other common checks

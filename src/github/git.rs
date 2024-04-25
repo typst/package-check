@@ -16,7 +16,7 @@ impl<'a> GitRepo<'a> {
 
     pub async fn fetch_commit(&self, sha: impl AsRef<str>) -> Option<()> {
         Command::new("git")
-            .args(&["-C", self.dir.to_str()?, "fetch", "origin", sha.as_ref()])
+            .args(["-C", self.dir.to_str()?, "fetch", "origin", sha.as_ref()])
             .spawn()
             .ok()?
             .wait()
@@ -39,7 +39,7 @@ impl<'a> GitRepo<'a> {
         tokio::fs::create_dir_all(&working_tree).await.ok()?;
         let working_tree = working_tree.as_ref().canonicalize().unwrap();
         Command::new("git")
-            .args(&[
+            .args([
                 "-C",
                 self.dir.to_str()?,
                 &format!("--work-tree={}", working_tree.display()),
@@ -59,7 +59,7 @@ impl<'a> GitRepo<'a> {
     pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> Option<Vec<PathBuf>> {
         let command_output = String::from_utf8(
             Command::new("git")
-                .args(&[
+                .args([
                     "-C",
                     self.dir.to_str()?,
                     "diff-tree",
