@@ -23,6 +23,10 @@ fn show_help(program: &str) {
     println!("Usage :");
     println!("  {program} server");
     println!("    Start a server to handle GitHub webhooks and report checks in pull requests.");
-    println!("  {program} check PACKAGE:VERSION");
-    println!("    Check a local package at the specified version");
+    println!("  {program} check @preview/PACKAGE:VERSION");
+    println!(
+        "    Check a local package at the specified version. To be run in typst/packages/packages."
+    );
+    println!("  {program} check");
+    println!("    Check the package in the current directory.");
 }
