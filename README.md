@@ -11,7 +11,29 @@ This tool can be used in three ways:
 - `typst-package-check server` to start a HTTP server that listen for GitHub webhooks, and run checks when a PR is opened against
   `typst/packages` (or any repository with a similar structure).
 
-# Configuring the webhook handler
+## Using this tool
+
+You can install this tool with Cargo:
+
+```bash
+cargo install --git https://github.com/typst/package-check.git
+cd my-package
+typst-package-check check
+```
+
+You can also run it with Nix:
+
+```bash
+nix run github:typst/package-check -- check
+```
+
+Finally a Docker image is available:
+
+```bash
+docker run ghcr.io/typst/package-check check
+```
+
+## Configuring the webhook handler
 
 The following environment variables are used for configuration.
 They are all mandatory.
