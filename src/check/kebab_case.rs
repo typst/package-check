@@ -18,7 +18,6 @@ use crate::world::SystemWorld;
 use super::{label, Diagnostics};
 
 // Check that all public identifiers are in kebab-case
-// TODO: what about constants? Should MY_VALUE be MY-VALUE?
 pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
     let public_names: HashSet<_> = {
         let world = <dyn World>::track(world);
@@ -69,6 +68,16 @@ fn check_source(
             continue;
         }
 
+        if name.as_str().starts_with('_') {
+            // This is exported but considered private.
+            continue;
+        }
+
+        if name.as_str() == casbab::screaming_snake(name.as_str()) {
+            // Constants can use SCREAMING_SNAKE_CASE
+            continue;
+        }
+
         if name.as_str() != casbab::kebab(name.as_str()) {
             diags.warnings.push(Diagnostic {
                 severity: codespan_reporting::diagnostic::Severity::Warning,
@@ -114,12 +123,12 @@ fn check_source(
 
     // Check imported files recursively.
     //
-    // Because we evaluated the module above, we know that no cyclic import
-    // will occur. `visited` still exist because some modules may be imported
+    // Because we evaluated the module above, we know that no cyclic import will
+    // occur. `visited` still exist because some modules may be imported
     // multiple times.
     //
-    // Only imports at the root will be checked, as this is the most common
-    // case anyway.
+    // Only imports at the root of the AST will be checked, as this is the most
+    // common case anyway.
     for import in src
         .root()
         .children()
