@@ -30,8 +30,10 @@ nix run github:typst/package-check -- check
 Finally a Docker image is available:
 
 ```bash
-docker run ghcr.io/typst/package-check check
+docker run -v .:/data ghcr.io/typst/package-check check
 ```
+
+When running with Docker, `/data` is the directory in which the tool will look for files to check.
 
 ## Configuring the webhook handler
 

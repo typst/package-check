@@ -35,6 +35,7 @@
             ];
             config = {
               Entrypoint = [ "/bin/typst-package-check" ];
+              WorkingDir = "/data";
             };
           };
         };
