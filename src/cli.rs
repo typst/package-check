@@ -17,8 +17,6 @@ pub fn main(package_spec: String) {
         Path::new(".").to_owned()
     };
 
-    dbg!(&package_dir);
-
     let (world, diags) = all_checks(package_spec.as_ref(), package_dir);
     print_diagnostics(&world, &diags.errors, &diags.warnings)
         .map_err(|err| eco_format!("failed to print diagnostics ({err})"))
