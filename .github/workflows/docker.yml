@@ -36,3 +36,5 @@ jobs:
         run: |
           docker load -i result
           docker push $(docker images --format json | jq -r 'select(.Repository == "ghcr.io/typst/package-check") | .Repository + ":" + .Tag')
+          docker tag $(docker images --format json | jq -r 'select(.Repository == "ghcr.io/typst/package-check") | .Repository + ":" + .Tag') ghcr.io/typst/package-check:latest
+          docker push ghcr.io/typst/package-check:latest
