@@ -16,7 +16,15 @@ impl<'a> GitRepo<'a> {
 
     pub async fn fetch_commit(&self, sha: impl AsRef<str>) -> Option<()> {
         Command::new("git")
-            .args(["-C", self.dir.to_str()?, "fetch", "origin", sha.as_ref()])
+            .args([
+                "-C",
+                self.dir.to_str()?,
+                "-c",
+                "receive.maxInputSize=134217728", // 128MB
+                "fetch",
+                "origin",
+                sha.as_ref(),
+            ])
             .spawn()
             .ok()?
             .wait()

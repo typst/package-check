@@ -16,7 +16,7 @@ use codespan_reporting::{
     files::Files,
 };
 use jwt_simple::prelude::*;
-use tracing::info;
+use tracing::{info, warn};
 use typst::syntax::{package::PackageSpec, FileId};
 
 use crate::{check, world::SystemWorld};
@@ -90,7 +90,13 @@ async fn github_hook(
 
     tokio::spawn(async move {
         let git_repo = GitRepo::open(Path::new(&state.git_dir));
-        git_repo.fetch_commit(&head_sha).await?;
+        if git_repo.fetch_commit(&head_sha).await.is_none() {
+            warn!(
+                "Failed to fetch {} (probably because of some large file).",
+                head_sha
+            );
+            return None;
+        }
         let touched_files = git_repo.files_touched_by(&head_sha).await?;
 
         let touched_packages = touched_files
