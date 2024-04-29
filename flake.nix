@@ -26,7 +26,7 @@
               doCheck = false;
             };
           docker-image = pkgs.dockerTools.buildImage {
-            name = typst-package-check.pname;
+            name = "ghcr.io/typst/package-check";
             tag = typst-package-check.version;
             copyToRoot = with pkgs.dockerTools; [
               caCertificates
