@@ -23,6 +23,18 @@
               buildInputs = [ pkgs.openssl.dev pkgs.git ];
               cargoHash = "sha256-J7M5bAc11tB6m1i/yz0M49g1oskD0HFVtg7j4B7rBjU=";
             };
+          docker-image = pkgs.dockerTools.buildImage {
+            name = typst-package-check.pname;
+            tag = typst-package-check.version;
+            copyToRoot = with pkgs.dockerTools; [
+              caCertificates
+              pkgs.git
+              typst-package-check
+            ];
+            config = {
+              Entrypoint = [ "/bin/typst-package-check" ];
+            };
+          };
         };
       });
 }
