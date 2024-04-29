@@ -31,4 +31,4 @@ jobs:
       - name: Import image and push
         run: |
           docker load -i result
-          docker push ghcr.io/typst/$(docker images --format json | jq -r 'select(.Repository == "typst-package-check") | .Repository + ":" + .Tag')
+          docker push $(docker images --format json | jq -r 'select(.Repository == "ghcr.io/typst/package-check") | .Repository + ":" + .Tag')
