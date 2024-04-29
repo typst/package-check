@@ -262,12 +262,16 @@ fn exclude_large_files(
     }
 
     // Also exclude examples
-    for ch in std::fs::read_dir(package_dir).unwrap() {
+    for ch in walkdir::WalkDir::new(package_dir) {
         let Ok(ch) = ch else {
             continue;
         };
 
         let file_name = ch.file_name();
+        if exclude.is_match(&file_name) {
+            continue;
+        }
+
         let file_name_str = file_name.to_string_lossy();
         let file_id = FileId::new(None, VirtualPath::new(&file_name));
         let warning = Diagnostic::warning().with_labels(vec![Label::primary(file_id, 0..0)]);

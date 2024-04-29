@@ -38,7 +38,7 @@ When running with Docker, `/data` is the directory in which the tool will look f
 ## Configuring the webhook handler
 
 The following environment variables are used for configuration.
-They are all mandatory.
+They are all mandatory when running the server that handles webhook.
 `.env` is supported.
 
 - `PACKAGES_DIR`, path to a local clone of `typst/packages`
