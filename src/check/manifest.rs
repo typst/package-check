@@ -81,7 +81,7 @@ pub enum Category {
 pub fn check(
     package_dir: &Path,
     diags: &mut Diagnostics,
-    package_spec: &PackageSpec,
+    package_spec: Option<&PackageSpec>,
 ) -> SystemWorld {
     let manifest_path = package_dir.join("typst.toml");
     debug!("Reading manifest at {}", &manifest_path.display());
@@ -119,7 +119,7 @@ fn check_name(
     diags: &mut Diagnostics,
     manifest_file_id: FileId,
     manifest: &toml_edit::ImDocument<&String>,
-    package_spec: &PackageSpec,
+    package_spec: Option<&PackageSpec>,
 ) {
     let Some(name) = manifest["package"].get("name") else {
         diags.errors.push(
@@ -162,15 +162,17 @@ fn check_name(
             .push(warning.with_message("Package names should generally not include \"typst\"."));
     }
 
-    if name != package_spec.name {
-        diags.errors.push(
-            error
-                .with_message(format!(
-                    "Unexpected package name. `{name}` was expected. If you want to publish a new package, create a new directory in `packages/{namespace}/`.",
-                    name = package_spec.name,
-                    namespace = package_spec.namespace,
-                )),
-        )
+    if let Some(package_spec) = package_spec {
+        if name != package_spec.name {
+            diags.errors.push(
+                error
+                    .with_message(format!(
+                        "Unexpected package name. `{name}` was expected. If you want to publish a new package, create a new directory in `packages/{namespace}/`.",
+                        name = package_spec.name,
+                        namespace = package_spec.namespace,
+                    )),
+            )
+        }
     }
 }
 
@@ -178,7 +180,7 @@ fn check_version(
     diags: &mut Diagnostics,
     manifest_file_id: FileId,
     manifest: &toml_edit::ImDocument<&String>,
-    package_spec: &PackageSpec,
+    package_spec: Option<&PackageSpec>,
 ) {
     let Some(version) = manifest["package"].get("version") else {
         diags.errors.push(
@@ -210,8 +212,9 @@ fn check_version(
         return;
     };
 
-    if version != package_spec.version {
-        diags.errors.push(
+    if let Some(package_spec) = package_spec {
+        if version != package_spec.version {
+            diags.errors.push(
             error
                 .with_message(format!(
                     "Unexpected version number. `{version}` was expected. If you want to publish a new version, create a new directory in `packages/{namespace}/{name}`.",
@@ -220,6 +223,7 @@ fn check_version(
                     namespace = package_spec.namespace,
                 )),
         )
+        }
     }
 }
 

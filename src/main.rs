@@ -13,7 +13,7 @@ fn main() {
     if Some("server") == subcommand.as_deref() {
         github::hook_server();
     } else if Some("check") == subcommand.as_deref() {
-        cli::main(args.next().unwrap());
+        cli::main(args.next().unwrap_or_default());
     } else {
         show_help(&cmd.unwrap_or("typst-package-check".to_owned()));
     }

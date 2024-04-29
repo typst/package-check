@@ -1,14 +1,25 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use codespan_reporting::{diagnostic::Diagnostic, term};
 use ecow::eco_format;
-use typst::syntax::{FileId, Source};
+use typst::syntax::{package::PackageSpec, FileId, Source};
 
 use crate::{check::all_checks, world::SystemWorld};
 
 pub fn main(package_spec: String) {
-    let package_spec = package_spec.parse().unwrap();
-    let (world, diags) = all_checks(PathBuf::new(), &package_spec);
+    let package_spec: Option<PackageSpec> = package_spec.parse().ok();
+    let package_dir = if let Some(ref package_spec) = package_spec {
+        Path::new(".")
+            .join(package_spec.namespace.to_string())
+            .join(package_spec.name.to_string())
+            .join(package_spec.version.to_string())
+    } else {
+        Path::new(".").to_owned()
+    };
+
+    dbg!(&package_dir);
+
+    let (world, diags) = all_checks(package_spec.as_ref(), package_dir);
     print_diagnostics(&world, &diags.errors, &diags.warnings)
         .map_err(|err| eco_format!("failed to print diagnostics ({err})"))
         .unwrap();

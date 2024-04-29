@@ -138,8 +138,10 @@ async fn github_hook(
                 .await
                 .unwrap();
 
-            let (world, diags) =
-                check::all_checks(PathBuf::new().join(&checkout_dir).join("packages"), package);
+            let (world, diags) = check::all_checks(
+                Some(package),
+                PathBuf::new().join(&checkout_dir).join("packages"),
+            );
 
             api_client
                 .update_check_run(

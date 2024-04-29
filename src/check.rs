@@ -21,14 +21,10 @@ pub struct Diagnostics {
 }
 
 pub fn all_checks(
-    packages_root: PathBuf,
-    package_spec: &PackageSpec,
+    package_spec: Option<&PackageSpec>,
+    package_dir: PathBuf,
 ) -> (SystemWorld, Diagnostics) {
     let mut diags = Diagnostics::default();
-    let package_dir = packages_root
-        .join(package_spec.namespace.to_string())
-        .join(package_spec.name.to_string())
-        .join(package_spec.version.to_string());
 
     let world = manifest::check(&package_dir, &mut diags, package_spec);
     compile::check(&mut diags, &world);

@@ -13,10 +13,11 @@ use comemo::Prehashed;
 use ecow::{eco_format, EcoString};
 use fontdb::Database;
 use parking_lot::Mutex;
+use reqwest::StatusCode;
 use typst::{
-    diag::{FileError, FileResult},
+    diag::{FileError, FileResult, PackageError, PackageResult},
     foundations::{Bytes, Datetime},
-    syntax::{FileId, Source, VirtualPath},
+    syntax::{package::PackageSpec, FileId, Source, VirtualPath},
     text::{Font, FontBook, FontInfo},
     Library, World,
 };
@@ -244,20 +245,39 @@ fn system_path(project_root: &Path, id: FileId) -> FileResult<PathBuf> {
     // Determine the root path relative to which the file path
     // will be resolved.
     let root = if let Some(spec) = id.package() {
-        project_root // version folder
-            .parent() // package folder
-            .unwrap()
-            .parent() // namespace folder
-            .unwrap()
-            .parent() // root folder
-            .unwrap()
-            .join(spec.namespace.as_str())
-            .join(spec.name.as_str())
-            .join(spec.version.to_string())
+        expect_parents(
+            project_root,
+            &[&spec.version.to_string(), &spec.name, &spec.namespace],
+        )
+        .map(|package_root| {
+            Ok(package_root
+                .join(spec.namespace.as_str())
+                .join(spec.name.as_str())
+                .join(spec.version.to_string()))
+        })
+        .unwrap_or_else(|| prepare_package(spec))
+        .unwrap()
     } else {
         project_root.to_owned()
     };
     id.vpath().resolve(&root).ok_or(FileError::AccessDenied)
+}
+
+// Goes up in a file system hierarchy while the parent folder matches the expected name
+fn expect_parents<'a>(dir: &'a Path, parents: &'a [&'a str]) -> Option<PathBuf> {
+    let dir = dir.canonicalize().ok()?;
+
+    if parents.is_empty() {
+        return Some(dir);
+    }
+
+    let (expected_parent, rest) = parents.split_first()?;
+    let parent = dir.parent()?;
+    if parent.file_name().and_then(|n| n.to_str()) != Some(expected_parent) {
+        return None;
+    }
+
+    expect_parents(parent, rest)
 }
 
 /// Reads a file from a `FileId`.
@@ -417,4 +437,75 @@ impl FontSearcher {
             }
         }
     }
+}
+
+// Package fetching, adapted from typst-cli
+
+const HOST: &str = "https://packages.typst.org";
+
+/// Make a package available in the on-disk cache.
+pub fn prepare_package(spec: &PackageSpec) -> PackageResult<PathBuf> {
+    let subdir = format!(
+        "typst/packages/{}/{}/{}",
+        spec.namespace, spec.name, spec.version
+    );
+
+    if let Some(data_dir) = dirs::data_dir() {
+        let dir = data_dir.join(&subdir);
+        if dir.exists() {
+            return Ok(dir);
+        }
+    }
+
+    if let Some(cache_dir) = dirs::cache_dir() {
+        let dir = cache_dir.join(&subdir);
+        if dir.exists() {
+            return Ok(dir);
+        }
+
+        // Download from network if it doesn't exist yet.
+        if spec.namespace == "preview" {
+            download_package(spec, &dir)?;
+            if dir.exists() {
+                return Ok(dir);
+            }
+        }
+    }
+
+    Err(PackageError::NotFound(spec.clone()))
+}
+
+/// Download a package over the network.
+fn download_package(spec: &PackageSpec, package_dir: &Path) -> PackageResult<()> {
+    // The `@preview` namespace is the only namespace that supports on-demand
+    // fetching.
+    assert_eq!(spec.namespace, "preview");
+
+    let url = format!("{HOST}/preview/{}-{}.tar.gz", spec.name, spec.version);
+
+    let data = match download(&url) {
+        Ok(data) => data,
+        Err(err) if err.status() == Some(StatusCode::NOT_FOUND) => {
+            return Err(PackageError::NotFound(spec.clone()))
+        }
+        Err(err) => return Err(PackageError::NetworkFailed(Some(eco_format!("{err}")))),
+    };
+
+    let body = data.bytes().unwrap();
+    let decompressed = flate2::read::GzDecoder::new(&body[..]);
+    tar::Archive::new(decompressed)
+        .unpack(package_dir)
+        .map_err(|err| {
+            std::fs::remove_dir_all(package_dir).ok();
+            PackageError::MalformedArchive(Some(eco_format!("{err}")))
+        })
+}
+
+/// Download from a URL.
+pub fn download(url: &str) -> reqwest::Result<reqwest::blocking::Response> {
+    let client = reqwest::blocking::Client::new();
+    let req = client
+        .get(url)
+        .header("User-Agent", concat!("typst/", env!("CARGO_PKG_VERSION")));
+    req.send()
 }
