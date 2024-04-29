@@ -19,6 +19,10 @@ jobs:
       - uses: cachix/install-nix-action@v25
         with:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Restore and cache Nix store
+        uses: nix-community/cache-nix-action@v5
+        with:
+          primary-key: nix-${{ runner.os }}-${{ hashFiles('flake.nix') }}
       - name: Use Nix to build a Docker image
         run: nix build -L '.#docker-image'
       - name: Log into registry
