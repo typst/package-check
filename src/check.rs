@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use typst::{
@@ -13,12 +13,6 @@ mod file_size;
 mod imports;
 mod kebab_case;
 mod manifest;
-
-#[derive(Default)]
-pub struct Diagnostics {
-    pub warnings: Vec<Diagnostic<FileId>>,
-    pub errors: Vec<Diagnostic<FileId>>,
-}
 
 pub fn all_checks(
     package_spec: Option<&PackageSpec>,
@@ -35,27 +29,39 @@ pub fn all_checks(
             .root()
             .strip_prefix(worlds.package.root())
             .expect("Template should be in a subfolder of the package");
-
-        let fix_labels = |diag: &mut Diagnostic<FileId>| {
-            for label in diag.labels.iter_mut() {
-                label.file_id = FileId::new(
-                    label.file_id.package().cloned(),
-                    VirtualPath::new(template_dir.join(label.file_id.vpath().as_rootless_path())),
-                )
-            }
-        };
-
-        template_diags.errors.iter_mut().for_each(fix_labels);
-        diags.errors.extend(template_diags.errors);
-
-        template_diags.warnings.iter_mut().for_each(fix_labels);
-        diags.warnings.extend(template_diags.warnings);
+        diags.extend(template_diags, template_dir);
     }
     kebab_case::check(&mut diags, &worlds.package);
     imports::check(&mut diags, &package_dir, &worlds.package);
 
     (worlds.package, diags)
 }
+
+#[derive(Default)]
+pub struct Diagnostics {
+    pub warnings: Vec<Diagnostic<FileId>>,
+    pub errors: Vec<Diagnostic<FileId>>,
+}
+
+impl Diagnostics {
+    fn extend(&mut self, mut other: Self, dir_prefix: &Path) {
+        let fix_labels = |diag: &mut Diagnostic<FileId>| {
+            for label in diag.labels.iter_mut() {
+                label.file_id = FileId::new(
+                    label.file_id.package().cloned(),
+                    VirtualPath::new(dir_prefix.join(label.file_id.vpath().as_rootless_path())),
+                )
+            }
+        };
+
+        other.errors.iter_mut().for_each(fix_labels);
+        self.errors.extend(other.errors);
+
+        other.warnings.iter_mut().for_each(fix_labels);
+        self.warnings.extend(other.warnings);
+    }
+}
+
 /// Create a label for a span.
 fn label(world: &SystemWorld, span: Span) -> Option<Label<FileId>> {
     Some(Label::primary(span.id()?, world.range(span)?))
