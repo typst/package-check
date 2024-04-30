@@ -2,6 +2,7 @@ use std::path::Path;
 
 use codespan_reporting::{diagnostic::Diagnostic, term};
 use ecow::eco_format;
+use globset::GlobSet;
 use typst::syntax::{package::PackageSpec, FileId, Source};
 
 use crate::{check::all_checks, world::SystemWorld};
@@ -17,15 +18,15 @@ pub fn main(package_spec: String) {
         Path::new(".").to_owned()
     };
 
-    let (world, diags) = all_checks(package_spec.as_ref(), package_dir);
-    print_diagnostics(&world, &diags.errors, &diags.warnings)
+    let (mut world, diags) = all_checks(package_spec.as_ref(), package_dir);
+    print_diagnostics(&mut world, &diags.errors, &diags.warnings)
         .map_err(|err| eco_format!("failed to print diagnostics ({err})"))
         .unwrap();
 }
 
 /// Print diagnostic messages to the terminal.
 pub fn print_diagnostics(
-    world: &SystemWorld,
+    world: &mut SystemWorld,
     errors: &[Diagnostic<FileId>],
     warnings: &[Diagnostic<FileId>],
 ) -> Result<(), codespan_reporting::files::Error> {
@@ -33,6 +34,11 @@ pub fn print_diagnostics(
         tab_width: 2,
         ..Default::default()
     };
+
+    // We should be able to print diagnostics even on excluded files. If we
+    // don't remove the exclusion, it will fail to read and display the file
+    // contents.
+    world.exclude(GlobSet::empty());
 
     for diagnostic in warnings.iter().chain(errors) {
         term::emit(
