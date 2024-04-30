@@ -8,6 +8,7 @@ use typst::{
 
 use crate::world::SystemWorld;
 
+mod authors;
 mod compile;
 mod file_size;
 mod imports;
@@ -33,6 +34,9 @@ pub fn all_checks(
     }
     kebab_case::check(&mut diags, &worlds.package);
     imports::check(&mut diags, &package_dir, &worlds.package);
+    if let Some(spec) = package_spec {
+        authors::check(&mut diags, spec);
+    }
 
     (worlds.package, diags)
 }

@@ -1,6 +1,9 @@
 //! Wrapper around the `git` command line.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use tokio::process::Command;
 use tracing::debug;
@@ -90,5 +93,35 @@ impl<'a> GitRepo<'a> {
                 .map(|l| Path::new(l).to_owned())
                 .collect(),
         )
+    }
+
+    pub fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
+        use std::process::Command;
+
+        let output = String::from_utf8(
+            Command::new("git")
+                .args([
+                    "-C",
+                    self.dir.to_str()?,
+                    "blame",
+                    "--porcelain",
+                    "--",
+                    file.to_str()?,
+                ])
+                .output()
+                .ok()?
+                .stdout,
+        )
+        .ok()?;
+
+        let authors: HashSet<_> = output
+            .lines()
+            .filter(|l| l.starts_with("author "))
+            .map(|l| {
+                let prefix_len = "author ".len();
+                l[prefix_len..].to_owned()
+            })
+            .collect();
+        Some(authors)
     }
 }

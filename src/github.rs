@@ -24,7 +24,7 @@ use crate::{check, world::SystemWorld};
 use api::*;
 
 mod api;
-mod git;
+pub mod git;
 
 use self::{
     api::check::{Annotation, AnnotationLevel, CheckRunOutput, CheckSuiteAction},
