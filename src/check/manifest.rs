@@ -29,7 +29,7 @@ pub fn check(
     let manifest = toml_edit::ImDocument::parse(&manifest_contents).unwrap();
 
     let entrypoint = package_dir.join(manifest["package"]["entrypoint"].as_str().unwrap());
-    let world = SystemWorld::new(entrypoint, package_dir.to_owned())
+    let mut world = SystemWorld::new(entrypoint, package_dir.to_owned())
         .map_err(|err| eco_format!("{err}"))
         .unwrap();
 
@@ -54,6 +54,9 @@ pub fn check(
     exclude_large_files(diags, package_dir, &manifest);
     check_file_names(diags, package_dir);
     dont_over_exclude(diags, manifest_file_id, &manifest);
+
+    let (exclude, _) = read_exclude(&manifest);
+    world.exclude(exclude);
 
     let template_world = if let (Some(name), Some(version)) = (name, version) {
         let inferred_package_spec = PackageSpec {
@@ -238,7 +241,10 @@ fn exclude_large_files(
         }
 
         let file_name_str = file_name.to_string_lossy();
-        let file_id = FileId::new(None, VirtualPath::new(&file_name));
+        let file_id = FileId::new(
+            None,
+            VirtualPath::new(&ch.path().strip_prefix(package_dir).unwrap()),
+        );
         let warning = Diagnostic::warning().with_labels(vec![Label::primary(file_id, 0..0)]);
         if file_name_str.contains("example") {
             diags.warnings.push(

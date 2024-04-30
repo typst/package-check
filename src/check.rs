@@ -37,7 +37,7 @@ pub fn all_checks(
     (worlds.package, diags)
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 pub struct Diagnostics {
     pub warnings: Vec<Diagnostic<FileId>>,
     pub errors: Vec<Diagnostic<FileId>>,
