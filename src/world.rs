@@ -42,6 +42,8 @@ pub struct SystemWorld {
     /// always the same within one compilation.
     /// Reset between compilations if not [`Now::Fixed`].
     now: OnceLock<DateTime<Utc>>,
+    /// Override for package resolution
+    package_override: Option<(PackageSpec, PathBuf)>,
 }
 
 impl SystemWorld {
@@ -66,7 +68,13 @@ impl SystemWorld {
             fonts: searcher.fonts,
             slots: Mutex::new(HashMap::new()),
             now: OnceLock::new(),
+            package_override: None,
         })
+    }
+
+    pub fn with_package_override(mut self, spec: &PackageSpec, dir: &Path) -> Self {
+        self.package_override = Some((spec.clone(), dir.to_owned()));
+        self
     }
 
     /// The root relative to which absolute paths are resolved.
@@ -100,11 +108,11 @@ impl World for SystemWorld {
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
-        self.slot(id, |slot| slot.source(&self.root))
+        self.slot(id, |slot| slot.source(&self.root, &self.package_override))
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        self.slot(id, |slot| slot.file(&self.root))
+        self.slot(id, |slot| slot.file(&self.root, &self.package_override))
     }
 
     fn font(&self, index: usize) -> Option<Font> {
@@ -165,9 +173,13 @@ impl FileSlot {
     }
 
     /// Retrieve the source for this file.
-    fn source(&mut self, project_root: &Path) -> FileResult<Source> {
+    fn source(
+        &mut self,
+        project_root: &Path,
+        package_override: &Option<(PackageSpec, PathBuf)>,
+    ) -> FileResult<Source> {
         self.source.get_or_init(
-            || read(self.id, project_root),
+            || read(self.id, project_root, package_override),
             |data, prev| {
                 let text = decode_utf8(&data)?;
                 if let Some(mut prev) = prev {
@@ -181,9 +193,15 @@ impl FileSlot {
     }
 
     /// Retrieve the file's bytes.
-    fn file(&mut self, project_root: &Path) -> FileResult<Bytes> {
-        self.file
-            .get_or_init(|| read(self.id, project_root), |data, _| Ok(data.into()))
+    fn file(
+        &mut self,
+        project_root: &Path,
+        package_override: &Option<(PackageSpec, PathBuf)>,
+    ) -> FileResult<Bytes> {
+        self.file.get_or_init(
+            || read(self.id, project_root, package_override),
+            |data, _| Ok(data.into()),
+        )
     }
 }
 
@@ -241,10 +259,23 @@ impl<T: Clone> SlotCell<T> {
 
 /// Resolves the path of a file id on the system, downloading a package if
 /// necessary.
-fn system_path(project_root: &Path, id: FileId) -> FileResult<PathBuf> {
+fn system_path(
+    package_override: &Option<(PackageSpec, PathBuf)>,
+    project_root: &Path,
+    id: FileId,
+) -> FileResult<PathBuf> {
     // Determine the root path relative to which the file path
     // will be resolved.
     let root = if let Some(spec) = id.package() {
+        if let Some(package_override) = package_override {
+            if *spec == package_override.0 {
+                return id
+                    .vpath()
+                    .resolve(&package_override.1)
+                    .ok_or(FileError::AccessDenied);
+            }
+        }
+
         expect_parents(
             project_root,
             &[&spec.version.to_string(), &spec.name, &spec.namespace],
@@ -284,8 +315,12 @@ fn expect_parents<'a>(dir: &'a Path, parents: &'a [&'a str]) -> Option<PathBuf> 
 ///
 /// If the ID represents stdin it will read from standard input,
 /// otherwise it gets the file path of the ID and reads the file from disk.
-fn read(id: FileId, project_root: &Path) -> FileResult<Vec<u8>> {
-    read_from_disk(&system_path(project_root, id)?)
+fn read(
+    id: FileId,
+    project_root: &Path,
+    package_override: &Option<(PackageSpec, PathBuf)>,
+) -> FileResult<Vec<u8>> {
+    read_from_disk(&system_path(package_override, project_root, id)?)
 }
 
 /// Read a file from disk.

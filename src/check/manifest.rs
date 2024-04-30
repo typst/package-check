@@ -3,7 +3,6 @@ use std::{ops::Range, path::Path};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ecow::eco_format;
 use globset::{Glob, GlobSet};
-use serde::Deserialize;
 use tracing::debug;
 use typst::syntax::{
     package::{PackageSpec, PackageVersion},
@@ -14,75 +13,16 @@ use crate::{check::file_size, world::SystemWorld};
 
 use super::Diagnostics;
 
-#[derive(Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Discipline {
-    Agriculture,
-    Anthropology,
-    Archaeology,
-    Architecture,
-    Biology,
-    Business,
-    Chemistry,
-    Communication,
-    ComputerScience,
-    Design,
-    Drawing,
-    Economics,
-    Education,
-    Engineering,
-    Fashion,
-    Film,
-    Geography,
-    Geology,
-    History,
-    Journalism,
-    Law,
-    Linguistics,
-    Literature,
-    Mathematics,
-    Medicine,
-    Music,
-    Painting,
-    Philosophy,
-    Photography,
-    Physics,
-    Politics,
-    Psychology,
-    Sociology,
-    Theater,
-    Theology,
-    Transportation,
-}
-
-#[derive(Deserialize)]
-pub enum Category {
-    Components,
-    Visualization,
-    Model,
-    Layout,
-    Text,
-    Languages,
-    Scripting,
-    Integration,
-    Utility,
-    Fun,
-    Book,
-    Report,
-    Paper,
-    Thesis,
-    Poster,
-    Flyer,
-    Presentation,
-    Cv,
-    Office,
+pub struct Worlds {
+    pub package: SystemWorld,
+    pub template: Option<SystemWorld>,
 }
 
 pub fn check(
     package_dir: &Path,
     diags: &mut Diagnostics,
     package_spec: Option<&PackageSpec>,
-) -> SystemWorld {
+) -> Worlds {
     let manifest_path = package_dir.join("typst.toml");
     debug!("Reading manifest at {}", &manifest_path.display());
     let manifest_contents = std::fs::read_to_string(manifest_path).unwrap();
@@ -103,16 +43,37 @@ pub fn check(
                     "All `typst.toml` must contain a [package] section. See the README.md file of this repository for details about the manifest format."
                 ),
         );
-        return world;
+        return Worlds {
+            package: world,
+            template: None,
+        };
     }
 
-    check_name(diags, manifest_file_id, &manifest, package_spec);
-    check_version(diags, manifest_file_id, &manifest, package_spec);
+    let name = check_name(diags, manifest_file_id, &manifest, package_spec);
+    let version = check_version(diags, manifest_file_id, &manifest, package_spec);
     exclude_large_files(diags, package_dir, &manifest);
     check_file_names(diags, package_dir);
     dont_over_exclude(diags, manifest_file_id, &manifest);
 
-    world
+    let template_world = if let (Some(name), Some(version)) = (name, version) {
+        let inferred_package_spec = PackageSpec {
+            namespace: "preview".into(),
+            name: name.into(),
+            version,
+        };
+        world_for_template(
+            &manifest,
+            package_dir,
+            package_spec.unwrap_or(&inferred_package_spec),
+        )
+    } else {
+        None
+    };
+
+    Worlds {
+        package: world,
+        template: template_world,
+    }
 }
 
 fn check_name(
@@ -120,7 +81,7 @@ fn check_name(
     manifest_file_id: FileId,
     manifest: &toml_edit::ImDocument<&String>,
     package_spec: Option<&PackageSpec>,
-) {
+) -> Option<String> {
     let Some(name) = manifest["package"].get("name") else {
         diags.errors.push(
             Diagnostic::error()
@@ -129,7 +90,7 @@ fn check_name(
                     "All `typst.toml` must contain a `name` field. See the README.md file of this repository for details about the manifest format."
                 ),
         );
-        return;
+        return None;
     };
 
     let error = Diagnostic::error().with_labels(vec![Label::primary(
@@ -145,7 +106,7 @@ fn check_name(
         diags
             .errors
             .push(error.with_message("`name` must be a string."));
-        return;
+        return None;
     };
 
     if name != casbab::kebab(name) {
@@ -174,6 +135,8 @@ fn check_name(
             )
         }
     }
+
+    Some(name.to_owned())
 }
 
 fn check_version(
@@ -181,7 +144,7 @@ fn check_version(
     manifest_file_id: FileId,
     manifest: &toml_edit::ImDocument<&String>,
     package_spec: Option<&PackageSpec>,
-) {
+) -> Option<PackageVersion> {
     let Some(version) = manifest["package"].get("version") else {
         diags.errors.push(
             Diagnostic::error()
@@ -190,7 +153,7 @@ fn check_version(
                     "All `typst.toml` must contain a `version` field. See the README.md file of this repository for details about the manifest format."
                 ),
         );
-        return;
+        return None;
     };
 
     let error = Diagnostic::error().with_labels(vec![Label::primary(
@@ -202,14 +165,14 @@ fn check_version(
         diags
             .errors
             .push(error.with_message("`version` must be a string."));
-        return;
+        return None;
     };
 
     let Ok(version) = version.parse::<PackageVersion>() else {
         diags
             .errors
             .push(error.with_message("`version` must be a valid semantic version (i.e follow the `MAJOR.MINOR.PATCH` format)."));
-        return;
+        return None;
     };
 
     if let Some(package_spec) = package_spec {
@@ -225,6 +188,8 @@ fn check_version(
         )
         }
     }
+
+    return Some(version);
 }
 
 fn exclude_large_files(
@@ -380,4 +345,19 @@ fn read_exclude(manifest: &toml_edit::ImDocument<&String>) -> (GlobSet, Range<us
         exclude_globs.add(Glob::new(glob.as_str().unwrap()).unwrap());
     }
     (exclude_globs.build().unwrap(), exclude.span().unwrap())
+}
+
+fn world_for_template(
+    manifest: &toml_edit::ImDocument<&String>,
+    package_dir: &Path,
+    package_spec: &PackageSpec,
+) -> Option<SystemWorld> {
+    let template = manifest.get("template")?.as_table()?;
+    let template_path = package_dir.join(template.get("path")?.as_str()?);
+    let template_main = template_path.join(template.get("entrypoint")?.as_str()?);
+    Some(
+        SystemWorld::new(template_main, template_path)
+            .ok()?
+            .with_package_override(package_spec, package_dir),
+    )
 }
