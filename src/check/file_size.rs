@@ -12,13 +12,11 @@ pub fn find_large_files(dir: &Path) -> Vec<(PathBuf, u64)> {
         let Ok(metadata) = ch.metadata() else {
             continue;
         };
-        if metadata.is_file() {
-            if metadata.len() > SIZE_THRESHOLD {
-                result.push((
-                    ch.path().strip_prefix(dir).unwrap().to_owned(),
-                    metadata.len(),
-                ))
-            }
+        if metadata.is_file() && metadata.len() > SIZE_THRESHOLD {
+            result.push((
+                ch.path().strip_prefix(dir).unwrap().to_owned(),
+                metadata.len(),
+            ))
         }
     }
     result

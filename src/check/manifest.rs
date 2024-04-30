@@ -194,7 +194,7 @@ fn check_version(
         }
     }
 
-    return Some(version);
+    Some(version)
 }
 
 fn exclude_large_files(
@@ -238,14 +238,14 @@ fn exclude_large_files(
         };
 
         let file_name = ch.file_name();
-        if exclude.is_match(&file_name) {
+        if exclude.is_match(file_name) {
             continue;
         }
 
         let file_name_str = file_name.to_string_lossy();
         let file_id = FileId::new(
             None,
-            VirtualPath::new(&ch.path().strip_prefix(package_dir).unwrap()),
+            VirtualPath::new(ch.path().strip_prefix(package_dir).unwrap()),
         );
         let warning = Diagnostic::warning().with_labels(vec![Label::primary(file_id, 0..0)]);
         if file_name_str.contains("example") {
@@ -379,7 +379,7 @@ fn check_repo(
                     manifest_file_id,
                     homepage_field.span().unwrap(),
                 )])
-                .with_message(format!("The homepage and repository fields are redundant.")),
+                .with_message("The homepage and repository fields are redundant.".to_owned()),
         )
     }
 
