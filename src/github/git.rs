@@ -106,7 +106,7 @@ impl<'a> GitRepo<'a> {
                     "blame",
                     "--porcelain",
                     "--",
-                    file.to_str()?,
+                    Path::new(".").canonicalize().ok()?.join(file).to_str()?,
                 ])
                 .output()
                 .ok()?

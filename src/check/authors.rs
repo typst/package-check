@@ -50,7 +50,10 @@ pub fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
 
         let last_authors = repo.authors_of(&last_manifest)?;
         let new_authors = repo.authors_of(&new_manifest)?;
-        if last_authors.intersection(&new_authors).next().is_none() {
+        if !last_authors.is_empty()
+            && !new_authors.is_empty()
+            && last_authors.intersection(&new_authors).next().is_none()
+        {
             let manifest = FileId::new(None, VirtualPath::new("typst.toml"));
 
             diags

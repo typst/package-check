@@ -397,7 +397,10 @@ fn read_exclude(manifest: &toml_edit::ImDocument<&String>) -> (GlobSet, Range<us
     for glob in exclude {
         exclude_globs.add(Glob::new(glob.as_str().unwrap()).unwrap());
     }
-    (exclude_globs.build().unwrap(), exclude.span().unwrap())
+    (
+        exclude_globs.build().unwrap(),
+        exclude.span().unwrap_or(0..0),
+    )
 }
 
 fn world_for_template(
