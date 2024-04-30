@@ -60,31 +60,32 @@ fn check_source(
         .children()
         .filter_map(|c| c.cast::<ast::LetBinding>())
     {
-        let Some(name) = find_first::<ast::Ident>(binding.to_untyped()) else {
+        let Some(name_ident) = find_first::<ast::Ident>(binding.to_untyped()) else {
             continue;
         };
 
-        if !public_names.contains(name.get()) {
+        if !public_names.contains(name_ident.get()) {
             continue;
         }
 
-        if name.as_str().starts_with('_') {
+        let name = &name_ident.as_str();
+        if name.starts_with('_') {
             // This is exported but considered private.
             continue;
         }
 
-        if name.as_str() == casbab::screaming_snake(name.as_str()) {
-            // Constants can use SCREAMING_SNAKE_CASE
+        if name == &casbab::screaming_snake(name) || name == &casbab::screaming_kebab(name) {
+            // Constants can use SCREAMING_SNAKE_CASE or SCREAMING-KEBAB-CASE
             continue;
         }
 
-        if name.as_str() != casbab::kebab(name.as_str()) {
+        if name != &casbab::kebab(name) {
             diags.warnings.push(Diagnostic {
                 severity: codespan_reporting::diagnostic::Severity::Warning,
                 message:
                     "This value seems to be public. It is recommended to use kebab-case names."
                         .to_owned(),
-                labels: label(world, name.span()).into_iter().collect(),
+                labels: label(world, name_ident.span()).into_iter().collect(),
                 notes: Vec::new(),
                 code: None,
             })
