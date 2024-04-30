@@ -31,13 +31,19 @@ fn convert_diagnostics<'a>(
     iter: impl IntoIterator<Item = SourceDiagnostic> + 'a,
 ) -> impl Iterator<Item = Diagnostic<FileId>> + 'a {
     iter.into_iter().map(|diagnostic| {
+        let severity = if diagnostic.severity == Severity::Error {
+            "error"
+        } else {
+            "warning"
+        };
+
         match diagnostic.severity {
             Severity::Error => Diagnostic::error(),
             Severity::Warning => Diagnostic::warning(),
         }
         .with_message(format!(
-            "The following error was reported by the Typst compiler: {}",
-            diagnostic.message
+            "The following {} was reported by the Typst compiler: {}",
+            severity, diagnostic.message
         ))
         .with_labels(label(world, diagnostic.span).into_iter().collect())
     })

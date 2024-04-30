@@ -174,6 +174,12 @@ pub struct Repository {
 }
 
 impl Repository {
+    pub fn new(name: &str) -> Self {
+        Self {
+            full_name: name.to_owned(),
+        }
+    }
+
     pub fn owner(&self) -> OwnerId {
         OwnerId(self.full_name.split_once('/').unwrap().0.to_owned())
     }
@@ -185,7 +191,7 @@ impl Repository {
 
 #[derive(Deserialize)]
 pub struct Installation {
-    id: u64,
+    pub id: u64,
 }
 
 #[derive(Deserialize)]

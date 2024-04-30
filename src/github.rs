@@ -16,7 +16,7 @@ use codespan_reporting::{
     files::Files,
 };
 use jwt_simple::prelude::*;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 use typst::syntax::{package::PackageSpec, FileId};
 
 use crate::{check, world::SystemWorld};
@@ -27,7 +27,7 @@ mod api;
 pub mod git;
 
 use self::{
-    api::check::{Annotation, AnnotationLevel, CheckRunOutput, CheckSuiteAction},
+    api::check::{Annotation, AnnotationLevel, CheckRunOutput, CheckSuite, CheckSuiteAction},
     git::GitRepo,
     hook::{CheckSuitePayload, HookPayload},
 };
@@ -47,6 +47,7 @@ pub async fn hook_server() {
     let app = Router::new()
         .route("/", get(index))
         .route("/github-hook", post(github_hook))
+        .route("/force-review/:install/:sha", get(force))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(AppState {
             webhook_secret: std::env::var("GITHUB_WEBHOOK_SECRET")
@@ -67,6 +68,32 @@ pub async fn hook_server() {
 /// The page served on `/`, just to check that everything runs properly.
 async fn index() -> &'static str {
     "typst-package-check is running"
+}
+
+async fn force(
+    state: State<AppState>,
+    api_client: GitHub,
+    axum::extract::Path((install, sha)): axum::extract::Path<(String, String)>,
+) -> Result<&'static str, &'static str> {
+    github_hook(
+        state,
+        api_client,
+        HookPayload::CheckSuite(CheckSuitePayload {
+            action: CheckSuiteAction::Requested,
+            installation: Installation {
+                id: u64::from_str_radix(&install, 10).map_err(|_| "Invalid installation ID")?,
+            },
+            repository: Repository::new("typst/packages"),
+            check_suite: CheckSuite { head_sha: sha },
+        }),
+    )
+    .await
+    .map_err(|e| {
+        debug!("Error: {:?}", e);
+        "Error in the GitHub hook handler"
+    })?;
+
+    Ok("OK!")
 }
 
 /// The route to handle GitHub hooks. Mounted on `/github-hook`.
@@ -140,7 +167,12 @@ async fn github_hook(
 
             let (world, diags) = check::all_checks(
                 Some(package),
-                PathBuf::new().join(&checkout_dir).join("packages"),
+                PathBuf::new()
+                    .join(&checkout_dir)
+                    .join("packages")
+                    .join(package.namespace.as_str())
+                    .join(package.name.as_str())
+                    .join(package.version.to_string()),
             );
 
             api_client
@@ -148,7 +180,7 @@ async fn github_hook(
                     repository.owner(),
                     repository.name(),
                     check_run.id,
-                    diags.errors.is_empty() && diags.warnings.is_empty(),
+                    diags.errors.is_empty(),
                     CheckRunOutput {
                         title: "Automated report",
                         summary: &format!(
