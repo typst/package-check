@@ -175,18 +175,40 @@ async fn github_hook(
                     .join(package.version.to_string()),
             );
 
+            let plural = |n| if n == 1 { "" } else { "s" };
+
             api_client
                 .update_check_run(
                     repository.owner(),
                     repository.name(),
                     check_run.id,
-                    diags.errors.is_empty(),
+                    diags.errors.is_empty() && diags.warnings.is_empty(),
                     CheckRunOutput {
-                        title: "Automated report",
+                        title: &if diags.errors.is_empty() {
+                            if diags.warnings.is_empty() {
+                                format!("{} error{}", diags.errors.len(), plural(diags.errors.len()))
+                            } else {
+                                format!(
+                                    "{} error{}, {} warning{}",
+                                    diags.errors.len(),
+                                    plural(diags.errors.len()),
+                                    diags.warnings.len(),
+                                    plural(diags.warnings.len())
+                                )
+                            }
+                        } else {
+                            if diags.warnings.is_empty() {
+                                format!("All good!")
+                            } else {
+                                format!("{} warning{}", diags.warnings.len(), plural(diags.warnings.len()))
+                            }
+                        },
                         summary: &format!(
-                            "Our bots have automatically run some checks on your packages. They found {} errors and {} warnings.\n\nA human being will soon review your package too.",
+                            "Our bots have automatically run some checks on your packages. They found {} error{} and {} warning{}.\n\nWarnings are suggestions, your package can still be accepted even if you prefer not to fix them.\n\nA human being will soon review your package, too.",
                             diags.errors.len(),
-                            diags.warnings.len()
+                            plural(diags.errors.len()),
+                            diags.warnings.len(),
+                            plural(diags.warnings.len()),
                         ),
                         annotations: &diags
                             .errors
