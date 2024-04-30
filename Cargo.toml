@@ -15,8 +15,8 @@ dotenvy = "0.15.7"
 ecow = "0.2.2"
 flate2 = "1.0.28"
 fontdb = "0.16.2"
-globset = "0.4.14"
 hmac = "0.12.1"
+ignore = "0.4.22"
 jwt-simple = { version = "0.12.9", default-features = false, features = [
     "pure-rust",
 ] }
@@ -35,4 +35,3 @@ tracing = "0.1.40"
 tracing-subscriber = "0.3.18"
 typst = "0.11.0"
 typst-assets = "0.11.0"
-walkdir = "2.5.0"

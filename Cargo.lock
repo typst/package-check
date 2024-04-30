@@ -1411,6 +1411,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb56e1aa765b4b4f3aadfab769793b7087bb03a4ea4920644a6d238e2df5b9ed"
 
 [[package]]
+name = "ignore"
+version = "0.4.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b46810df39e66e925525d6e38ce1e7f6e1d208f72dc39757880fcb66e2c58af1"
+dependencies = [
+ "crossbeam-deque",
+ "globset",
+ "log",
+ "memchr",
+ "regex-automata",
+ "same-file",
+ "walkdir",
+ "winapi-util",
+]
+
+[[package]]
 name = "image"
 version = "0.24.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3285,8 +3301,8 @@ dependencies = [
  "ecow",
  "flate2",
  "fontdb",
- "globset",
  "hmac",
+ "ignore",
  "jwt-simple",
  "parking_lot",
  "pathdiff",
@@ -3303,7 +3319,6 @@ dependencies = [
  "tracing-subscriber",
  "typst",
  "typst-assets",
- "walkdir",
 ]
 
 [[package]]

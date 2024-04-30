@@ -2,7 +2,7 @@ use std::path::Path;
 
 use codespan_reporting::{diagnostic::Diagnostic, term};
 use ecow::eco_format;
-use globset::GlobSet;
+use ignore::overrides::Override;
 use typst::syntax::{package::PackageSpec, FileId, Source};
 
 use crate::{check::all_checks, world::SystemWorld};
@@ -38,7 +38,7 @@ pub fn print_diagnostics(
     // We should be able to print diagnostics even on excluded files. If we
     // don't remove the exclusion, it will fail to read and display the file
     // contents.
-    world.exclude(GlobSet::empty());
+    world.exclude(Override::empty());
 
     for diagnostic in warnings.iter().chain(errors) {
         term::emit(

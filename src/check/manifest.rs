@@ -2,9 +2,9 @@ use std::{ops::Range, path::Path};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ecow::eco_format;
-use globset::{Glob, GlobSet};
+use ignore::overrides::{Override, OverrideBuilder};
 use toml_edit::Item;
-use tracing::debug;
+use tracing::{debug, warn};
 use typst::syntax::{
     package::{PackageSpec, PackageVersion},
     FileId, VirtualPath,
@@ -206,7 +206,7 @@ fn exclude_large_files(
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
 
-    let large_files = file_size::find_large_files(package_dir);
+    let large_files = file_size::find_large_files(package_dir, exclude.clone());
     for (path, size) in large_files {
         let fid = FileId::new(None, VirtualPath::new(&path));
 
@@ -215,7 +215,7 @@ fn exclude_large_files(
                 "This file is really large ({size}MB). If possible, do not include it in this repository at all.",
                 size = size / 1024 / 1024
             )
-        } else if !exclude.is_match(path) {
+        } else if !exclude.matched(path, false).is_ignore() {
             format!(
                 "This file is quite large ({size}MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.",
                 size = size / 1024 / 1024
@@ -232,7 +232,10 @@ fn exclude_large_files(
     }
 
     // Also exclude examples
-    for ch in walkdir::WalkDir::new(package_dir) {
+    for ch in ignore::WalkBuilder::new(package_dir)
+        .overrides(exclude)
+        .build()
+    {
         let Ok(ch) = ch else {
             continue;
         };
@@ -246,9 +249,6 @@ fn exclude_large_files(
         }
 
         let relative_path = ch.path().strip_prefix(package_dir).unwrap();
-        if exclude.is_match(relative_path) {
-            continue;
-        }
 
         let file_name = ch.file_name();
         let file_name_str = file_name.to_string_lossy();
@@ -289,7 +289,7 @@ fn dont_over_exclude(
 
     let warning = Diagnostic::warning().with_labels(vec![Label::primary(manifest_file_id, span)]);
 
-    if exclude.is_match("LICENSE") {
+    if exclude.matched("LICENSE", false).is_ignore() {
         diags.warnings.push(
             warning
                 .clone()
@@ -297,7 +297,7 @@ fn dont_over_exclude(
         );
     }
 
-    if exclude.is_match("README.md") {
+    if exclude.matched("README.md", false).is_ignore() {
         diags
             .warnings
             .push(warning.with_message("Your README.md file should not be excluded."));
@@ -395,16 +395,26 @@ fn check_repo(
     Some(())
 }
 
-fn read_exclude(manifest: &toml_edit::ImDocument<&String>) -> (GlobSet, Range<usize>) {
+fn read_exclude(manifest: &toml_edit::ImDocument<&String>) -> (Override, Range<usize>) {
     let empty_array = toml_edit::Array::new();
     let exclude = manifest["package"]
         .get("exclude")
         .and_then(|item| item.as_array())
         .unwrap_or(&empty_array);
 
-    let mut exclude_globs = GlobSet::builder();
-    for glob in exclude {
-        exclude_globs.add(Glob::new(glob.as_str().unwrap()).unwrap());
+    let mut exclude_globs = OverrideBuilder::new(".");
+    for exclusion in exclude {
+        let Some(exclusion) = exclusion.as_str() else {
+            continue;
+        };
+
+        if exclusion.starts_with('!') {
+            warn!("globs with '!' are not supported");
+            continue;
+        }
+
+        let exclusion = exclusion.trim_start_matches("./");
+        exclude_globs.add(&format!("!{exclusion}")).ok();
     }
     (
         exclude_globs.build().unwrap(),

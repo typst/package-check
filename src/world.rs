@@ -12,7 +12,7 @@ use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
 use comemo::Prehashed;
 use ecow::{eco_format, EcoString};
 use fontdb::Database;
-use globset::GlobSet;
+use ignore::overrides::Override;
 use parking_lot::Mutex;
 use reqwest::StatusCode;
 use typst::{
@@ -46,7 +46,7 @@ pub struct SystemWorld {
     /// Override for package resolution
     package_override: Option<(PackageSpec, PathBuf)>,
     /// Files that are considered excluded and should not be read from.
-    excluded: GlobSet,
+    excluded: Override,
 }
 
 impl SystemWorld {
@@ -72,7 +72,7 @@ impl SystemWorld {
             slots: Mutex::new(HashMap::new()),
             now: OnceLock::new(),
             package_override: None,
-            excluded: GlobSet::empty(),
+            excluded: Override::empty(),
         })
     }
 
@@ -97,7 +97,7 @@ impl SystemWorld {
         self.source(id)
     }
 
-    pub fn exclude(&mut self, globs: GlobSet) {
+    pub fn exclude(&mut self, globs: Override) {
         self.excluded = globs;
     }
 }
@@ -189,7 +189,7 @@ impl FileSlot {
         &mut self,
         project_root: &Path,
         package_override: &Option<(PackageSpec, PathBuf)>,
-        excluded: &GlobSet,
+        excluded: &Override,
     ) -> FileResult<Source> {
         self.source.get_or_init(
             || read(self.id, project_root, package_override, excluded),
@@ -210,7 +210,7 @@ impl FileSlot {
         &mut self,
         project_root: &Path,
         package_override: &Option<(PackageSpec, PathBuf)>,
-        excluded: &GlobSet,
+        excluded: &Override,
     ) -> FileResult<Bytes> {
         self.file.get_or_init(
             || read(self.id, project_root, package_override, excluded),
@@ -276,13 +276,13 @@ impl<T: Clone> SlotCell<T> {
 fn system_path(
     package_override: &Option<(PackageSpec, PathBuf)>,
     project_root: &Path,
-    excluded: &GlobSet,
+    excluded: &Override,
     id: FileId,
 ) -> FileResult<PathBuf> {
     let exclude = |file: FileResult<PathBuf>| match file {
         Ok(f) => {
             if let Ok(path_in_package) = f.strip_prefix(project_root) {
-                if excluded.is_match(path_in_package) {
+                if excluded.matched(path_in_package, false).is_ignore() {
                     return Err(FileError::Other(Some(
                         "This file exists but is excluded from your package.".into(),
                     )));
@@ -350,7 +350,7 @@ fn read(
     id: FileId,
     project_root: &Path,
     package_override: &Option<(PackageSpec, PathBuf)>,
-    excluded: &GlobSet,
+    excluded: &Override,
 ) -> FileResult<Vec<u8>> {
     read_from_disk(&system_path(package_override, project_root, excluded, id)?)
 }
