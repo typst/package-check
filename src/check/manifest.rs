@@ -3,6 +3,7 @@ use std::{ops::Range, path::Path};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ecow::eco_format;
 use globset::{Glob, GlobSet};
+use toml_edit::Item;
 use tracing::debug;
 use typst::syntax::{
     package::{PackageSpec, PackageVersion},
@@ -54,6 +55,7 @@ pub fn check(
     exclude_large_files(diags, package_dir, &manifest);
     check_file_names(diags, package_dir);
     dont_over_exclude(diags, manifest_file_id, &manifest);
+    check_repo(diags, manifest_file_id, &manifest);
 
     let (exclude, _) = read_exclude(&manifest);
     world.exclude(exclude);
@@ -337,6 +339,51 @@ fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) {
             error_for_file(file_path, &format!("To keep consistency, please use ALL CAPS for the name of this file (i.e. {fixed})"))
         }
     }
+}
+
+fn check_repo(
+    diags: &mut Diagnostics,
+    manifest_file_id: FileId,
+    manifest: &toml_edit::ImDocument<&String>,
+) -> Option<()> {
+    let mut check_url = |field: &Item| {
+        if let Err(e) =
+            reqwest::blocking::get(field.as_str()?).and_then(|res| res.error_for_status())
+        {
+            diags.errors.push(
+                Diagnostic::error()
+                    .with_labels(vec![Label::primary(
+                        manifest_file_id,
+                        field.span().unwrap(),
+                    )])
+                    .with_message(format!(
+                        "We could not fetch this URL.\n\nDetails: {:#?}",
+                        e.without_url()
+                    )),
+            )
+        }
+
+        Some(())
+    };
+
+    let repo_field = manifest.get("package")?.get("repository")?;
+    check_url(repo_field);
+
+    let homepage_field = manifest.get("package")?.get("homepage")?;
+    check_url(homepage_field);
+
+    if repo_field.as_str() == homepage_field.as_str() {
+        diags.errors.push(
+            Diagnostic::error()
+                .with_labels(vec![Label::primary(
+                    manifest_file_id,
+                    homepage_field.span().unwrap(),
+                )])
+                .with_message(format!("The homepage and repository fields are redundant.")),
+        )
+    }
+
+    Some(())
 }
 
 fn read_exclude(manifest: &toml_edit::ImDocument<&String>) -> (GlobSet, Range<usize>) {
