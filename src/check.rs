@@ -51,10 +51,12 @@ impl Diagnostics {
     fn extend(&mut self, mut other: Self, dir_prefix: &Path) {
         let fix_labels = |diag: &mut Diagnostic<FileId>| {
             for label in diag.labels.iter_mut() {
-                label.file_id = FileId::new(
-                    label.file_id.package().cloned(),
-                    VirtualPath::new(dir_prefix.join(label.file_id.vpath().as_rootless_path())),
-                )
+                if label.file_id.package().is_none() {
+                    label.file_id = FileId::new(
+                        None,
+                        VirtualPath::new(dir_prefix.join(label.file_id.vpath().as_rootless_path())),
+                    )
+                }
             }
         };
 
