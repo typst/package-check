@@ -521,6 +521,12 @@ pub fn prepare_package(spec: &PackageSpec) -> PackageResult<PathBuf> {
         spec.namespace, spec.name, spec.version
     );
 
+    let local_package_dir =
+        PathBuf::from(format!("{}/{}/{}", spec.namespace, spec.name, spec.version));
+    if local_package_dir.exists() {
+        return Ok(local_package_dir);
+    }
+
     if let Some(data_dir) = dirs::data_dir() {
         let dir = data_dir.join(&subdir);
         if dir.exists() {
