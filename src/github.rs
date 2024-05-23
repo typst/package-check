@@ -126,11 +126,14 @@ async fn github_hook(
         }
         let touched_files = git_repo.files_touched_by(&head_sha).await?;
 
+        let mut touches_outside_of_packages = false;
+
         let touched_packages = touched_files
             .into_iter()
             .filter_map(|line| {
                 let mut components = line.components();
                 if components.next()?.as_os_str() != OsStr::new("packages") {
+                    touches_outside_of_packages = true;
                     return None;
                 }
 
@@ -158,6 +161,21 @@ async fn github_hook(
                 )
                 .await
                 .unwrap();
+
+            if touches_outside_of_packages {
+                api_client.update_check_run(
+                    repository.owner(),
+                    repository.name(),
+                    check_run.id,
+                    false,
+                    CheckRunOutput {
+                        title: "This PR does too many things",
+                        summary: "A PR should either change packages/, or the rest of the repository, but not both.",
+                        annotations: &[],
+                    },
+                ).await.unwrap();
+                continue;
+            }
 
             let checkout_dir = format!("checkout-{}", head_sha);
             git_repo
