@@ -14,7 +14,6 @@ use ecow::{eco_format, EcoString};
 use fontdb::Database;
 use ignore::overrides::Override;
 use parking_lot::Mutex;
-use reqwest::StatusCode;
 use tracing::{debug, span, Level};
 use typst::{
     diag::{FileError, FileResult, PackageError, PackageResult},
@@ -515,10 +514,6 @@ impl FontSearcher {
     }
 }
 
-// Package fetching, adapted from typst-cli
-
-const HOST: &str = "https://packages.typst.org";
-
 /// Make a package available in the on-disk cache.
 pub fn prepare_package(spec: &PackageSpec) -> PackageResult<PathBuf> {
     let subdir = format!(
@@ -539,49 +534,10 @@ pub fn prepare_package(spec: &PackageSpec) -> PackageResult<PathBuf> {
             return Ok(dir);
         }
 
-        // Download from network if it doesn't exist yet.
-        if spec.namespace == "preview" {
-            download_package(spec, &dir)?;
-            if dir.exists() {
-                return Ok(dir);
-            }
-        }
+        return Err(PackageError::NetworkFailed(Some(
+            "All packages are supposed to be present in the `packages` repository, or in the local cache.".into(),
+        )));
     }
 
     Err(PackageError::NotFound(spec.clone()))
-}
-
-/// Download a package over the network.
-fn download_package(spec: &PackageSpec, package_dir: &Path) -> PackageResult<()> {
-    // The `@preview` namespace is the only namespace that supports on-demand
-    // fetching.
-    assert_eq!(spec.namespace, "preview");
-
-    let url = format!("{HOST}/preview/{}-{}.tar.gz", spec.name, spec.version);
-
-    let data = match download(&url) {
-        Ok(data) => data,
-        Err(err) if err.status() == Some(StatusCode::NOT_FOUND) => {
-            return Err(PackageError::NotFound(spec.clone()))
-        }
-        Err(err) => return Err(PackageError::NetworkFailed(Some(eco_format!("{err}")))),
-    };
-
-    let body = data.bytes().unwrap();
-    let decompressed = flate2::read::GzDecoder::new(&body[..]);
-    tar::Archive::new(decompressed)
-        .unpack(package_dir)
-        .map_err(|err| {
-            std::fs::remove_dir_all(package_dir).ok();
-            PackageError::MalformedArchive(Some(eco_format!("{err}")))
-        })
-}
-
-/// Download from a URL.
-pub fn download(url: &str) -> reqwest::Result<reqwest::blocking::Response> {
-    let client = reqwest::blocking::Client::new();
-    let req = client
-        .get(url)
-        .header("User-Agent", concat!("typst/", env!("CARGO_PKG_VERSION")));
-    req.send()
 }

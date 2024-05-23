@@ -22,7 +22,7 @@ jwt-simple = { version = "0.12.9", default-features = false, features = [
 ] }
 parking_lot = "0.12.1"
 pathdiff = "0.2.1"
-reqwest = { version = "0.12.4", features = ["json", "blocking"] }
+reqwest = { version = "0.12.4", features = ["json"] }
 serde = { version = "1.0.198", features = ["derive"] }
 serde_json = "1.0.116"
 sha1 = "0.10.6"

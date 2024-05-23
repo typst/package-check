@@ -42,7 +42,6 @@ struct AppState {
 }
 
 /// Runs an HTTP server to handle GitHub hooks
-#[tokio::main]
 pub async fn hook_server() {
     let app = Router::new()
         .route("/", get(index))
@@ -174,7 +173,8 @@ async fn github_hook(
                     .join(package.namespace.as_str())
                     .join(package.name.as_str())
                     .join(package.version.to_string()),
-            );
+            )
+            .await;
 
             let plural = |n| if n == 1 { "" } else { "s" };
 

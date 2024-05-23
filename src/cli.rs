@@ -7,7 +7,7 @@ use typst::syntax::{package::PackageSpec, FileId, Source};
 
 use crate::{check::all_checks, world::SystemWorld};
 
-pub fn main(package_spec: String) {
+pub async fn main(package_spec: String) {
     let package_spec: Option<PackageSpec> = package_spec.parse().ok();
     let package_dir = if let Some(ref package_spec) = package_spec {
         Path::new(".")
@@ -18,7 +18,7 @@ pub fn main(package_spec: String) {
         Path::new(".").to_owned()
     };
 
-    let (mut world, diags) = all_checks(package_spec.as_ref(), package_dir);
+    let (mut world, diags) = all_checks(package_spec.as_ref(), package_dir).await;
     print_diagnostics(&mut world, diags.errors(), diags.warnings())
         .map_err(|err| eco_format!("failed to print diagnostics ({err})"))
         .unwrap();

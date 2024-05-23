@@ -3,7 +3,8 @@ mod cli;
 mod github;
 mod world;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
 
@@ -11,9 +12,9 @@ fn main() {
     let cmd = args.next();
     let subcommand = args.next();
     if Some("server") == subcommand.as_deref() {
-        github::hook_server();
+        github::hook_server().await;
     } else if Some("check") == subcommand.as_deref() {
-        cli::main(args.next().unwrap_or_default());
+        cli::main(args.next().unwrap_or_default()).await;
     } else {
         show_help(&cmd.unwrap_or("typst-package-check".to_owned()));
     }

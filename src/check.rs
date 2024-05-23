@@ -18,13 +18,13 @@ mod manifest;
 
 pub use diagnostics::Diagnostics;
 
-pub fn all_checks(
+pub async fn all_checks(
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
 ) -> (SystemWorld, Diagnostics) {
     let mut diags = Diagnostics::default();
 
-    let worlds = manifest::check(&package_dir, &mut diags, package_spec);
+    let worlds = manifest::check(&package_dir, &mut diags, package_spec).await;
     compile::check(&mut diags, &worlds.package);
     if let Some(template_world) = worlds.template {
         let mut template_diags = Diagnostics::default();
