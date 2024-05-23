@@ -56,13 +56,12 @@ pub fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
         {
             let manifest = FileId::new(None, VirtualPath::new("typst.toml"));
 
-            diags
-                .warnings
-                .push(
-                    Diagnostic::warning().with_labels(vec![Label::primary(manifest, 0..0)])
+            diags.emit(
+                Diagnostic::warning()
+                    .with_labels(vec![Label::primary(manifest, 0..0)])
                     .with_message(
                         "The authors of this version are not the same as those of the previous one."
-                )
+                    )
             );
         }
     }

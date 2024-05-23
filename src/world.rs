@@ -15,6 +15,7 @@ use fontdb::Database;
 use ignore::overrides::Override;
 use parking_lot::Mutex;
 use reqwest::StatusCode;
+use tracing::{debug, span, Level};
 use typst::{
     diag::{FileError, FileResult, PackageError, PackageResult},
     foundations::{Bytes, Datetime},
@@ -279,16 +280,20 @@ fn system_path(
     excluded: &Override,
     id: FileId,
 ) -> FileResult<PathBuf> {
+    let _ = span!(Level::DEBUG, "Path resolution").enter();
+    debug!("File ID = {:?}", id);
     let exclude = |file: FileResult<PathBuf>| match file {
         Ok(f) => {
             if let Ok(path_in_package) = f.strip_prefix(project_root) {
                 if excluded.matched(path_in_package, false).is_ignore() {
+                    debug!("This file is excluded");
                     return Err(FileError::Other(Some(
                         "This file exists but is excluded from your package.".into(),
                     )));
                 }
             }
 
+            debug!("Resolved to {}", f.display());
             Ok(f)
         }
         err => err,
@@ -334,12 +339,16 @@ fn expect_parents<'a>(dir: &'a Path, parents: &'a [&'a str]) -> Option<PathBuf> 
     }
 
     let (expected_parent, rest) = parents.split_first()?;
-    let parent = dir.parent()?;
-    if parent.file_name().and_then(|n| n.to_str()) != Some(expected_parent) {
+    if dir.file_name().and_then(|n| n.to_str()) != Some(expected_parent) {
+        debug!(
+            "Expected parent folder to be {}, but it was {}",
+            expected_parent,
+            dir.display()
+        );
         return None;
     }
 
-    expect_parents(parent, rest)
+    expect_parents(dir.parent()?, rest)
 }
 
 /// Reads a file from a `FileId`.

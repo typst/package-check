@@ -58,8 +58,7 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> Op
                     .ok();
                 if main_path == import_path {
                     diags
-                        .warnings
-                        .push(Diagnostic::warning()
+                        .emit(Diagnostic::warning()
                             .with_labels(vec![Label::primary(
                                 fid,
                                 world.range(import.span()).unwrap(),

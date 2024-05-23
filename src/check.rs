@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use codespan_reporting::diagnostic::{Diagnostic, Label};
+use codespan_reporting::diagnostic::Label;
 use typst::{
-    syntax::{package::PackageSpec, FileId, Span, VirtualPath},
+    syntax::{package::PackageSpec, FileId, Span},
     WorldExt,
 };
 
@@ -10,10 +10,13 @@ use crate::world::SystemWorld;
 
 mod authors;
 mod compile;
+mod diagnostics;
 mod file_size;
 mod imports;
 mod kebab_case;
 mod manifest;
+
+pub use diagnostics::Diagnostics;
 
 pub fn all_checks(
     package_spec: Option<&PackageSpec>,
@@ -39,33 +42,6 @@ pub fn all_checks(
     }
 
     (worlds.package, diags)
-}
-
-#[derive(Default, Debug)]
-pub struct Diagnostics {
-    pub warnings: Vec<Diagnostic<FileId>>,
-    pub errors: Vec<Diagnostic<FileId>>,
-}
-
-impl Diagnostics {
-    fn extend(&mut self, mut other: Self, dir_prefix: &Path) {
-        let fix_labels = |diag: &mut Diagnostic<FileId>| {
-            for label in diag.labels.iter_mut() {
-                if label.file_id.package().is_none() {
-                    label.file_id = FileId::new(
-                        None,
-                        VirtualPath::new(dir_prefix.join(label.file_id.vpath().as_rootless_path())),
-                    )
-                }
-            }
-        };
-
-        other.errors.iter_mut().for_each(fix_labels);
-        self.errors.extend(other.errors);
-
-        other.warnings.iter_mut().for_each(fix_labels);
-        self.warnings.extend(other.warnings);
-    }
 }
 
 /// Create a label for a span.

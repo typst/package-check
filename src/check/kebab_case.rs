@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use codespan_reporting::diagnostic::Diagnostic;
+use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use comemo::Track;
 use ecow::EcoString;
 use typst::{
@@ -80,7 +80,7 @@ fn check_source(
         }
 
         if name != &casbab::kebab(name) {
-            diags.warnings.push(Diagnostic {
+            diags.emit(Diagnostic {
                 severity: codespan_reporting::diagnostic::Severity::Warning,
                 message:
                     "This value seems to be public. It is recommended to use kebab-case names."
@@ -108,8 +108,8 @@ fn check_source(
                 };
 
                 if name != casbab::kebab(name) {
-                    diags.warnings.push(Diagnostic {
-                        severity: codespan_reporting::diagnostic::Severity::Warning,
+                    diags.emit(Diagnostic {
+                        severity: Severity::Warning,
                         message:
                             "This argument seems to be part of public function. It is recommended to use kebab-case names."
                                 .to_owned(),

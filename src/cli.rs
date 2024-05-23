@@ -19,7 +19,7 @@ pub fn main(package_spec: String) {
     };
 
     let (mut world, diags) = all_checks(package_spec.as_ref(), package_dir);
-    print_diagnostics(&mut world, &diags.errors, &diags.warnings)
+    print_diagnostics(&mut world, diags.errors(), diags.warnings())
         .map_err(|err| eco_format!("failed to print diagnostics ({err})"))
         .unwrap();
 }

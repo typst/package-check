@@ -17,6 +17,26 @@ impl<'a> GitRepo<'a> {
         GitRepo { dir }
     }
 
+    pub async fn pull_main(&self) -> Option<()> {
+        Command::new("git")
+            .args([
+                "-C",
+                self.dir.to_str()?,
+                "-c",
+                "receive.maxInputSize=134217728", // 128MB
+                "pull",
+                "origin",
+                "main",
+                "--ff-only",
+            ])
+            .spawn()
+            .ok()?
+            .wait()
+            .await
+            .ok()?;
+        Some(())
+    }
+
     pub async fn fetch_commit(&self, sha: impl AsRef<str>) -> Option<()> {
         Command::new("git")
             .args([

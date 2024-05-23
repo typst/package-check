@@ -117,6 +117,7 @@ async fn github_hook(
 
     tokio::spawn(async move {
         let git_repo = GitRepo::open(Path::new(&state.git_dir));
+        git_repo.pull_main().await;
         if git_repo.fetch_commit(&head_sha).await.is_none() {
             warn!(
                 "Failed to fetch {} (probably because of some large file).",
@@ -182,38 +183,38 @@ async fn github_hook(
                     repository.owner(),
                     repository.name(),
                     check_run.id,
-                    diags.errors.is_empty() && diags.warnings.is_empty(),
+                    diags.errors().is_empty() && diags.warnings().is_empty(),
                     CheckRunOutput {
-                        title: &if diags.errors.is_empty() {
-                            if diags.warnings.is_empty() {
-                                format!("{} error{}", diags.errors.len(), plural(diags.errors.len()))
+                        title: &if diags.errors().is_empty() {
+                            if diags.warnings().is_empty() {
+                                format!("{} error{}", diags.errors().len(), plural(diags.errors().len()))
                             } else {
                                 format!(
                                     "{} error{}, {} warning{}",
-                                    diags.errors.len(),
-                                    plural(diags.errors.len()),
-                                    diags.warnings.len(),
-                                    plural(diags.warnings.len())
+                                    diags.errors().len(),
+                                    plural(diags.errors().len()),
+                                    diags.warnings().len(),
+                                    plural(diags.warnings().len())
                                 )
                             }
                         } else {
-                            if diags.warnings.is_empty() {
+                            if diags.warnings().is_empty() {
                                 format!("All good!")
                             } else {
-                                format!("{} warning{}", diags.warnings.len(), plural(diags.warnings.len()))
+                                format!("{} warning{}", diags.warnings().len(), plural(diags.warnings().len()))
                             }
                         },
                         summary: &format!(
                             "Our bots have automatically run some checks on your packages. They found {} error{} and {} warning{}.\n\nWarnings are suggestions, your package can still be accepted even if you prefer not to fix them.\n\nA human being will soon review your package, too.",
-                            diags.errors.len(),
-                            plural(diags.errors.len()),
-                            diags.warnings.len(),
-                            plural(diags.warnings.len()),
+                            diags.errors().len(),
+                            plural(diags.errors().len()),
+                            diags.warnings().len(),
+                            plural(diags.warnings().len()),
                         ),
                         annotations: &diags
-                            .errors
+                            .errors()
                             .into_iter()
-                            .chain(diags.warnings)
+                            .chain(diags.warnings())
                             .filter_map(|diag| diagnostic_to_annotation(&world, package, diag))
                             .collect::<Vec<_>>(),
                     },
@@ -232,7 +233,7 @@ async fn github_hook(
 fn diagnostic_to_annotation(
     world: &SystemWorld,
     package: &PackageSpec,
-    diag: Diagnostic<FileId>,
+    diag: &Diagnostic<FileId>,
 ) -> Option<Annotation> {
     let label = diag.labels.first()?;
     let start_line = world.line_index(label.file_id, label.range.start).ok()?;
@@ -266,7 +267,7 @@ fn diagnostic_to_annotation(
         } else {
             AnnotationLevel::Failure
         },
-        message: diag.message,
+        message: diag.message.clone(),
     })
 }
 
