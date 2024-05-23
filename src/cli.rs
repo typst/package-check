@@ -39,6 +39,9 @@ pub fn print_diagnostics(
     // don't remove the exclusion, it will fail to read and display the file
     // contents.
     world.exclude(Override::empty());
+    world.reset_file_cache();
+
+    println!("writing diags !!!");
 
     for diagnostic in warnings.iter().chain(errors) {
         term::emit(

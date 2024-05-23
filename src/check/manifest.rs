@@ -68,15 +68,18 @@ pub async fn check(
             name: name.into(),
             version,
         };
+
         world_for_template(
             &manifest,
             package_dir,
             package_spec.unwrap_or(&inferred_package_spec),
-            exclude,
+            exclude.clone(),
         )
     } else {
         None
     };
+
+    dont_exclude_template_files(diags, &manifest, package_dir, exclude);
 
     Worlds {
         package: world,
@@ -439,4 +442,43 @@ fn world_for_template(
         .with_package_override(package_spec, package_dir);
     world.exclude(exclude);
     Some(world)
+}
+
+fn dont_exclude_template_files(
+    diags: &mut Diagnostics,
+    manifest: &toml_edit::ImDocument<&String>,
+    package_dir: &Path,
+    exclude: Override,
+) -> Option<()> {
+    let template_root = manifest
+        .get("template")
+        .and_then(|t| t.get("path"))?
+        .as_str()?;
+    for entry in ignore::Walk::new(package_dir.join(template_root)) {
+        if let Ok(entry) = entry {
+            if exclude
+                .matched(
+                    entry.path().canonicalize().ok()?,
+                    entry.metadata().ok()?.is_dir(),
+                )
+                .is_ignore()
+            {
+                diags.emit(
+                    Diagnostic::error()
+                        .with_message(
+                            "This file is part of the template and should not be excluded.",
+                        )
+                        .with_labels(vec![Label::primary(
+                            FileId::new(
+                                None,
+                                VirtualPath::new(entry.path().strip_prefix(&package_dir).ok()?),
+                            ),
+                            0..0,
+                        )]),
+                )
+            }
+        }
+    }
+
+    Some(())
 }

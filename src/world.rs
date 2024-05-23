@@ -100,6 +100,11 @@ impl SystemWorld {
     pub fn exclude(&mut self, globs: Override) {
         self.excluded = globs;
     }
+
+    pub fn reset_file_cache(&mut self) {
+        let mut slots = self.slots.lock();
+        slots.clear();
+    }
 }
 
 impl World for SystemWorld {
