@@ -283,8 +283,8 @@ fn system_path(
     debug!("File ID = {:?}", id);
     let exclude = |file: FileResult<PathBuf>| match file {
         Ok(f) => {
-            if let Ok(path_in_package) = f.strip_prefix(project_root) {
-                if excluded.matched(path_in_package, false).is_ignore() {
+            if let Ok(canonical_path) = f.canonicalize() {
+                if excluded.matched(canonical_path, false).is_ignore() {
                     debug!("This file is excluded");
                     return Err(FileError::Other(Some(
                         "This file exists but is excluded from your package.".into(),

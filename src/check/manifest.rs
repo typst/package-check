@@ -37,6 +37,8 @@ pub async fn check(
     let manifest_file_id = FileId::new(None, VirtualPath::new("typst.toml"));
 
     if !manifest.contains_table("package") {
+        // TODO: this condition is probably unreachable as the program would
+        // have panicked before if the `package` table is missing.
         diags.emit(
             Diagnostic::error()
                 .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
@@ -54,11 +56,11 @@ pub async fn check(
     let version = check_version(diags, manifest_file_id, &manifest, package_spec);
     exclude_large_files(diags, package_dir, &manifest);
     check_file_names(diags, package_dir);
-    dont_over_exclude(diags, manifest_file_id, &manifest);
+    dont_over_exclude(diags, package_dir, manifest_file_id, &manifest);
     check_repo(diags, manifest_file_id, &manifest).await;
 
-    let (exclude, _) = read_exclude(&manifest);
-    world.exclude(exclude);
+    let (exclude, _) = read_exclude(package_dir, &manifest);
+    world.exclude(exclude.clone());
 
     let template_world = if let (Some(name), Some(version)) = (name, version) {
         let inferred_package_spec = PackageSpec {
@@ -70,6 +72,7 @@ pub async fn check(
             &manifest,
             package_dir,
             package_spec.unwrap_or(&inferred_package_spec),
+            exclude,
         )
     } else {
         None
@@ -198,7 +201,7 @@ fn exclude_large_files(
     package_dir: &Path,
     manifest: &toml_edit::ImDocument<&String>,
 ) {
-    let (exclude, _) = read_exclude(manifest);
+    let (exclude, _) = read_exclude(package_dir, manifest);
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
 
@@ -278,10 +281,11 @@ fn exclude_large_files(
 
 fn dont_over_exclude(
     diags: &mut Diagnostics,
+    package_dir: &Path,
     manifest_file_id: FileId,
     manifest: &toml_edit::ImDocument<&String>,
 ) {
-    let (exclude, span) = read_exclude(manifest);
+    let (exclude, span) = read_exclude(package_dir, manifest);
 
     let warning = Diagnostic::warning().with_labels(vec![Label::primary(manifest_file_id, span)]);
 
@@ -390,14 +394,17 @@ async fn check_repo(
     Some(())
 }
 
-fn read_exclude(manifest: &toml_edit::ImDocument<&String>) -> (Override, Range<usize>) {
+fn read_exclude(
+    package_dir: &Path,
+    manifest: &toml_edit::ImDocument<&String>,
+) -> (Override, Range<usize>) {
     let empty_array = toml_edit::Array::new();
     let exclude = manifest["package"]
         .get("exclude")
         .and_then(|item| item.as_array())
         .unwrap_or(&empty_array);
 
-    let mut exclude_globs = OverrideBuilder::new(".");
+    let mut exclude_globs = OverrideBuilder::new(package_dir.canonicalize().unwrap());
     for exclusion in exclude {
         let Some(exclusion) = exclusion.as_str() else {
             continue;
@@ -421,13 +428,15 @@ fn world_for_template(
     manifest: &toml_edit::ImDocument<&String>,
     package_dir: &Path,
     package_spec: &PackageSpec,
+    exclude: Override,
 ) -> Option<SystemWorld> {
     let template = manifest.get("template")?.as_table()?;
     let template_path = package_dir.join(template.get("path")?.as_str()?);
     let template_main = template_path.join(template.get("entrypoint")?.as_str()?);
-    Some(
-        SystemWorld::new(template_main, template_path)
-            .ok()?
-            .with_package_override(package_spec, package_dir),
-    )
+
+    let mut world = SystemWorld::new(template_main, template_path)
+        .ok()?
+        .with_package_override(package_spec, package_dir);
+    world.exclude(exclude);
+    Some(world)
 }
