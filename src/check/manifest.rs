@@ -43,7 +43,9 @@ pub async fn check(
             Diagnostic::error()
                 .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
                 .with_message(
-                    "All `typst.toml` must contain a [package] section. See the README.md file of this repository for details about the manifest format."
+                    "All `typst.toml` must contain a [package] section. \
+                    See the README.md file of this repository for details \
+                    about the manifest format.",
                 ),
         );
         return Worlds {
@@ -99,7 +101,9 @@ fn check_name(
             Diagnostic::error()
                 .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
                 .with_message(
-                    "All `typst.toml` must contain a `name` field. See the README.md file of this repository for details about the manifest format."
+                    "All `typst.toml` must contain a `name` field. \
+                    See the README.md file of this repository for details \
+                    about the manifest format.",
                 ),
         );
         return None;
@@ -133,14 +137,13 @@ fn check_name(
 
     if let Some(package_spec) = package_spec {
         if name != package_spec.name {
-            diags.emit(
-                error
-                    .with_message(format!(
-                        "Unexpected package name. `{name}` was expected. If you want to publish a new package, create a new directory in `packages/{namespace}/`.",
-                        name = package_spec.name,
-                        namespace = package_spec.namespace,
-                    )),
-            )
+            diags.emit(error.with_message(format!(
+                "Unexpected package name. `{name}` was expected. \
+                        If you want to publish a new package, create a new \
+                        directory in `packages/{namespace}/`.",
+                name = package_spec.name,
+                namespace = package_spec.namespace,
+            )))
         }
     }
 
@@ -158,7 +161,9 @@ fn check_version(
             Diagnostic::error()
                 .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
                 .with_message(
-                    "All `typst.toml` must contain a `version` field. See the README.md file of this repository for details about the manifest format."
+                    "All `typst.toml` must contain a `version` field. \
+                    See the README.md file of this repository for details \
+                    about the manifest format.",
                 ),
         );
         return None;
@@ -175,25 +180,23 @@ fn check_version(
     };
 
     let Ok(version) = version.parse::<PackageVersion>() else {
-        diags.emit(
-            error.with_message(
-                "`version` must be a valid semantic version (i.e follow the `MAJOR.MINOR.PATCH` format)."
-            )
-        );
+        diags.emit(error.with_message(
+            "`version` must be a valid semantic version \
+                (i.e follow the `MAJOR.MINOR.PATCH` format).",
+        ));
         return None;
     };
 
     if let Some(package_spec) = package_spec {
         if version != package_spec.version {
-            diags.emit(
-                error
-                    .with_message(format!(
-                        "Unexpected version number. `{version}` was expected. If you want to publish a new version, create a new directory in `packages/{namespace}/{name}`.",
-                        version = package_spec.version,
-                        name = package_spec.name,
-                        namespace = package_spec.namespace,
-                    )),
-                )
+            diags.emit(error.with_message(format!(
+                "Unexpected version number. `{version}` was expected. \
+                        If you want to publish a new version, create a new \
+                        directory in `packages/{namespace}/{name}`.",
+                version = package_spec.version,
+                name = package_spec.name,
+                namespace = package_spec.namespace,
+            )))
         }
     }
 
@@ -215,12 +218,16 @@ fn exclude_large_files(
 
         let message = if size > REALLY_LARGE {
             format!(
-                "This file is really large ({size}MB). If possible, do not include it in this repository at all.",
+                "This file is really large ({size}MB). \
+                If possible, do not include it in this repository at all.",
                 size = size / 1024 / 1024
             )
         } else if !exclude.matched(path, false).is_ignore() {
             format!(
-                "This file is quite large ({size}MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.",
+                "This file is quite large ({size}MB). \
+                If it is not required to use the package \
+                (i.e. it is a documentation file, or part of an example), \
+                it should be added to `exclude` in your `typst.toml`.",
                 size = size / 1024 / 1024
             )
         } else {
@@ -258,26 +265,27 @@ fn exclude_large_files(
         let file_id = FileId::new(None, VirtualPath::new(relative_path));
         let warning = Diagnostic::warning().with_labels(vec![Label::primary(file_id, 0..0)]);
         if file_name_str.contains("example") {
-            diags.emit(
-                warning.clone()
-                    .with_message("This file seems to be an example, and should probably be added to `exclude` in your `typst.toml`.")
-            );
+            diags.emit(warning.clone().with_message(
+                "This file seems to be an example, \
+                    and should probably be added to `exclude` in your `typst.toml`.",
+            ));
             continue;
         }
 
         if file_name_str.contains("test") {
-            diags.emit(
-                warning.clone()
-                    .with_message("This file seems to be a test, and should probably be added to `exclude` in your `typst.toml`.")
-            );
+            diags.emit(warning.clone().with_message(
+                "This file seems to be a test, \
+                    and should probably be added to `exclude` in your `typst.toml`.",
+            ));
             continue;
         }
 
         if Path::new(&file_name).extension().and_then(|e| e.to_str()) == Some("pdf") {
-            diags.emit(
-                warning
-                    .with_message("This file seems to be for documentation or generated by Typst, and should probably be added to `exclude` in your `typst.toml`.")
-            );
+            diags.emit(warning.with_message(
+                "This file seems to be for documentation or \
+                    generated by Typst, and should probably be added to \
+                    `exclude` in your `typst.toml`.",
+            ));
             continue;
         }
     }
@@ -347,7 +355,13 @@ fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) {
             } else {
                 stem.unwrap().to_uppercase()
             };
-            error_for_file(file_path, &format!("To keep consistency, please use ALL CAPS for the name of this file (i.e. {fixed})"))
+            error_for_file(
+                file_path,
+                &format!(
+                    "To keep consistency, please use \
+                        ALL CAPS for the name of this file (i.e. {fixed})"
+                ),
+            )
         }
     }
 }

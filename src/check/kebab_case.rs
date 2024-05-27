@@ -110,9 +110,9 @@ fn check_source(
                 if name != casbab::kebab(name) {
                     diags.emit(Diagnostic {
                         severity: Severity::Warning,
-                        message:
-                            "This argument seems to be part of public function. It is recommended to use kebab-case names."
-                                .to_owned(),
+                        message: "This argument seems to be part of public function. \
+                            It is recommended to use kebab-case names."
+                            .to_owned(),
                         labels: label(world, span).into_iter().collect(),
                         notes: Vec::new(),
                         code: None,

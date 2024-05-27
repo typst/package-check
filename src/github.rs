@@ -205,7 +205,11 @@ async fn github_hook(
                     CheckRunOutput {
                         title: &if diags.errors().is_empty() {
                             if diags.warnings().is_empty() {
-                                format!("{} error{}", diags.errors().len(), plural(diags.errors().len()))
+                                format!(
+                                    "{} error{}",
+                                    diags.errors().len(),
+                                    plural(diags.errors().len())
+                                )
                             } else {
                                 format!(
                                     "{} error{}, {} warning{}",
@@ -219,11 +223,19 @@ async fn github_hook(
                             if diags.warnings().is_empty() {
                                 format!("All good!")
                             } else {
-                                format!("{} warning{}", diags.warnings().len(), plural(diags.warnings().len()))
+                                format!(
+                                    "{} warning{}",
+                                    diags.warnings().len(),
+                                    plural(diags.warnings().len())
+                                )
                             }
                         },
                         summary: &format!(
-                            "Our bots have automatically run some checks on your packages. They found {} error{} and {} warning{}.\n\nWarnings are suggestions, your package can still be accepted even if you prefer not to fix them.\n\nA human being will soon review your package, too.",
+                            "Our bots have automatically run some checks on your packages. \
+                            They found {} error{} and {} warning{}.\n\n\
+                            Warnings are suggestions, your package can still be accepted even \
+                            if you prefer not to fix them.\n\n\
+                            A human being will soon review your package, too.",
                             diags.errors().len(),
                             plural(diags.errors().len()),
                             diags.warnings().len(),
