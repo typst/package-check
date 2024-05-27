@@ -80,6 +80,7 @@ pub async fn check(
     };
 
     dont_exclude_template_files(diags, &manifest, package_dir, exclude);
+    check_thumbnail(diags, &manifest, manifest_file_id, package_dir);
 
     Worlds {
         package: world,
@@ -478,6 +479,37 @@ fn dont_exclude_template_files(
                 )
             }
         }
+    }
+
+    Some(())
+}
+
+fn check_thumbnail(
+    diags: &mut Diagnostics,
+    manifest: &toml_edit::ImDocument<&String>,
+    manifest_file_id: FileId,
+    package_dir: &Path,
+) -> Option<()> {
+    let thumbnail = manifest.get("template")?.as_table()?.get("thumbnail")?;
+    let thumbnail_path = package_dir.join(thumbnail.as_str()?);
+
+    if !thumbnail_path.exists() {
+        diags.emit(
+            Diagnostic::error()
+                .with_labels(vec![Label::primary(manifest_file_id, thumbnail.span()?)])
+                .with_message("This file does not exist."),
+        )
+    }
+
+    if !matches!(
+        thumbnail_path.extension().and_then(|e| e.to_str()),
+        Some("png" | "webp")
+    ) {
+        diags.emit(
+            Diagnostic::error()
+                .with_labels(vec![Label::primary(manifest_file_id, thumbnail.span()?)])
+                .with_message("Thumbnails should be PNG or WebP files."),
+        )
     }
 
     Some(())
