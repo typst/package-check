@@ -36,7 +36,7 @@ pub async fn all_checks(
         diags.extend(template_diags, template_dir);
     }
     kebab_case::check(&mut diags, &worlds.package);
-    imports::check(&mut diags, &package_dir, &worlds.package);
+    imports::check(&mut diags, package_spec, &package_dir, &worlds.package);
     if let Some(spec) = package_spec {
         authors::check(&mut diags, spec);
     }

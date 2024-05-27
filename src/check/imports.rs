@@ -1,9 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use typst::{
     syntax::{
         ast::{self, AstNode, ModuleImport},
+        package::PackageSpec,
         FileId, VirtualPath,
     },
     World, WorldExt,
@@ -13,11 +17,21 @@ use crate::world::SystemWorld;
 
 use super::Diagnostics;
 
-pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) {
-    check_dir(diags, package_dir, world);
+pub fn check(
+    diags: &mut Diagnostics,
+    package_spec: Option<&PackageSpec>,
+    package_dir: &Path,
+    world: &SystemWorld,
+) {
+    check_dir(diags, package_spec, package_dir, world);
 }
 
-pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> Option<()> {
+pub fn check_dir(
+    diags: &mut Diagnostics,
+    package_spec: Option<&PackageSpec>,
+    dir: &Path,
+    world: &SystemWorld,
+) -> Option<()> {
     let root_path = world.root();
     let main_path = root_path
         .join(world.main().id().vpath().as_rootless_path())
@@ -34,7 +48,7 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> Op
 
         let path = dir.join(ch.file_name());
         if meta.is_dir() {
-            return check_dir(diags, &path, world);
+            return check_dir(diags, package_spec, &path, world);
         }
         if path.extension().and_then(|ext| ext.to_str()) == Some("typ") {
             let fid = FileId::new(
@@ -67,6 +81,26 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> Op
                                 "This import should use the package specification, not a relative path."
                             )
                         )
+                }
+
+                if let Some(package_spec) = package_spec {
+                    if let Ok(import_spec) = PackageSpec::from_str(source_str.get().as_str()) {
+                        if package_spec.namespace == import_spec.namespace
+                            && package_spec.name == import_spec.name
+                            && package_spec.version != import_spec.version
+                        {
+                            diags.emit(
+                                Diagnostic::warning()
+                                    .with_labels(vec![Label::primary(
+                                        fid,
+                                        world.range(import.span()).unwrap(),
+                                    )])
+                                    .with_message(
+                                        "This import seems to use an older version of the package.",
+                                    ),
+                            )
+                        }
+                    }
                 }
             }
         }
