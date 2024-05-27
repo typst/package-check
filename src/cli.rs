@@ -41,8 +41,6 @@ pub fn print_diagnostics(
     world.exclude(Override::empty());
     world.reset_file_cache();
 
-    println!("writing diags !!!");
-
     for diagnostic in warnings.iter().chain(errors) {
         term::emit(
             &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Always),
