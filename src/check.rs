@@ -21,10 +21,10 @@ pub use diagnostics::Diagnostics;
 pub async fn all_checks(
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
-) -> (SystemWorld, Diagnostics) {
+) -> eyre::Result<(SystemWorld, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
-    let worlds = manifest::check(&package_dir, &mut diags, package_spec).await;
+    let worlds = manifest::check(&package_dir, &mut diags, package_spec).await?;
     compile::check(&mut diags, &worlds.package);
     if let Some(template_world) = worlds.template {
         let mut template_diags = Diagnostics::default();
@@ -36,12 +36,15 @@ pub async fn all_checks(
         diags.extend(template_diags, template_dir);
     }
     kebab_case::check(&mut diags, &worlds.package);
-    imports::check(&mut diags, package_spec, &package_dir, &worlds.package);
+
+    let res = imports::check(&mut diags, package_spec, &package_dir, &worlds.package);
+    diags.maybe_emit(res);
+
     if let Some(spec) = package_spec {
         authors::check(&mut diags, spec);
     }
 
-    (worlds.package, diags)
+    Ok((worlds.package, diags))
 }
 
 /// Create a label for a span.

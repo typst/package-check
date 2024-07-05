@@ -4,6 +4,7 @@ use std::{
 };
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
+use eyre::Context;
 use typst::{
     syntax::{
         ast::{self, AstNode, ModuleImport},
@@ -22,8 +23,8 @@ pub fn check(
     package_spec: Option<&PackageSpec>,
     package_dir: &Path,
     world: &SystemWorld,
-) {
-    check_dir(diags, package_spec, package_dir, world);
+) -> eyre::Result<()> {
+    check_dir(diags, package_spec, package_dir, world)
 }
 
 pub fn check_dir(
@@ -31,14 +32,14 @@ pub fn check_dir(
     package_spec: Option<&PackageSpec>,
     dir: &Path,
     world: &SystemWorld,
-) -> Option<()> {
+) -> eyre::Result<()> {
     let root_path = world.root();
     let main_path = root_path
         .join(world.main().id().vpath().as_rootless_path())
         .canonicalize()
         .ok();
 
-    for ch in std::fs::read_dir(dir).ok()? {
+    for ch in std::fs::read_dir(dir).context("Can't read directory")? {
         let Ok(ch) = ch else {
             continue;
         };
@@ -53,9 +54,15 @@ pub fn check_dir(
         if path.extension().and_then(|ext| ext.to_str()) == Some("typ") {
             let fid = FileId::new(
                 None,
-                VirtualPath::new(path.strip_prefix(root_path).unwrap()),
+                VirtualPath::new(
+                    path.strip_prefix(root_path)
+                        // Not actually true
+                        .context(
+                            "Prefix striping failed even though `path` is built from `root_dir`",
+                        )?,
+                ),
             );
-            let source = world.lookup(fid).ok()?;
+            let source = world.lookup(fid).context("Can't read source file")?;
             let imports = source
                 .root()
                 .children()
@@ -75,7 +82,7 @@ pub fn check_dir(
                         .emit(Diagnostic::warning()
                             .with_labels(vec![Label::primary(
                                 fid,
-                                world.range(import.span()).unwrap(),
+                                world.range(import.span()).unwrap_or_default(),
                             )])
                             .with_message(
                                 "This import should use the package specification, not a relative path."
@@ -93,7 +100,7 @@ pub fn check_dir(
                                 Diagnostic::warning()
                                     .with_labels(vec![Label::primary(
                                         fid,
-                                        world.range(import.span()).unwrap(),
+                                        world.range(import.span()).unwrap_or_default(),
                                     )])
                                     .with_message(
                                         "This import seems to use an older version of the package.",
@@ -106,5 +113,5 @@ pub fn check_dir(
         }
     }
 
-    Some(())
+    Ok(())
 }

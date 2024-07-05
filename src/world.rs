@@ -10,7 +10,6 @@ use std::{
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
 use comemo::Prehashed;
-use ecow::{eco_format, EcoString};
 use fontdb::Database;
 use ignore::overrides::Override;
 use parking_lot::Mutex;
@@ -117,7 +116,8 @@ impl World for SystemWorld {
     }
 
     fn main(&self) -> Source {
-        self.source(self.main).unwrap()
+        self.source(self.main)
+            .expect("Error while accessing main source file")
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
@@ -320,14 +320,14 @@ fn system_path(
             project_root,
             &[&spec.version.to_string(), &spec.name, &spec.namespace],
         )
-        .map(|package_root| {
-            Ok(package_root
+        .map(|packages_root| {
+            Ok(packages_root
                 .join(spec.namespace.as_str())
                 .join(spec.name.as_str())
                 .join(spec.version.to_string()))
         })
         .unwrap_or_else(|| prepare_package(spec))
-        .unwrap()
+        .map_err(FileError::Package)?
     } else {
         project_root.to_owned()
     };
@@ -388,40 +388,17 @@ fn decode_utf8(buf: &[u8]) -> FileResult<&str> {
 /// An error that occurs during world construction.
 #[derive(Debug)]
 pub enum WorldCreationError {
-    /// The input file does not appear to exist.
-    InputNotFound(PathBuf),
     /// The input file is not contained within the root folder.
     InputOutsideRoot,
-    /// The root directory does not appear to exist.
-    RootNotFound(PathBuf),
-    /// Another type of I/O error.
-    Io(std::io::Error),
 }
 
 impl std::fmt::Display for WorldCreationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            WorldCreationError::InputNotFound(path) => {
-                write!(f, "input file not found (searched at {})", path.display())
-            }
             WorldCreationError::InputOutsideRoot => {
                 write!(f, "source file must be contained in project root")
             }
-            WorldCreationError::RootNotFound(path) => {
-                write!(
-                    f,
-                    "root directory not found (searched at {})",
-                    path.display()
-                )
-            }
-            WorldCreationError::Io(err) => write!(f, "{err}"),
         }
-    }
-}
-
-impl From<WorldCreationError> for EcoString {
-    fn from(err: WorldCreationError) -> Self {
-        eco_format!("{err}")
     }
 }
 

@@ -3,6 +3,7 @@
 use std::fmt::Display;
 
 use axum::{extract::FromRequestParts, http::request::Parts};
+use eyre::Error;
 use jwt_simple::{
     algorithms::{RS256KeyPair, RSAKeyPairLike},
     claims::Claims,
@@ -27,6 +28,24 @@ pub enum ApiError {
     #[allow(dead_code)]
     Reqwest(reqwest::Error),
     Json(serde_json::Error),
+}
+
+impl std::error::Error for ApiError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ApiError::Reqwest(e) => Some(e),
+            ApiError::Json(e) => Some(e),
+        }
+    }
+}
+
+impl Display for ApiError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ApiError::Reqwest(_) => write!(f, "Network error"),
+            ApiError::Json(_) => write!(f, "JSON ser/de error"),
+        }
+    }
 }
 
 impl From<reqwest::Error> for ApiError {
@@ -174,18 +193,34 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub fn new(name: &str) -> Self {
-        Self {
-            full_name: name.to_owned(),
+    pub fn new(name: &str) -> eyre::Result<Self> {
+        if !name.contains('/') {
+            return Err(Error::msg("Invalid repository path"));
         }
+
+        Ok(Self {
+            full_name: name.to_owned(),
+        })
     }
 
     pub fn owner(&self) -> OwnerId {
-        OwnerId(self.full_name.split_once('/').unwrap().0.to_owned())
+        OwnerId(
+            self.full_name
+                .split_once('/')
+                .expect("Repository path must contain a /")
+                .0
+                .to_owned(),
+        )
     }
 
     pub fn name(&self) -> RepoId {
-        RepoId(self.full_name.split_once('/').unwrap().1.to_owned())
+        RepoId(
+            self.full_name
+                .split_once('/')
+                .expect("Repository path must contain a /")
+                .1
+                .to_owned(),
+        )
     }
 }
 

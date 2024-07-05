@@ -2,7 +2,6 @@ use std::collections::HashSet;
 
 use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use comemo::Track;
-use ecow::EcoString;
 use typst::{
     engine::Route,
     eval::Tracer,
@@ -31,7 +30,7 @@ pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
         )
         .ok()?;
         let scope = module.scope();
-        scope.iter().map(|(name, _)| name.clone()).collect()
+        scope.iter().map(|(name, _)| name.to_string()).collect()
     };
 
     let main = world.main();
@@ -45,7 +44,7 @@ pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
 fn check_source(
     src: Source,
     world: &SystemWorld,
-    public_names: &HashSet<EcoString>,
+    public_names: &HashSet<String>,
     diags: &mut Diagnostics,
     visited: &mut HashSet<FileId>,
 ) -> Option<()> {
@@ -64,7 +63,7 @@ fn check_source(
             continue;
         };
 
-        if !public_names.contains(name_ident.get()) {
+        if !public_names.contains(name_ident.get().as_str()) {
             continue;
         }
 

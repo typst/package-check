@@ -1,8 +1,8 @@
 use std::path::Path;
 
 use codespan_reporting::{diagnostic::Diagnostic, term};
-use ecow::eco_format;
 use ignore::overrides::Override;
+use tracing::error;
 use typst::syntax::{package::PackageSpec, FileId, Source};
 
 use crate::{check::all_checks, world::SystemWorld};
@@ -18,10 +18,14 @@ pub async fn main(package_spec: String) {
         Path::new(".").to_owned()
     };
 
-    let (mut world, diags) = all_checks(package_spec.as_ref(), package_dir).await;
-    print_diagnostics(&mut world, diags.errors(), diags.warnings())
-        .map_err(|err| eco_format!("failed to print diagnostics ({err})"))
-        .unwrap();
+    match all_checks(package_spec.as_ref(), package_dir).await {
+        Ok((mut world, diags)) => {
+            if let Err(err) = print_diagnostics(&mut world, diags.errors(), diags.warnings()) {
+                error!("failed to print diagnostics ({err})")
+            }
+        }
+        Err(e) => println!("Fatal error: {}", e),
+    }
 }
 
 /// Print diagnostic messages to the terminal.

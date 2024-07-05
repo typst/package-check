@@ -10,6 +10,12 @@ pub struct Diagnostics {
 }
 
 impl Diagnostics {
+    pub fn maybe_emit<T>(&mut self, maybe_err: eyre::Result<T>) {
+        if let Err(e) = maybe_err {
+            self.emit(Diagnostic::error().with_message(format!("{}", e)))
+        }
+    }
+
     pub fn emit(&mut self, d: Diagnostic<FileId>) {
         tracing::debug!("Emitting: {:?}", &d);
         if d.severity == Severity::Warning {

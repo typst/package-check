@@ -1,7 +1,7 @@
 use std::{ops::Range, path::Path};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
-use ecow::eco_format;
+use eyre::{Context, ContextCompat};
 use ignore::overrides::{Override, OverrideBuilder};
 use toml_edit::Item;
 use tracing::{debug, warn};
@@ -10,9 +10,10 @@ use typst::syntax::{
     FileId, VirtualPath,
 };
 
-use crate::{check::file_size, world::SystemWorld};
-
-use super::Diagnostics;
+use crate::{
+    check::{file_size, Diagnostics},
+    world::SystemWorld,
+};
 
 pub struct Worlds {
     pub package: SystemWorld,
@@ -23,16 +24,23 @@ pub async fn check(
     package_dir: &Path,
     diags: &mut Diagnostics,
     package_spec: Option<&PackageSpec>,
-) -> Worlds {
+) -> eyre::Result<Worlds> {
     let manifest_path = package_dir.join("typst.toml");
     debug!("Reading manifest at {}", &manifest_path.display());
-    let manifest_contents = std::fs::read_to_string(manifest_path).unwrap();
-    let manifest = toml_edit::ImDocument::parse(&manifest_contents).unwrap();
+    let manifest_contents =
+        std::fs::read_to_string(manifest_path).context("Failed to read manifest contents.")?;
+    let manifest = toml_edit::ImDocument::parse(&manifest_contents)
+        .context("Failed to parse manifest contents")?;
 
-    let entrypoint = package_dir.join(manifest["package"]["entrypoint"].as_str().unwrap());
-    let mut world = SystemWorld::new(entrypoint, package_dir.to_owned())
-        .map_err(|err| eco_format!("{err}"))
-        .unwrap();
+    let entrypoint = package_dir.join(
+        manifest
+            .get("package")
+            .and_then(|package| package.get("entrypoint"))
+            .and_then(|entrypoint| entrypoint.as_str())
+            .context("Packages must specify an `entrypoint` in their manifest")?,
+    );
+    let world = SystemWorld::new(entrypoint, package_dir.to_owned())
+        .map_err(|e| eyre::Report::msg(e).wrap_err("Failed to initialize the Typst compiler"))?;
 
     let manifest_file_id = FileId::new(None, VirtualPath::new("typst.toml"));
 
@@ -48,21 +56,27 @@ pub async fn check(
                     about the manifest format.",
                 ),
         );
-        return Worlds {
+        return Ok(Worlds {
             package: world,
             template: None,
-        };
+        });
     }
 
     let name = check_name(diags, manifest_file_id, &manifest, package_spec);
     let version = check_version(diags, manifest_file_id, &manifest, package_spec);
-    exclude_large_files(diags, package_dir, &manifest);
-    check_file_names(diags, package_dir);
-    dont_over_exclude(diags, package_dir, manifest_file_id, &manifest);
+
+    let res = exclude_large_files(diags, package_dir, &manifest);
+    diags.maybe_emit(res);
+
+    let res = check_file_names(diags, package_dir);
+    diags.maybe_emit(res);
+
+    let res = dont_over_exclude(diags, package_dir, manifest_file_id, &manifest);
+    diags.maybe_emit(res);
+
     check_repo(diags, manifest_file_id, &manifest).await;
 
-    let (exclude, _) = read_exclude(package_dir, &manifest);
-    world.exclude(exclude.clone());
+    let (exclude, _) = read_exclude(package_dir, &manifest)?;
 
     let template_world = if let (Some(name), Some(version)) = (name, version) {
         let inferred_package_spec = PackageSpec {
@@ -84,10 +98,10 @@ pub async fn check(
     dont_exclude_template_files(diags, &manifest, package_dir, exclude);
     check_thumbnail(diags, &manifest, manifest_file_id, package_dir);
 
-    Worlds {
+    Ok(Worlds {
         package: world,
         template: template_world,
-    }
+    })
 }
 
 fn check_name(
@@ -96,7 +110,10 @@ fn check_name(
     manifest: &toml_edit::ImDocument<&String>,
     package_spec: Option<&PackageSpec>,
 ) -> Option<String> {
-    let Some(name) = manifest["package"].get("name") else {
+    let Some(name) = manifest
+        .get("package")
+        .and_then(|package| package.get("name"))
+    else {
         diags.emit(
             Diagnostic::error()
                 .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
@@ -156,7 +173,10 @@ fn check_version(
     manifest: &toml_edit::ImDocument<&String>,
     package_spec: Option<&PackageSpec>,
 ) -> Option<PackageVersion> {
-    let Some(version) = manifest["package"].get("version") else {
+    let Some(version) = manifest
+        .get("package")
+        .and_then(|package| package.get("version"))
+    else {
         diags.emit(
             Diagnostic::error()
                 .with_labels(vec![Label::primary(manifest_file_id, 0..0)])
@@ -207,13 +227,13 @@ fn exclude_large_files(
     diags: &mut Diagnostics,
     package_dir: &Path,
     manifest: &toml_edit::ImDocument<&String>,
-) {
-    let (exclude, _) = read_exclude(package_dir, manifest);
+) -> eyre::Result<()> {
+    let (exclude, _) = read_exclude(package_dir, manifest)?;
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
 
     let large_files = file_size::find_large_files(package_dir, exclude.clone());
-    for (path, size) in large_files {
+    for (path, size) in large_files? {
         let fid = FileId::new(None, VirtualPath::new(&path));
 
         let message = if size > REALLY_LARGE {
@@ -258,7 +278,10 @@ fn exclude_large_files(
             continue;
         }
 
-        let relative_path = ch.path().strip_prefix(package_dir).unwrap();
+        let relative_path = ch
+            .path()
+            .strip_prefix(package_dir)
+            .context("Child path is not part of parent path")?;
 
         let file_name = ch.file_name();
         let file_name_str = file_name.to_string_lossy();
@@ -289,6 +312,8 @@ fn exclude_large_files(
             continue;
         }
     }
+
+    Ok(())
 }
 
 fn dont_over_exclude(
@@ -296,8 +321,8 @@ fn dont_over_exclude(
     package_dir: &Path,
     manifest_file_id: FileId,
     manifest: &toml_edit::ImDocument<&String>,
-) {
-    let (exclude, span) = read_exclude(package_dir, manifest);
+) -> eyre::Result<()> {
+    let (exclude, span) = read_exclude(package_dir, manifest)?;
 
     let warning = Diagnostic::warning().with_labels(vec![Label::primary(manifest_file_id, span)]);
 
@@ -312,10 +337,12 @@ fn dont_over_exclude(
     if exclude.matched("README.md", false).is_ignore() {
         diags.emit(warning.with_message("Your README.md file should not be excluded."));
     }
+
+    Ok(())
 }
 
-fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) {
-    for ch in std::fs::read_dir(package_dir).unwrap() {
+fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) -> eyre::Result<()> {
+    for ch in std::fs::read_dir(package_dir).context("Failed to read package directory")? {
         let mut error_for_file = |path, message| {
             let file_id = FileId::new(None, VirtualPath::new(path));
             diags.emit(
@@ -351,9 +378,13 @@ fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) {
             && stem_uppercase != stem
         {
             let fixed = if let Some(ext) = file_path.extension() {
-                format!("{}.{}", stem.unwrap().to_uppercase(), ext.to_string_lossy())
+                format!(
+                    "{}.{}",
+                    stem.unwrap_or_default().to_uppercase(),
+                    ext.to_string_lossy()
+                )
             } else {
-                stem.unwrap().to_uppercase()
+                stem.unwrap_or_default().to_uppercase()
             };
             error_for_file(
                 file_path,
@@ -364,6 +395,8 @@ fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) {
             )
         }
     }
+
+    Ok(())
 }
 
 async fn check_url(diags: &mut Diagnostics, manifest_file_id: FileId, field: &Item) -> Option<()> {
@@ -375,7 +408,7 @@ async fn check_url(diags: &mut Diagnostics, manifest_file_id: FileId, field: &It
             Diagnostic::error()
                 .with_labels(vec![Label::primary(
                     manifest_file_id,
-                    field.span().unwrap(),
+                    field.span().unwrap_or_default(),
                 )])
                 .with_message(format!(
                     "We could not fetch this URL.\n\nDetails: {:#?}",
@@ -403,7 +436,7 @@ async fn check_repo(
             Diagnostic::error()
                 .with_labels(vec![Label::primary(
                     manifest_file_id,
-                    homepage_field.span().unwrap(),
+                    homepage_field.span().unwrap_or_default(),
                 )])
                 .with_message("The homepage and repository fields are redundant.".to_owned()),
         )
@@ -415,14 +448,19 @@ async fn check_repo(
 fn read_exclude(
     package_dir: &Path,
     manifest: &toml_edit::ImDocument<&String>,
-) -> (Override, Range<usize>) {
+) -> eyre::Result<(Override, Range<usize>)> {
     let empty_array = toml_edit::Array::new();
-    let exclude = manifest["package"]
-        .get("exclude")
+    let exclude = manifest
+        .get("package")
+        .and_then(|package| package.get("exclude"))
         .and_then(|item| item.as_array())
         .unwrap_or(&empty_array);
 
-    let mut exclude_globs = OverrideBuilder::new(package_dir.canonicalize().unwrap());
+    let mut exclude_globs = OverrideBuilder::new(
+        package_dir
+            .canonicalize()
+            .context("Failed to canonicalize package directory")?,
+    );
     for exclusion in exclude {
         let Some(exclusion) = exclusion.as_str() else {
             continue;
@@ -436,10 +474,10 @@ fn read_exclude(
         let exclusion = exclusion.trim_start_matches("./");
         exclude_globs.add(&format!("!{exclusion}")).ok();
     }
-    (
-        exclude_globs.build().unwrap(),
+    Ok((
+        exclude_globs.build().context("Invalid exclude globs")?,
         exclude.span().unwrap_or(0..0),
-    )
+    ))
 }
 
 fn world_for_template(

@@ -60,8 +60,10 @@ pub async fn hook_server() {
         });
 
     info!("Starting…");
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:7878").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:7878")
+        .await
+        .expect("Can't listen on 0.0.0.0:7878");
+    axum::serve(listener, app).await.expect("Server error");
 }
 
 /// The page served on `/`, just to check that everything runs properly.
@@ -82,7 +84,10 @@ async fn force(
             installation: Installation {
                 id: str::parse(&install).map_err(|_| "Invalid installation ID")?,
             },
-            repository: Repository::new("typst/packages"),
+            repository: Repository::new("typst/packages").map_err(|e| {
+                debug!("{}", e);
+                "Invalid repository path"
+            })?,
             check_suite: CheckSuite { head_sha: sha },
         }),
     )
@@ -115,144 +120,167 @@ async fn github_hook(
     };
 
     tokio::spawn(async move {
-        let git_repo = GitRepo::open(Path::new(&state.git_dir));
-        git_repo.pull_main().await;
-        if git_repo.fetch_commit(&head_sha).await.is_none() {
-            warn!(
-                "Failed to fetch {} (probably because of some large file).",
-                head_sha
-            );
-            return None;
-        }
-        let touched_files = git_repo.files_touched_by(&head_sha).await?;
+        async fn inner(
+            state: AppState,
+            head_sha: String,
+            api_client: GitHub,
+            repository: Repository,
+        ) -> eyre::Result<()> {
+            let git_repo = GitRepo::open(Path::new(&state.git_dir));
+            git_repo.pull_main().await?;
+            git_repo.fetch_commit(&head_sha).await?;
+            let touched_files = git_repo.files_touched_by(&head_sha).await?;
 
-        let mut touches_outside_of_packages = false;
+            let mut touches_outside_of_packages = false;
 
-        let touched_packages = touched_files
-            .into_iter()
-            .filter_map(|line| {
-                let mut components = line.components();
-                if components.next()?.as_os_str() != OsStr::new("packages") {
-                    touches_outside_of_packages = true;
-                    return None;
+            let touched_packages = touched_files
+                .into_iter()
+                .filter_map(|line| {
+                    let mut components = line.components();
+                    if components.next()?.as_os_str() != OsStr::new("packages") {
+                        touches_outside_of_packages = true;
+                        return None;
+                    }
+
+                    let namespace = components.next()?.as_os_str().to_str()?.into();
+                    let name = components.next()?.as_os_str().to_str()?.into();
+                    let version = components.next()?.as_os_str().to_str()?.parse().ok()?;
+                    Some(PackageSpec {
+                        namespace,
+                        name,
+                        version,
+                    })
+                })
+                .collect::<HashSet<_>>();
+
+            for ref package in touched_packages {
+                let check_run = api_client
+                    .create_check_run(
+                        repository.owner(),
+                        repository.name(),
+                        format!(
+                            "@{}/{}:{}",
+                            package.namespace, package.name, package.version
+                        ),
+                        &head_sha,
+                    )
+                    .await?;
+
+                if touches_outside_of_packages {
+                    api_client.update_check_run(
+                        repository.owner(),
+                        repository.name(),
+                        check_run.id,
+                        false,
+                        CheckRunOutput {
+                            title: "This PR does too many things",
+                            summary: "A PR should either change packages/, or the rest of the repository, but not both.",
+                            annotations: &[],
+                        },
+                    ).await?;
+                    continue;
                 }
 
-                let namespace = components.next()?.as_os_str().to_str()?.into();
-                let name = components.next()?.as_os_str().to_str()?.into();
-                let version = components.next()?.as_os_str().to_str()?.parse().ok()?;
-                Some(PackageSpec {
-                    namespace,
-                    name,
-                    version,
-                })
-            })
-            .collect::<HashSet<_>>();
+                let checkout_dir = format!("checkout-{}", head_sha);
+                git_repo.checkout_commit(&head_sha, &checkout_dir).await?;
 
-        for ref package in touched_packages {
-            let check_run = api_client
-                .create_check_run(
-                    repository.owner(),
-                    repository.name(),
-                    format!(
-                        "@{}/{}:{}",
-                        package.namespace, package.name, package.version
-                    ),
-                    &head_sha,
+                let (world, diags) = match check::all_checks(
+                    Some(package),
+                    PathBuf::new()
+                        .join(&checkout_dir)
+                        .join("packages")
+                        .join(package.namespace.as_str())
+                        .join(package.name.as_str())
+                        .join(package.version.to_string()),
                 )
                 .await
-                .unwrap();
+                {
+                    Ok(x) => x,
+                    Err(e) => {
+                        api_client
+                            .update_check_run(
+                                repository.owner(),
+                                repository.name(),
+                                check_run.id,
+                                false,
+                                CheckRunOutput {
+                                    title: "Fatal error",
+                                    summary: &format!(
+                                        "The following error was encountered:\n\n{}",
+                                        e
+                                    ),
+                                    annotations: &[],
+                                },
+                            )
+                            .await?;
+                        return Err(e);
+                    }
+                };
 
-            if touches_outside_of_packages {
-                api_client.update_check_run(
-                    repository.owner(),
-                    repository.name(),
-                    check_run.id,
-                    false,
-                    CheckRunOutput {
-                        title: "This PR does too many things",
-                        summary: "A PR should either change packages/, or the rest of the repository, but not both.",
-                        annotations: &[],
-                    },
-                ).await.unwrap();
-                continue;
-            }
+                let plural = |n| if n == 1 { "" } else { "s" };
 
-            let checkout_dir = format!("checkout-{}", head_sha);
-            git_repo
-                .checkout_commit(&head_sha, &checkout_dir)
-                .await
-                .unwrap();
-
-            let (world, diags) = check::all_checks(
-                Some(package),
-                PathBuf::new()
-                    .join(&checkout_dir)
-                    .join("packages")
-                    .join(package.namespace.as_str())
-                    .join(package.name.as_str())
-                    .join(package.version.to_string()),
-            )
-            .await;
-
-            let plural = |n| if n == 1 { "" } else { "s" };
-
-            api_client
-                .update_check_run(
-                    repository.owner(),
-                    repository.name(),
-                    check_run.id,
-                    diags.errors().is_empty() && diags.warnings().is_empty(),
-                    CheckRunOutput {
-                        title: &if diags.errors().is_empty() {
-                            if diags.warnings().is_empty() {
-                                format!(
-                                    "{} error{}",
-                                    diags.errors().len(),
-                                    plural(diags.errors().len())
-                                )
+                api_client
+                    .update_check_run(
+                        repository.owner(),
+                        repository.name(),
+                        check_run.id,
+                        diags.errors().is_empty() && diags.warnings().is_empty(),
+                        CheckRunOutput {
+                            title: &if diags.errors().is_empty() {
+                                if diags.warnings().is_empty() {
+                                    format!(
+                                        "{} error{}",
+                                        diags.errors().len(),
+                                        plural(diags.errors().len())
+                                    )
+                                } else {
+                                    format!(
+                                        "{} error{}, {} warning{}",
+                                        diags.errors().len(),
+                                        plural(diags.errors().len()),
+                                        diags.warnings().len(),
+                                        plural(diags.warnings().len())
+                                    )
+                                }
+                            } else if diags.warnings().is_empty() {
+                                "All good!".to_owned()
                             } else {
                                 format!(
-                                    "{} error{}, {} warning{}",
-                                    diags.errors().len(),
-                                    plural(diags.errors().len()),
+                                    "{} warning{}",
                                     diags.warnings().len(),
                                     plural(diags.warnings().len())
                                 )
-                            }
-                        } else if diags.warnings().is_empty() {
-                            "All good!".to_owned()
-                        } else {
-                            format!(
-                                "{} warning{}",
+                            },
+                            summary: &format!(
+                                "Our bots have automatically run some checks on your packages. \
+                                They found {} error{} and {} warning{}.\n\n\
+                                Warnings are suggestions, your package can still be accepted even \
+                                if you prefer not to fix them.\n\n\
+                                A human being will soon review your package, too.",
+                                diags.errors().len(),
+                                plural(diags.errors().len()),
                                 diags.warnings().len(),
-                                plural(diags.warnings().len())
-                            )
+                                plural(diags.warnings().len()),
+                            ),
+                            annotations: &diags
+                                .errors()
+                                .iter()
+                                .chain(diags.warnings())
+                                .filter_map(|diag| diagnostic_to_annotation(&world, package, diag))
+                                .collect::<Vec<_>>(),
                         },
-                        summary: &format!(
-                            "Our bots have automatically run some checks on your packages. \
-                            They found {} error{} and {} warning{}.\n\n\
-                            Warnings are suggestions, your package can still be accepted even \
-                            if you prefer not to fix them.\n\n\
-                            A human being will soon review your package, too.",
-                            diags.errors().len(),
-                            plural(diags.errors().len()),
-                            diags.warnings().len(),
-                            plural(diags.warnings().len()),
-                        ),
-                        annotations: &diags
-                            .errors()
-                            .iter()
-                            .chain(diags.warnings())
-                            .filter_map(|diag| diagnostic_to_annotation(&world, package, diag))
-                            .collect::<Vec<_>>(),
-                    },
-                )
-                .await
-                .unwrap();
+                    )
+                    .await?;
 
-            tokio::fs::remove_dir_all(checkout_dir).await.ok()?;
+                tokio::fs::remove_dir_all(checkout_dir).await?;
+            }
+
+            Ok(())
         }
-        Some(())
+
+        if let Err(e) = inner(state, head_sha, api_client, repository).await {
+            warn!("Error in hook handler: {}", e)
+        }
     });
 
     Ok(())
@@ -311,7 +339,7 @@ impl IntoResponse for WebError {
         Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(Body::from(format!("{:?}", self)))
-            .unwrap()
+            .expect("Can't build error response")
     }
 }
 

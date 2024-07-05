@@ -5,6 +5,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use eyre::{Context, ContextCompat};
 use tokio::process::Command;
 use tracing::debug;
 
@@ -17,12 +18,12 @@ impl<'a> GitRepo<'a> {
         GitRepo { dir }
     }
 
-    pub async fn pull_main(&self) -> Option<()> {
+    pub async fn pull_main(&self) -> eyre::Result<()> {
         debug!("Pulling main branch");
         Command::new("git")
             .args([
                 "-C",
-                self.dir.to_str()?,
+                self.dir()?,
                 "-c",
                 "receive.maxInputSize=134217728", // 128MB
                 "pull",
@@ -30,34 +31,31 @@ impl<'a> GitRepo<'a> {
                 "main",
                 "--ff-only",
             ])
-            .spawn()
-            .ok()?
+            .spawn()?
             .wait()
-            .await
-            .ok()?;
+            .await?;
         debug!("Done");
-        Some(())
+        Ok(())
     }
 
-    pub async fn fetch_commit(&self, sha: impl AsRef<str>) -> Option<()> {
+    pub async fn fetch_commit(&self, sha: impl AsRef<str>) -> eyre::Result<()> {
         debug!("Fetching commit: {}", sha.as_ref());
         Command::new("git")
             .args([
                 "-C",
-                self.dir.to_str()?,
+                self.dir()?,
                 "-c",
                 "receive.maxInputSize=134217728", // 128MB
                 "fetch",
                 "origin",
                 sha.as_ref(),
             ])
-            .spawn()
-            .ok()?
+            .spawn()?
             .wait()
             .await
-            .ok()?;
+            .context("Failed to fetch {} (probably because of some large file).")?;
         debug!("Done");
-        Some(())
+        Ok(())
     }
 
     /// Checks out a commit in a new working tree
@@ -65,40 +63,40 @@ impl<'a> GitRepo<'a> {
         &self,
         sha: impl AsRef<str>,
         working_tree: impl AsRef<Path>,
-    ) -> Option<()> {
+    ) -> eyre::Result<()> {
         debug!(
             "Checking out {} in {}",
             sha.as_ref(),
             working_tree.as_ref().display()
         );
-        tokio::fs::create_dir_all(&working_tree).await.ok()?;
-        let working_tree = working_tree.as_ref().canonicalize().unwrap();
+        tokio::fs::create_dir_all(&working_tree).await?;
+        let working_tree = working_tree.as_ref().canonicalize()?;
         Command::new("git")
             .args([
                 "-C",
-                self.dir.to_str()?,
+                self.dir
+                    .to_str()
+                    .context("Directory name is not valid unicode")?,
                 &format!("--work-tree={}", working_tree.display()),
                 "checkout",
                 sha.as_ref(),
                 "--",
                 ".",
             ])
-            .spawn()
-            .ok()?
+            .spawn()?
             .wait()
-            .await
-            .ok()?;
+            .await?;
         debug!("Done");
-        Some(())
+        Ok(())
     }
 
-    pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> Option<Vec<PathBuf>> {
+    pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> eyre::Result<Vec<PathBuf>> {
         debug!("Listing files touched by {}", sha.as_ref());
         let command_output = String::from_utf8(
             Command::new("git")
                 .args([
                     "-C",
-                    self.dir.to_str()?,
+                    self.dir()?,
                     "diff-tree",
                     "--no-commit-id",
                     "--name-only",
@@ -107,20 +105,16 @@ impl<'a> GitRepo<'a> {
                     "main",
                 ])
                 .output()
-                .await
-                .ok()?
+                .await?
                 .stdout,
-        )
-        .ok()?;
+        )?;
 
         debug!("Done");
 
-        Some(
-            command_output
-                .lines()
-                .map(|l| Path::new(l).to_owned())
-                .collect(),
-        )
+        Ok(command_output
+            .lines()
+            .map(|l| Path::new(l).to_owned())
+            .collect())
     }
 
     pub fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
@@ -155,5 +149,11 @@ impl<'a> GitRepo<'a> {
 
         debug!("Done");
         Some(authors)
+    }
+
+    pub fn dir(&self) -> eyre::Result<&str> {
+        self.dir
+            .to_str()
+            .context("Directory name is not valid unicode")
     }
 }

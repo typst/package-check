@@ -60,7 +60,7 @@ pub fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
                 Diagnostic::warning()
                     .with_labels(vec![Label::primary(manifest, 0..0)])
                     .with_message(
-                        "The authors of this version are not the same as those of the previous one."
+                        "The authors of this version are not the same as those of the previous one (according to Git)."
                     )
             );
         }
