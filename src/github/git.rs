@@ -18,6 +18,7 @@ impl<'a> GitRepo<'a> {
     }
 
     pub async fn pull_main(&self) -> Option<()> {
+        debug!("Pulling main branch");
         Command::new("git")
             .args([
                 "-C",
@@ -34,10 +35,12 @@ impl<'a> GitRepo<'a> {
             .wait()
             .await
             .ok()?;
+        debug!("Done");
         Some(())
     }
 
     pub async fn fetch_commit(&self, sha: impl AsRef<str>) -> Option<()> {
+        debug!("Fetching commit: {}", sha.as_ref());
         Command::new("git")
             .args([
                 "-C",
@@ -53,6 +56,7 @@ impl<'a> GitRepo<'a> {
             .wait()
             .await
             .ok()?;
+        debug!("Done");
         Some(())
     }
 
@@ -84,10 +88,12 @@ impl<'a> GitRepo<'a> {
             .wait()
             .await
             .ok()?;
+        debug!("Done");
         Some(())
     }
 
     pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> Option<Vec<PathBuf>> {
+        debug!("Listing files touched by {}", sha.as_ref());
         let command_output = String::from_utf8(
             Command::new("git")
                 .args([
@@ -107,6 +113,8 @@ impl<'a> GitRepo<'a> {
         )
         .ok()?;
 
+        debug!("Done");
+
         Some(
             command_output
                 .lines()
@@ -117,6 +125,8 @@ impl<'a> GitRepo<'a> {
 
     pub fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
         use std::process::Command;
+
+        debug!("Lisiting authors of {}", file.display());
 
         let output = String::from_utf8(
             Command::new("git")
@@ -142,6 +152,8 @@ impl<'a> GitRepo<'a> {
                 l[prefix_len..].to_owned()
             })
             .collect();
+
+        debug!("Done");
         Some(authors)
     }
 }

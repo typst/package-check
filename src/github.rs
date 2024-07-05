@@ -80,7 +80,7 @@ async fn force(
         HookPayload::CheckSuite(CheckSuitePayload {
             action: CheckSuiteAction::Requested,
             installation: Installation {
-                id: u64::from_str_radix(&install, 10).map_err(|_| "Invalid installation ID")?,
+                id: str::parse(&install).map_err(|_| "Invalid installation ID")?,
             },
             repository: Repository::new("typst/packages"),
             check_suite: CheckSuite { head_sha: sha },
@@ -219,16 +219,14 @@ async fn github_hook(
                                     plural(diags.warnings().len())
                                 )
                             }
+                        } else if diags.warnings().is_empty() {
+                            "All good!".to_owned()
                         } else {
-                            if diags.warnings().is_empty() {
-                                format!("All good!")
-                            } else {
-                                format!(
-                                    "{} warning{}",
-                                    diags.warnings().len(),
-                                    plural(diags.warnings().len())
-                                )
-                            }
+                            format!(
+                                "{} warning{}",
+                                diags.warnings().len(),
+                                plural(diags.warnings().len())
+                            )
                         },
                         summary: &format!(
                             "Our bots have automatically run some checks on your packages. \
@@ -243,7 +241,7 @@ async fn github_hook(
                         ),
                         annotations: &diags
                             .errors()
-                            .into_iter()
+                            .iter()
                             .chain(diags.warnings())
                             .filter_map(|diag| diagnostic_to_annotation(&world, package, diag))
                             .collect::<Vec<_>>(),

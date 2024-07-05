@@ -469,29 +469,25 @@ fn dont_exclude_template_files(
         .get("template")
         .and_then(|t| t.get("path"))?
         .as_str()?;
-    for entry in ignore::Walk::new(package_dir.join(template_root)) {
-        if let Ok(entry) = entry {
-            if exclude
-                .matched(
-                    entry.path().canonicalize().ok()?,
-                    entry.metadata().ok()?.is_dir(),
-                )
-                .is_ignore()
-            {
-                diags.emit(
-                    Diagnostic::error()
-                        .with_message(
-                            "This file is part of the template and should not be excluded.",
-                        )
-                        .with_labels(vec![Label::primary(
-                            FileId::new(
-                                None,
-                                VirtualPath::new(entry.path().strip_prefix(&package_dir).ok()?),
-                            ),
-                            0..0,
-                        )]),
-                )
-            }
+    for entry in ignore::Walk::new(package_dir.join(template_root)).flatten() {
+        if exclude
+            .matched(
+                entry.path().canonicalize().ok()?,
+                entry.metadata().ok()?.is_dir(),
+            )
+            .is_ignore()
+        {
+            diags.emit(
+                Diagnostic::error()
+                    .with_message("This file is part of the template and should not be excluded.")
+                    .with_labels(vec![Label::primary(
+                        FileId::new(
+                            None,
+                            VirtualPath::new(entry.path().strip_prefix(package_dir).ok()?),
+                        ),
+                        0..0,
+                    )]),
+            )
         }
     }
 
