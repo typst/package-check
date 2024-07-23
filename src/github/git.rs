@@ -118,8 +118,9 @@ impl<'a> GitRepo<'a> {
                     "--no-commit-id",
                     "--name-only",
                     "-r",
-                    sha.as_ref(),
+                    "--merge-base",
                     "main",
+                    sha.as_ref(),
                 ])
                 .output()
                 .await?
