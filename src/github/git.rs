@@ -18,6 +18,23 @@ impl<'a> GitRepo<'a> {
         GitRepo { dir }
     }
 
+    pub async fn clone_if_needed(&self, url: &str) -> eyre::Result<()> {
+        let status = Command::new("git")
+            .args(["-C", self.dir()?, "status"])
+            .status()
+            .await?;
+
+        if !status.success() {
+            Command::new("git")
+                .args(["clone", url, self.dir()?])
+                .spawn()?
+                .wait()
+                .await?;
+        }
+
+        Ok(())
+    }
+
     pub async fn pull_main(&self) -> eyre::Result<()> {
         debug!("Pulling main branch");
         Command::new("git")

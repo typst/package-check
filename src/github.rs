@@ -43,21 +43,26 @@ struct AppState {
 
 /// Runs an HTTP server to handle GitHub hooks
 pub async fn hook_server() {
+    let state = AppState {
+        webhook_secret: std::env::var("GITHUB_WEBHOOK_SECRET")
+            .expect("GITHUB_WEBHOOK_SECRET is not set.")
+            .into_bytes(),
+        private_key: std::env::var("GITHUB_PRIVATE_KEY").expect("GITHUB_PRIVATE_KEY is not set."),
+        app_id: std::env::var("GITHUB_APP_IDENTIFIER").expect("GITHUB_APP_IDENTIFIER is not set."),
+        git_dir: std::env::var("PACKAGES_DIR").expect("PACKAGES_DIR is not set."),
+    };
+
+    GitRepo::open(Path::new(&state.git_dir[..]))
+        .clone_if_needed("https://github.com/typst/packages.git")
+        .await
+        .expect("Can't clone the packages repository");
+
     let app = Router::new()
         .route("/", get(index))
         .route("/github-hook", post(github_hook))
         .route("/force-review/:install/:sha", get(force))
         .layer(tower_http::trace::TraceLayer::new_for_http())
-        .with_state(AppState {
-            webhook_secret: std::env::var("GITHUB_WEBHOOK_SECRET")
-                .expect("GITHUB_WEBHOOK_SECRET is not set.")
-                .into_bytes(),
-            private_key: std::env::var("GITHUB_PRIVATE_KEY")
-                .expect("GITHUB_PRIVATE_KEY is not set."),
-            app_id: std::env::var("GITHUB_APP_IDENTIFIER")
-                .expect("GITHUB_APP_IDENTIFIER is not set."),
-            git_dir: std::env::var("PACKAGES_DIR").expect("PACKAGES_DIR is not set."),
-        });
+        .with_state(state);
 
     info!("Starting…");
     let listener = tokio::net::TcpListener::bind("0.0.0.0:7878")
