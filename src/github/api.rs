@@ -11,7 +11,7 @@ use jwt_simple::{
 };
 use reqwest::{RequestBuilder, StatusCode};
 use serde::Deserialize;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 use self::{
     check::{CheckRun, CheckRunId, CheckRunOutput},
@@ -156,7 +156,6 @@ impl FromRequestParts<AppState> for GitHub {
     ) -> Result<Self, Self::Rejection> {
         let Ok(private_key) = RS256KeyPair::from_pem(&state.private_key) else {
             warn!("The private key in the .env file cannot be parsed as PEM.");
-            info!("The private key was:\n{}", &state.private_key);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         };
 

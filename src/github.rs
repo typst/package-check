@@ -49,7 +49,7 @@ pub async fn hook_server() {
             .into_bytes(),
         private_key: std::env::var("GITHUB_PRIVATE_KEY")
             .expect("GITHUB_PRIVATE_KEY is not set.")
-            .replace(' ', "\n"),
+            .replace('&', "\n"),
         app_id: std::env::var("GITHUB_APP_IDENTIFIER").expect("GITHUB_APP_IDENTIFIER is not set."),
         git_dir: std::env::var("PACKAGES_DIR").expect("PACKAGES_DIR is not set."),
     };
