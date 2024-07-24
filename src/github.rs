@@ -15,6 +15,7 @@ use codespan_reporting::{
     diagnostic::{Diagnostic, Severity},
     files::Files,
 };
+use eyre::Context;
 use hook::CheckRunPayload;
 use jwt_simple::prelude::*;
 use tracing::{debug, info, warn};
@@ -117,7 +118,9 @@ async fn github_hook(
     mut api_client: GitHub,
     payload: HookPayload,
 ) -> Result<(), WebError> {
+    debug!("GitHub hook was triggered");
     api_client.auth_installation(&payload).await?;
+    debug!("Successfully authenticated application");
 
     let (head_sha, repository, previous_check_run) = match payload {
         HookPayload::CheckSuite(CheckSuitePayload {
@@ -140,6 +143,7 @@ async fn github_hook(
         _ => return Err(WebError::UnexpectedEvent),
     };
 
+    debug!("Starting checks for {}", head_sha);
     tokio::spawn(async move {
         async fn inner(
             state: AppState,
@@ -194,7 +198,8 @@ async fn github_hook(
                             check_run_name,
                             &head_sha,
                         )
-                        .await?
+                        .await
+                        .context("Failed to create a new check run")?
                 };
 
                 if touches_outside_of_packages {
@@ -208,12 +213,16 @@ async fn github_hook(
                             summary: "A PR should either change packages/, or the rest of the repository, but not both.",
                             annotations: &[],
                         },
-                    ).await?;
+                    ).await
+                    .context("Failed to cancel a check run because the branch does too many things")?;
                     continue;
                 }
 
                 let checkout_dir = format!("checkout-{}", head_sha);
-                git_repo.checkout_commit(&head_sha, &checkout_dir).await?;
+                git_repo
+                    .checkout_commit(&head_sha, &checkout_dir)
+                    .await
+                    .context("Failed to checkout commit")?;
 
                 let (world, diags) = match check::all_checks(
                     Some(package),
@@ -243,7 +252,8 @@ async fn github_hook(
                                     annotations: &[],
                                 },
                             )
-                            .await?;
+                            .await
+                            .context("Failed to report fatal error")?;
                         return Err(e);
                     }
                 };
@@ -301,7 +311,8 @@ async fn github_hook(
                                 .collect::<Vec<_>>(),
                         },
                     )
-                    .await?;
+                    .await
+                    .context("Failed to send report")?;
 
                 tokio::fs::remove_dir_all(checkout_dir).await?;
             }
