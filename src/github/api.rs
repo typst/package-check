@@ -42,8 +42,8 @@ impl std::error::Error for ApiError {
 impl Display for ApiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ApiError::Reqwest(_) => write!(f, "Network error"),
-            ApiError::Json(_) => write!(f, "JSON ser/de error"),
+            ApiError::Reqwest(e) => write!(f, "Network error: {:?}", e),
+            ApiError::Json(e) => write!(f, "JSON ser/de error: {:?}", e),
         }
     }
 }
