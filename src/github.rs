@@ -189,7 +189,7 @@ async fn github_hook(
                     .as_ref()
                     .filter(|p| p.name == check_run_name)
                 {
-                    previous.clone()
+                    previous.clone().without_suite()
                 } else {
                     api_client
                         .create_check_run(
@@ -200,6 +200,7 @@ async fn github_hook(
                         )
                         .await
                         .context("Failed to create a new check run")?
+                        .without_suite()
                 };
 
                 if touches_outside_of_packages {

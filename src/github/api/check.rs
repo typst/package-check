@@ -2,9 +2,18 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Deserialize, Clone, Copy)]
+#[serde(transparent)]
+pub struct CheckSuiteId(#[allow(dead_code)] u64);
+
 #[derive(Clone, Deserialize)]
 pub struct CheckSuite {
     pub head_sha: String,
+}
+
+#[derive(Clone, Deserialize)]
+pub struct MinimalCheckSuite {
+    pub id: CheckSuiteId,
 }
 
 #[derive(Deserialize)]
@@ -38,10 +47,20 @@ impl Display for CheckRunId {
 }
 
 #[derive(Clone, Deserialize)]
-pub struct CheckRun {
+pub struct CheckRun<S = CheckSuite> {
     pub id: CheckRunId,
     pub name: String,
-    pub check_suite: CheckSuite,
+    pub check_suite: S,
+}
+
+impl<S> CheckRun<S> {
+    pub fn without_suite(self) -> CheckRun<()> {
+        CheckRun {
+            id: self.id,
+            name: self.name,
+            check_suite: (),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]

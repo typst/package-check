@@ -3,6 +3,7 @@
 use std::fmt::Display;
 
 use axum::{extract::FromRequestParts, http::request::Parts};
+use check::MinimalCheckSuite;
 use eyre::Error;
 use jwt_simple::{
     algorithms::{RS256KeyPair, RSAKeyPairLike},
@@ -93,7 +94,7 @@ impl GitHub {
         repo: RepoId,
         check_run_name: String,
         head_sha: &str,
-    ) -> ApiResult<CheckRun> {
+    ) -> ApiResult<CheckRun<MinimalCheckSuite>> {
         let response = self
             .post(format!("repos/{owner}/{repo}/check-runs"))
             .body(serde_json::to_string(&serde_json::json!({
