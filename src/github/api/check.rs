@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct CheckSuite {
     pub head_sha: String,
 }
@@ -20,7 +20,7 @@ pub enum CheckSuiteAction {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
-enum CheckRunAction {
+pub enum CheckRunAction {
     Created,
     RequestedAction,
     Rerequested,
@@ -37,9 +37,11 @@ impl Display for CheckRunId {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct CheckRun {
     pub id: CheckRunId,
+    pub name: String,
+    pub check_suite: CheckSuite,
 }
 
 #[derive(Debug, Serialize)]

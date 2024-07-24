@@ -7,7 +7,7 @@ use tracing::{debug, warn};
 use crate::github::AppState;
 
 use super::{
-    check::{CheckSuite, CheckSuiteAction},
+    check::{CheckRun, CheckRunAction, CheckSuite, CheckSuiteAction},
     Installation, Repository,
 };
 
@@ -130,5 +130,8 @@ pub struct CheckSuitePayload {
 
 #[derive(Deserialize)]
 pub struct CheckRunPayload {
-    installation: Installation,
+    pub installation: Installation,
+    pub action: CheckRunAction,
+    pub repository: Repository,
+    pub check_run: CheckRun,
 }

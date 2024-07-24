@@ -15,13 +15,17 @@ use codespan_reporting::{
     diagnostic::{Diagnostic, Severity},
     files::Files,
 };
+use hook::CheckRunPayload;
 use jwt_simple::prelude::*;
 use tracing::{debug, info, warn};
 use typst::syntax::{package::PackageSpec, FileId};
 
 use crate::{check, world::SystemWorld};
 
-use api::*;
+use api::{
+    check::{CheckRun, CheckRunAction},
+    *,
+};
 
 mod api;
 pub mod git;
@@ -115,13 +119,23 @@ async fn github_hook(
 ) -> Result<(), WebError> {
     api_client.auth_installation(&payload).await?;
 
-    let (head_sha, repository) = match payload {
+    let (head_sha, repository, previous_check_run) = match payload {
         HookPayload::CheckSuite(CheckSuitePayload {
             action: CheckSuiteAction::Requested | CheckSuiteAction::Rerequested,
             repository,
             check_suite,
             ..
-        }) => (check_suite.head_sha, repository),
+        }) => (check_suite.head_sha, repository, None),
+        HookPayload::CheckRun(CheckRunPayload {
+            action: CheckRunAction::Rerequested,
+            repository,
+            check_run,
+            ..
+        }) => (
+            check_run.check_suite.head_sha.clone(),
+            repository,
+            Some(check_run),
+        ),
         HookPayload::CheckRun(_) => return Ok(()),
         _ => return Err(WebError::UnexpectedEvent),
     };
@@ -132,6 +146,7 @@ async fn github_hook(
             head_sha: String,
             api_client: GitHub,
             repository: Repository,
+            previous_check_run: Option<CheckRun>,
         ) -> eyre::Result<()> {
             let git_repo = GitRepo::open(Path::new(&state.git_dir));
             git_repo.pull_main().await?;
@@ -161,17 +176,26 @@ async fn github_hook(
                 .collect::<HashSet<_>>();
 
             for ref package in touched_packages {
-                let check_run = api_client
-                    .create_check_run(
-                        repository.owner(),
-                        repository.name(),
-                        format!(
-                            "@{}/{}:{}",
-                            package.namespace, package.name, package.version
-                        ),
-                        &head_sha,
-                    )
-                    .await?;
+                let check_run_name = format!(
+                    "@{}/{}:{}",
+                    package.namespace, package.name, package.version
+                );
+
+                let check_run = if let Some(previous) = previous_check_run
+                    .as_ref()
+                    .filter(|p| p.name == check_run_name)
+                {
+                    previous.clone()
+                } else {
+                    api_client
+                        .create_check_run(
+                            repository.owner(),
+                            repository.name(),
+                            check_run_name,
+                            &head_sha,
+                        )
+                        .await?
+                };
 
                 if touches_outside_of_packages {
                     api_client.update_check_run(
@@ -285,7 +309,7 @@ async fn github_hook(
             Ok(())
         }
 
-        if let Err(e) = inner(state, head_sha, api_client, repository).await {
+        if let Err(e) = inner(state, head_sha, api_client, repository, previous_check_run).await {
             warn!("Error in hook handler: {}", e)
         }
     });
