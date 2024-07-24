@@ -28,6 +28,7 @@ pub enum ApiError {
     #[allow(dead_code)]
     Reqwest(reqwest::Error),
     Json(serde_json::Error),
+    UnexpectedResponse(String),
 }
 
 impl std::error::Error for ApiError {
@@ -35,6 +36,7 @@ impl std::error::Error for ApiError {
         match self {
             ApiError::Reqwest(e) => Some(e),
             ApiError::Json(e) => Some(e),
+            ApiError::UnexpectedResponse(_) => None,
         }
     }
 }
@@ -44,6 +46,7 @@ impl Display for ApiError {
         match self {
             ApiError::Reqwest(e) => write!(f, "Network error: {:?}", e),
             ApiError::Json(e) => write!(f, "JSON ser/de error: {:?}", e),
+            ApiError::UnexpectedResponse(e) => write!(f, "Unexpected response: {:?}", e),
         }
     }
 }
@@ -91,7 +94,7 @@ impl GitHub {
         check_run_name: String,
         head_sha: &str,
     ) -> ApiResult<CheckRun> {
-        let result = self
+        let response = self
             .post(format!("repos/{owner}/{repo}/check-runs"))
             .body(serde_json::to_string(&serde_json::json!({
                 "name": check_run_name,
@@ -99,9 +102,13 @@ impl GitHub {
                 "status": "in_progress",
             }))?)
             .send()
-            .await?
-            .json()
             .await?;
+
+        if response.status() != StatusCode::CREATED {
+            return Err(ApiError::UnexpectedResponse(response.text().await?));
+        }
+
+        let result = serde_json::from_str(&response.text().await?)?;
         Ok(result)
     }
 

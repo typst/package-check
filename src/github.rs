@@ -321,7 +321,7 @@ async fn github_hook(
         }
 
         if let Err(e) = inner(state, head_sha, api_client, repository, previous_check_run).await {
-            warn!("Error in hook handler: {}", e)
+            warn!("Error in hook handler: {:#}", e)
         }
     });
 
