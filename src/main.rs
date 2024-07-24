@@ -6,7 +6,14 @@ mod world;
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
-    tracing_subscriber::fmt::init();
+
+    if std::env::var("LOG_STYLE").as_deref().unwrap_or("human") == "json" {
+        tracing_subscriber::fmt()
+            .event_format(tracing_subscriber::fmt::format::json())
+            .init();
+    } else {
+        tracing_subscriber::fmt::init();
+    }
 
     let mut args = std::env::args();
     let cmd = args.next();

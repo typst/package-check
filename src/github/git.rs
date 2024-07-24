@@ -3,6 +3,7 @@
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
+    process::{Output, Stdio},
 };
 
 use eyre::{Context, ContextCompat};
@@ -19,17 +20,10 @@ impl<'a> GitRepo<'a> {
     }
 
     pub async fn clone_if_needed(&self, url: &str) -> eyre::Result<()> {
-        let status = Command::new("git")
-            .args(["-C", self.dir()?, "status"])
-            .status()
-            .await?;
+        let status = traced_git(["-C", self.dir()?, "status"]).await?.status;
 
         if !status.success() {
-            Command::new("git")
-                .args(["clone", url, self.dir()?])
-                .spawn()?
-                .wait()
-                .await?;
+            traced_git(["clone", url, self.dir()?]).await?;
         }
 
         Ok(())
@@ -37,40 +31,34 @@ impl<'a> GitRepo<'a> {
 
     pub async fn pull_main(&self) -> eyre::Result<()> {
         debug!("Pulling main branch");
-        Command::new("git")
-            .args([
-                "-C",
-                self.dir()?,
-                "-c",
-                "receive.maxInputSize=134217728", // 128MB
-                "pull",
-                "origin",
-                "main",
-                "--ff-only",
-            ])
-            .spawn()?
-            .wait()
-            .await?;
+        traced_git([
+            "-C",
+            self.dir()?,
+            "-c",
+            "receive.maxInputSize=134217728", // 128MB
+            "pull",
+            "origin",
+            "main",
+            "--ff-only",
+        ])
+        .await?;
         debug!("Done");
         Ok(())
     }
 
     pub async fn fetch_commit(&self, sha: impl AsRef<str>) -> eyre::Result<()> {
         debug!("Fetching commit: {}", sha.as_ref());
-        Command::new("git")
-            .args([
-                "-C",
-                self.dir()?,
-                "-c",
-                "receive.maxInputSize=134217728", // 128MB
-                "fetch",
-                "origin",
-                sha.as_ref(),
-            ])
-            .spawn()?
-            .wait()
-            .await
-            .context("Failed to fetch {} (probably because of some large file).")?;
+        traced_git([
+            "-C",
+            self.dir()?,
+            "-c",
+            "receive.maxInputSize=134217728", // 128MB
+            "fetch",
+            "origin",
+            sha.as_ref(),
+        ])
+        .await
+        .context("Failed to fetch {} (probably because of some large file).")?;
         debug!("Done");
         Ok(())
     }
@@ -88,21 +76,18 @@ impl<'a> GitRepo<'a> {
         );
         tokio::fs::create_dir_all(&working_tree).await?;
         let working_tree = working_tree.as_ref().canonicalize()?;
-        Command::new("git")
-            .args([
-                "-C",
-                self.dir
-                    .to_str()
-                    .context("Directory name is not valid unicode")?,
-                &format!("--work-tree={}", working_tree.display()),
-                "checkout",
-                sha.as_ref(),
-                "--",
-                ".",
-            ])
-            .spawn()?
-            .wait()
-            .await?;
+        traced_git([
+            "-C",
+            self.dir
+                .to_str()
+                .context("Directory name is not valid unicode")?,
+            &format!("--work-tree={}", working_tree.display()),
+            "checkout",
+            sha.as_ref(),
+            "--",
+            ".",
+        ])
+        .await?;
         debug!("Done");
         Ok(())
     }
@@ -174,4 +159,26 @@ impl<'a> GitRepo<'a> {
             .to_str()
             .context("Directory name is not valid unicode")
     }
+}
+
+#[tracing::instrument(name = "git-command")]
+async fn traced_git(
+    args: impl IntoIterator<Item = &str> + std::fmt::Debug,
+) -> eyre::Result<Output> {
+    let out = Command::new("git")
+        .args(args)
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?
+        .wait_with_output()
+        .await?;
+
+    if let Ok(stderr) = std::str::from_utf8(&out.stderr) {
+        debug!(stderr = stderr)
+    }
+    if let Ok(stdout) = std::str::from_utf8(&out.stdout) {
+        debug!(stdout = stdout)
+    }
+
+    Ok(out)
 }
