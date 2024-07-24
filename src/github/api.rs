@@ -69,6 +69,7 @@ pub struct GitHub {
 }
 
 impl GitHub {
+    #[tracing::instrument(skip_all)]
     pub async fn auth_installation(&mut self, payload: &HookPayload) -> ApiResult<()> {
         let installation = &payload.installation().id;
         let installation_token: InstallationToken = self
@@ -82,6 +83,7 @@ impl GitHub {
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn create_check_run(
         &self,
         owner: OwnerId,
@@ -103,6 +105,7 @@ impl GitHub {
         Ok(result)
     }
 
+    #[tracing::instrument(skip(self, output))]
     pub async fn update_check_run<'a>(
         &self,
         owner: OwnerId,
@@ -172,7 +175,10 @@ impl FromRequestParts<AppState> for GitHub {
     }
 }
 
+#[derive(Debug)]
 pub struct OwnerId(String);
+
+#[derive(Debug)]
 pub struct RepoId(String);
 
 impl Display for OwnerId {

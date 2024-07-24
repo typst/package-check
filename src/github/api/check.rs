@@ -27,7 +27,7 @@ pub enum CheckRunAction {
     Completed,
 }
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(transparent)]
 pub struct CheckRunId(u64);
 
