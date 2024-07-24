@@ -233,7 +233,7 @@ async fn github_hook(
                         check_run.id,
                         diags.errors().is_empty() && diags.warnings().is_empty(),
                         CheckRunOutput {
-                            title: &if diags.errors().is_empty() {
+                            title: &if !diags.errors().is_empty() {
                                 if diags.warnings().is_empty() {
                                     format!(
                                         "{} error{}",
