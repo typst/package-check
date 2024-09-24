@@ -438,7 +438,7 @@ async fn check_repo(
                     manifest_file_id,
                     homepage_field.span().unwrap_or_default(),
                 )])
-                .with_message("The homepage and repository fields are redundant.".to_owned()),
+                .with_message("Use the homepage field only if there is a dedicated website. Otherwise, prefer the `repository` field.".to_owned()),
         )
     }
 
