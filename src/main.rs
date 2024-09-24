@@ -1,3 +1,5 @@
+use tracing_subscriber::EnvFilter;
+
 mod check;
 mod cli;
 mod github;
@@ -9,10 +11,13 @@ async fn main() {
 
     if std::env::var("LOG_STYLE").as_deref().unwrap_or("human") == "json" {
         tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
             .event_format(tracing_subscriber::fmt::format::json())
             .init();
     } else {
-        tracing_subscriber::fmt::init();
+        tracing_subscriber::fmt()
+            .with_env_filter(EnvFilter::from_default_env())
+            .init();
     }
 
     let mut args = std::env::args();
