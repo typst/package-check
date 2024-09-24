@@ -1,4 +1,7 @@
-use std::{ops::Range, path::Path};
+use std::{
+    ops::Range,
+    path::{Path, PathBuf},
+};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use eyre::{Context, ContextCompat};
@@ -65,9 +68,6 @@ pub async fn check(
     let name = check_name(diags, manifest_file_id, &manifest, package_spec);
     let version = check_version(diags, manifest_file_id, &manifest, package_spec);
 
-    let res = exclude_large_files(diags, package_dir, &manifest);
-    diags.maybe_emit(res);
-
     let res = check_file_names(diags, package_dir);
     diags.maybe_emit(res);
 
@@ -96,7 +96,10 @@ pub async fn check(
     };
 
     dont_exclude_template_files(diags, &manifest, package_dir, exclude);
-    check_thumbnail(diags, &manifest, manifest_file_id, package_dir);
+    let thumbnail_path = check_thumbnail(diags, &manifest, manifest_file_id, package_dir);
+
+    let res = exclude_large_files(diags, package_dir, &manifest, thumbnail_path);
+    diags.maybe_emit(res);
 
     Ok(Worlds {
         package: world,
@@ -227,6 +230,7 @@ fn exclude_large_files(
     diags: &mut Diagnostics,
     package_dir: &Path,
     manifest: &toml_edit::ImDocument<&String>,
+    thumbnail_path: Option<PathBuf>,
 ) -> eyre::Result<()> {
     let (exclude, _) = read_exclude(package_dir, manifest)?;
 
@@ -234,6 +238,11 @@ fn exclude_large_files(
 
     let large_files = file_size::find_large_files(package_dir, exclude.clone());
     for (path, size) in large_files? {
+        if Some(&path) == thumbnail_path.as_ref() {
+            // Thumbnail is always excluded
+            continue;
+        }
+
         let fid = FileId::new(None, VirtualPath::new(&path));
 
         let message = if size > REALLY_LARGE {
@@ -537,7 +546,7 @@ fn check_thumbnail(
     manifest: &toml_edit::ImDocument<&String>,
     manifest_file_id: FileId,
     package_dir: &Path,
-) -> Option<()> {
+) -> Option<PathBuf> {
     let thumbnail = manifest.get("template")?.as_table()?.get("thumbnail")?;
     let thumbnail_path = package_dir.join(thumbnail.as_str()?);
 
@@ -560,5 +569,5 @@ fn check_thumbnail(
         )
     }
 
-    Some(())
+    Some(thumbnail_path)
 }
