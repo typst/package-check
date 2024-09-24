@@ -88,6 +88,7 @@ async fn force(
     api_client: GitHub,
     axum::extract::Path((install, sha)): axum::extract::Path<(String, String)>,
 ) -> Result<&'static str, &'static str> {
+    debug!("Force review for {sha}");
     github_hook(
         state,
         api_client,

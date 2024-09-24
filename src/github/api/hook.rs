@@ -33,10 +33,12 @@ impl FromRequest<AppState> for HookPayload {
     type Rejection = (StatusCode, &'static str);
 
     async fn from_request<'s>(req: Request, state: &'s AppState) -> Result<Self, Self::Rejection> {
+        debug!("Received a webhook event…");
         let event_type = req
             .headers()
             .get("X-GitHub-Event")
             .map(|v| v.as_bytes().to_owned());
+        debug!("Event type is {:?}", event_type);
 
         let Some(their_signature_header) = req.headers().get("X-Hub-Signature") else {
             return Err((StatusCode::UNAUTHORIZED, "X-Hub-Signature is missing"));

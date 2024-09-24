@@ -13,6 +13,7 @@ pub struct CheckSuite {
 
 #[derive(Clone, Deserialize)]
 pub struct MinimalCheckSuite {
+    #[allow(dead_code)]
     pub id: CheckSuiteId,
 }
 
