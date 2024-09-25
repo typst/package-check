@@ -2,6 +2,8 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
+use super::pr::AnyPullRequest;
+
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(transparent)]
 pub struct CheckSuiteId(#[allow(dead_code)] u64);
@@ -9,6 +11,7 @@ pub struct CheckSuiteId(#[allow(dead_code)] u64);
 #[derive(Clone, Deserialize)]
 pub struct CheckSuite {
     pub head_sha: String,
+    pub pull_requests: Vec<AnyPullRequest>,
 }
 
 #[derive(Clone, Deserialize)]

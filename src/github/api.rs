@@ -23,6 +23,7 @@ use super::AppState;
 
 pub mod check;
 pub mod hook;
+pub mod pr;
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -135,6 +136,10 @@ impl GitHub {
             .await?;
         debug!("GitHub said: {}", res);
         Ok(())
+    }
+
+    fn get(&self, url: impl AsRef<str>) -> RequestBuilder {
+        self.with_headers(self.req.get(Self::url(url)))
     }
 
     fn patch(&self, url: impl AsRef<str>) -> RequestBuilder {
