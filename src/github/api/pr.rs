@@ -73,7 +73,7 @@ impl GitHub<AuthInstallation> {
         pr: usize,
         update: PullRequestUpdate,
     ) -> Result<PullRequest, ApiError> {
-        self.patch(format!("{}/{}/pulls/{}", owner, repo, pr))
+        self.patch(format!("repos/{}/{}/pulls/{}", owner, repo, pr))
             .json(&update)
             .send()
             .await?
