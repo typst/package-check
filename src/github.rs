@@ -163,7 +163,10 @@ async fn github_hook(
             Some(check_run),
         ),
         HookPayload::CheckRun(_) => return Ok(()),
-        _ => return Err(WebError::UnexpectedEvent),
+        other => {
+            debug!("Unexpected payload: {:?}", other);
+            return Err(WebError::UnexpectedEvent);
+        }
     };
 
     let pr = if let Some(pr) = pr {

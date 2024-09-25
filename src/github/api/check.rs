@@ -8,7 +8,7 @@ use super::pr::AnyPullRequest;
 #[serde(transparent)]
 pub struct CheckSuiteId(#[allow(dead_code)] u64);
 
-#[derive(Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CheckSuite {
     pub head_sha: String,
     pub pull_requests: Vec<AnyPullRequest>,
@@ -20,7 +20,7 @@ pub struct MinimalCheckSuite {
     pub id: CheckSuiteId,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckSuiteAction {
     /// A check suite was requested (when code is pushed)
@@ -31,7 +31,7 @@ pub enum CheckSuiteAction {
     Completed,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckRunAction {
     Created,
@@ -50,7 +50,7 @@ impl Display for CheckRunId {
     }
 }
 
-#[derive(Clone, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct CheckRun<S = CheckSuite> {
     pub id: CheckRunId,
     pub name: String,

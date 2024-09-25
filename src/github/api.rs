@@ -206,7 +206,7 @@ impl Display for RepoId {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Repository {
     full_name: String,
 }
@@ -243,7 +243,7 @@ impl Repository {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Installation {
     pub id: u64,
 }

@@ -11,6 +11,7 @@ use super::{
     Installation, Repository,
 };
 
+#[derive(Debug)]
 pub enum HookPayload {
     Installation(InstallationPayload),
     CheckSuite(CheckSuitePayload),
@@ -117,12 +118,12 @@ impl FromRequest<AppState> for HookPayload {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct InstallationPayload {
     installation: Installation,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct CheckSuitePayload {
     pub action: CheckSuiteAction,
     pub installation: Installation,
@@ -130,7 +131,7 @@ pub struct CheckSuitePayload {
     pub check_suite: CheckSuite,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct CheckRunPayload {
     pub installation: Installation,
     pub action: CheckRunAction,
