@@ -238,7 +238,11 @@ fn exclude_large_files(
 
     let large_files = file_size::find_large_files(package_dir, exclude.clone());
     for (path, size) in large_files? {
-        if Some(&path) == thumbnail_path.as_ref() {
+        if Some(path.as_ref())
+            == thumbnail_path
+                .as_ref()
+                .and_then(|t| t.strip_prefix(package_dir).ok())
+        {
             // Thumbnail is always excluded
             continue;
         }
