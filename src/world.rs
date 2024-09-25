@@ -506,7 +506,7 @@ pub fn prepare_package(spec: &PackageSpec) -> PackageResult<PathBuf> {
     let local_package_dir = PathBuf::from(format!(
         "{}{}/{}/{}",
         std::env::var("PACKAGES_DIR")
-            .map(|dir| format!("{}/", dir))
+            .map(|dir| format!("{}/packages/", dir))
             .unwrap_or_default(),
         spec.namespace,
         spec.name,
