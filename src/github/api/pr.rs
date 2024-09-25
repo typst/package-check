@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{ApiError, GitHub, OwnerId, RepoId};
+use super::{ApiError, GitHub, JsonExt, OwnerId, RepoId};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MinimalPullRequest {
@@ -14,17 +14,16 @@ impl MinimalPullRequest {
         owner: OwnerId,
         repo: RepoId,
     ) -> Result<PullRequest, ApiError> {
-        Ok(api
-            .get(format!(
-                "repos/{owner}/{repo}/pulls/{pull_number}",
-                owner = owner,
-                repo = repo,
-                pull_number = self.number
-            ))
-            .send()
-            .await?
-            .json()
-            .await?)
+        api.get(format!(
+            "repos/{owner}/{repo}/pulls/{pull_number}",
+            owner = owner,
+            repo = repo,
+            pull_number = self.number
+        ))
+        .send()
+        .await?
+        .parse_json()
+        .await
     }
 }
 
@@ -74,12 +73,11 @@ impl GitHub {
         pr: usize,
         update: PullRequestUpdate,
     ) -> Result<PullRequest, ApiError> {
-        Ok(self
-            .patch(format!("{}/{}/pulls/{}", owner, repo, pr))
+        self.patch(format!("{}/{}/pulls/{}", owner, repo, pr))
             .json(&update)
             .send()
             .await?
-            .json()
-            .await?)
+            .parse_json()
+            .await
     }
 }

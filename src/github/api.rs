@@ -10,7 +10,7 @@ use jwt_simple::{
     claims::Claims,
     reexports::coarsetime::Duration,
 };
-use reqwest::{RequestBuilder, StatusCode};
+use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use tracing::{debug, warn};
 
@@ -81,7 +81,7 @@ impl GitHub {
             .post(format!("app/installations/{installation}/access_tokens"))
             .send()
             .await?
-            .json()
+            .parse_json()
             .await?;
         self.jwt = installation_token.token;
 
@@ -251,4 +251,21 @@ pub struct Installation {
 #[derive(Deserialize)]
 struct InstallationToken {
     token: String,
+}
+
+trait JsonExt {
+    async fn parse_json<T: for<'a> Deserialize<'a>>(self) -> Result<T, ApiError>;
+}
+
+impl JsonExt for Response {
+    async fn parse_json<T: for<'a> Deserialize<'a>>(self) -> Result<T, ApiError> {
+        let bytes = self.bytes().await?;
+
+        debug!(
+            "Parsing JSON: {}",
+            std::str::from_utf8(&bytes).unwrap_or("[INVALID UTF8]")
+        );
+
+        Ok(serde_json::from_slice(&bytes)?)
+    }
 }
