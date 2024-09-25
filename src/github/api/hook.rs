@@ -2,7 +2,7 @@ use axum::extract::{FromRequest, Request};
 use hmac::Mac;
 use reqwest::StatusCode;
 use serde::Deserialize;
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use crate::github::AppState;
 
@@ -73,6 +73,8 @@ impl FromRequest<AppState> for HookPayload {
         let Ok(raw_payload) = String::from_request(req, state).await else {
             return Err((StatusCode::BAD_REQUEST, "Cannot read request body."));
         };
+
+        trace!("Webhook payload was: {}", raw_payload);
 
         let our_digest = {
             let Ok(mut mac) = hmac::Hmac::<sha1::Sha1>::new_from_slice(&state.webhook_secret)
