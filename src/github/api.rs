@@ -14,10 +14,7 @@ use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use tracing::{debug, warn};
 
-use self::{
-    check::{CheckRun, CheckRunId, CheckRunOutput},
-    hook::HookPayload,
-};
+use self::check::{CheckRun, CheckRunId, CheckRunOutput};
 
 use super::AppState;
 
@@ -67,27 +64,95 @@ impl From<serde_json::Error> for ApiError {
 
 type ApiResult<T> = Result<T, ApiError>;
 
+/// Authentication for the GitHub API using a JWT token.
+pub struct AuthJwt(String);
+
+impl Display for AuthJwt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Authentication for the GitHub API using an installation token, that
+/// is scoped to a specific organization or set of repositories, but that
+/// can do more than a [`AuthJwt`] token.
+pub struct AuthInstallation(String);
+
+impl Display for AuthInstallation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// A GitHub API client
-pub struct GitHub {
-    jwt: String,
+pub struct GitHub<A = AuthJwt> {
+    auth: A,
     req: reqwest::Client,
 }
 
-impl GitHub {
+impl<A: ToString> GitHub<A> {
+    fn get(&self, url: impl AsRef<str>) -> RequestBuilder {
+        self.with_headers(self.req.get(Self::url(url)))
+    }
+
+    fn patch(&self, url: impl AsRef<str>) -> RequestBuilder {
+        self.with_headers(self.req.patch(Self::url(url)))
+    }
+
+    fn post(&self, url: impl AsRef<str>) -> RequestBuilder {
+        self.with_headers(self.req.post(Self::url(url)))
+    }
+
+    fn with_headers(&self, req: RequestBuilder) -> RequestBuilder {
+        req.bearer_auth(self.auth.to_string())
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .header("User-Agent", "Typst package check")
+    }
+
+    fn url<S: AsRef<str>>(path: S) -> String {
+        format!("https://api.github.com/{}", path.as_ref())
+    }
+}
+
+pub trait GitHubAuth {
+    async fn auth_installation(
+        self,
+        installation: &impl AsInstallation,
+    ) -> ApiResult<GitHub<AuthInstallation>>;
+}
+
+impl GitHubAuth for GitHub<AuthJwt> {
     #[tracing::instrument(skip_all)]
-    pub async fn auth_installation(&mut self, payload: &HookPayload) -> ApiResult<()> {
-        let installation = &payload.installation().id;
+    async fn auth_installation(
+        self,
+        installation: &impl AsInstallation,
+    ) -> ApiResult<GitHub<AuthInstallation>> {
+        let installation_id = installation.id();
         let installation_token: InstallationToken = self
-            .post(format!("app/installations/{installation}/access_tokens"))
+            .post(format!("app/installations/{installation_id}/access_tokens"))
             .send()
             .await?
             .parse_json()
             .await?;
-        self.jwt = installation_token.token;
 
-        Ok(())
+        Ok(GitHub {
+            req: self.req,
+            auth: AuthInstallation(installation_token.token),
+        })
     }
+}
 
+impl GitHubAuth for GitHub<AuthInstallation> {
+    async fn auth_installation(
+        self,
+        _installation: &impl AsInstallation,
+    ) -> ApiResult<GitHub<AuthInstallation>> {
+        Ok(self)
+    }
+}
+
+impl GitHub<AuthInstallation> {
     #[tracing::instrument(skip(self))]
     pub async fn create_check_run(
         &self,
@@ -137,29 +202,6 @@ impl GitHub {
         debug!("GitHub said: {}", res);
         Ok(())
     }
-
-    fn get(&self, url: impl AsRef<str>) -> RequestBuilder {
-        self.with_headers(self.req.get(Self::url(url)))
-    }
-
-    fn patch(&self, url: impl AsRef<str>) -> RequestBuilder {
-        self.with_headers(self.req.patch(Self::url(url)))
-    }
-
-    fn post(&self, url: impl AsRef<str>) -> RequestBuilder {
-        self.with_headers(self.req.post(Self::url(url)))
-    }
-
-    fn with_headers(&self, req: RequestBuilder) -> RequestBuilder {
-        req.bearer_auth(&self.jwt)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .header("User-Agent", "Typst package check")
-    }
-
-    fn url<S: AsRef<str>>(path: S) -> String {
-        format!("https://api.github.com/{}", path.as_ref())
-    }
 }
 
 #[async_trait::async_trait]
@@ -182,7 +224,7 @@ impl FromRequestParts<AppState> for GitHub {
         };
 
         Ok(Self {
-            jwt: token,
+            auth: AuthJwt(token),
             req: reqwest::Client::new(),
         })
     }
@@ -246,6 +288,16 @@ impl Repository {
 #[derive(Debug, Deserialize)]
 pub struct Installation {
     pub id: u64,
+}
+
+pub trait AsInstallation {
+    fn id(&self) -> u64;
+}
+
+impl AsInstallation for Installation {
+    fn id(&self) -> u64 {
+        self.id
+    }
 }
 
 #[derive(Deserialize)]

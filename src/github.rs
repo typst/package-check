@@ -67,7 +67,7 @@ pub async fn hook_server() {
 
     let app = Router::new()
         .route("/", get(index))
-        .route("/github-hook", post(github_hook))
+        .route("/github-hook", post(github_hook::<GitHub<AuthJwt>>))
         .route("/force-review/:install/:sha", get(force))
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
@@ -95,6 +95,17 @@ async fn force(
         "Invalid repository path"
     })?;
 
+    let installation = Installation {
+        id: str::parse(&install).map_err(|_| "Invalid installation ID")?,
+    };
+    let api_client = api_client
+        .auth_installation(&installation)
+        .await
+        .map_err(|e| {
+            debug!("Failed to authenticate installation: {}", e);
+            "Failed to authenticate installation"
+        })?;
+
     let pr = MinimalPullRequest { number: pr };
     let full_pr = pr
         .get_full(&api_client, repository.owner(), repository.name())
@@ -110,9 +121,7 @@ async fn force(
         api_client,
         HookPayload::CheckSuite(CheckSuitePayload {
             action: CheckSuiteAction::Requested,
-            installation: Installation {
-                id: str::parse(&install).map_err(|_| "Invalid installation ID")?,
-            },
+            installation,
             repository,
             check_suite: CheckSuite {
                 head_sha: sha,
@@ -130,13 +139,13 @@ async fn force(
 }
 
 /// The route to handle GitHub hooks. Mounted on `/github-hook`.
-async fn github_hook(
+async fn github_hook<G: GitHubAuth>(
     State(state): State<AppState>,
-    mut api_client: GitHub,
+    api_client: G,
     payload: HookPayload,
 ) -> Result<(), WebError> {
     debug!("GitHub hook was triggered");
-    api_client.auth_installation(&payload).await?;
+    let api_client = api_client.auth_installation(&payload).await?;
     debug!("Successfully authenticated application");
 
     let (head_sha, repository, pr, previous_check_run) = match payload {
@@ -190,7 +199,7 @@ async fn github_hook(
         async fn inner(
             state: AppState,
             head_sha: String,
-            api_client: GitHub,
+            api_client: GitHub<AuthInstallation>,
             repository: Repository,
             previous_check_run: Option<CheckRun>,
             pr: Option<PullRequest>,

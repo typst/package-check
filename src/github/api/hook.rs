@@ -8,7 +8,7 @@ use crate::github::AppState;
 
 use super::{
     check::{CheckRun, CheckRunAction, CheckSuite, CheckSuiteAction},
-    Installation, Repository,
+    AsInstallation, Installation, Repository,
 };
 
 #[derive(Debug)]
@@ -25,6 +25,12 @@ impl HookPayload {
             HookPayload::Installation(i) => &i.installation,
             HookPayload::CheckRun(cr) => &cr.installation,
         }
+    }
+}
+
+impl AsInstallation for HookPayload {
+    fn id(&self) -> u64 {
+        self.installation().id
     }
 }
 

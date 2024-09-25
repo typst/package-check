@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{ApiError, GitHub, JsonExt, OwnerId, RepoId};
+use super::{ApiError, AuthInstallation, GitHub, JsonExt, OwnerId, RepoId};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MinimalPullRequest {
@@ -10,7 +10,7 @@ pub struct MinimalPullRequest {
 impl MinimalPullRequest {
     pub async fn get_full(
         &self,
-        api: &GitHub,
+        api: &GitHub<AuthInstallation>,
         owner: OwnerId,
         repo: RepoId,
     ) -> Result<PullRequest, ApiError> {
@@ -44,7 +44,7 @@ pub enum AnyPullRequest {
 impl AnyPullRequest {
     pub async fn get_full(
         self,
-        api: &GitHub,
+        api: &GitHub<AuthInstallation>,
         owner: OwnerId,
         repo: RepoId,
     ) -> Result<PullRequest, ApiError> {
@@ -65,7 +65,7 @@ pub struct PullRequestUpdate {
     pub title: String,
 }
 
-impl GitHub {
+impl GitHub<AuthInstallation> {
     pub async fn update_pull_request(
         &self,
         owner: OwnerId,
