@@ -8,7 +8,7 @@ use crate::github::AppState;
 
 use super::{
     check::{CheckRun, CheckRunAction, CheckSuite, CheckSuiteAction},
-    AsInstallation, Installation, Repository,
+    AsInstallation, Installation,
 };
 
 #[derive(Debug)]
@@ -135,7 +135,6 @@ pub struct InstallationPayload {
 pub struct CheckSuitePayload {
     pub action: CheckSuiteAction,
     pub installation: Installation,
-    pub repository: Repository,
     pub check_suite: CheckSuite,
 }
 
@@ -143,6 +142,5 @@ pub struct CheckSuitePayload {
 pub struct CheckRunPayload {
     pub installation: Installation,
     pub action: CheckRunAction,
-    pub repository: Repository,
     pub check_run: CheckRun,
 }

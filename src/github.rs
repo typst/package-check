@@ -122,7 +122,6 @@ async fn force(
         HookPayload::CheckSuite(CheckSuitePayload {
             action: CheckSuiteAction::Requested,
             installation,
-            repository,
             check_suite: CheckSuite {
                 head_sha: sha,
                 pull_requests: vec![AnyPullRequest::Full(full_pr)],
@@ -148,30 +147,31 @@ async fn github_hook<G: GitHubAuth>(
     let api_client = api_client.auth_installation(&payload).await?;
     debug!("Successfully authenticated application");
 
-    let (head_sha, repository, pr, previous_check_run) = match payload {
+    let repository = Repository::new("typst/packages").map_err(|e| {
+        error!("Invalid repository path: {}", e);
+        WebError::UnexpectedEvent
+    })?;
+
+    let (head_sha, pr, previous_check_run) = match payload {
         HookPayload::CheckSuite(CheckSuitePayload {
             action: CheckSuiteAction::Requested | CheckSuiteAction::Rerequested,
-            repository,
             mut check_suite,
             ..
-        }) => (
-            check_suite.head_sha,
-            repository,
-            check_suite.pull_requests.pop(),
-            None,
-        ),
+        }) => (check_suite.head_sha, check_suite.pull_requests.pop(), None),
         HookPayload::CheckRun(CheckRunPayload {
             action: CheckRunAction::Rerequested,
-            repository,
             mut check_run,
             ..
         }) => (
             check_run.check_suite.head_sha.clone(),
-            repository,
             check_run.check_suite.pull_requests.pop(),
             Some(check_run),
         ),
-        HookPayload::CheckRun(_) => return Ok(()),
+        HookPayload::CheckRun(_)
+        | HookPayload::CheckSuite(CheckSuitePayload {
+            action: CheckSuiteAction::Completed,
+            ..
+        }) => return Ok(()),
         other => {
             debug!("Unexpected payload: {:?}", other);
             return Err(WebError::UnexpectedEvent);
