@@ -111,7 +111,9 @@ impl<A: ToString> GitHub<A> {
     }
 
     fn url<S: AsRef<str>>(path: S) -> String {
-        format!("https://api.github.com/{}", path.as_ref())
+        let u = format!("https://api.github.com/{}", path.as_ref());
+        debug!("API URL: {}", u);
+        u
     }
 }
 
