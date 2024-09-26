@@ -76,12 +76,14 @@ impl GitHub<AuthInstallation> {
         repo: RepoId,
         pr: usize,
         update: PullRequestUpdate,
-    ) -> Result<PullRequest, ApiError> {
+    ) -> Result<(), ApiError> {
         self.patch(format!("repos/{}/{}/issues/{}", owner, repo, pr))
             .json(&update)
             .send()
             .await?
-            .parse_json()
-            .await
+            .parse_json::<serde_json::Value>()
+            .await?;
+
+        Ok(())
     }
 }
