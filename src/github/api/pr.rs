@@ -63,6 +63,7 @@ pub struct Commit {
 #[derive(Serialize)]
 pub struct PullRequestUpdate {
     pub title: String,
+    pub labels: Vec<String>,
 }
 
 impl GitHub<AuthInstallation> {
@@ -73,7 +74,7 @@ impl GitHub<AuthInstallation> {
         pr: usize,
         update: PullRequestUpdate,
     ) -> Result<PullRequest, ApiError> {
-        self.patch(format!("repos/{}/{}/pulls/{}", owner, repo, pr))
+        self.patch(format!("repos/{}/{}/issues/{}", owner, repo, pr))
             .json(&update)
             .send()
             .await?

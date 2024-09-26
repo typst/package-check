@@ -9,6 +9,7 @@ use std::{
 use eyre::{Context, ContextCompat};
 use tokio::process::Command;
 use tracing::debug;
+use typst::syntax::package::{PackageSpec, PackageVersion};
 
 pub struct GitRepo<'a> {
     dir: &'a Path,
@@ -158,6 +159,36 @@ impl<'a> GitRepo<'a> {
         self.dir
             .to_str()
             .context("Directory name is not valid unicode")
+    }
+
+    pub async fn has_previous_version(&self, package: &PackageSpec) -> eyre::Result<bool> {
+        let package_dir = PathBuf::from(self.dir()?)
+            .join("packages")
+            .join(package.namespace.as_str())
+            .join(package.name.as_str());
+        let mut all_versions = tokio::fs::read_dir(package_dir).await?;
+        while let Ok(Some(version)) = all_versions.next_entry().await {
+            if version
+                .file_type()
+                .await
+                .map(|t| t.is_dir())
+                .unwrap_or(false)
+            {
+                let version: PackageVersion = version
+                    .file_name()
+                    .to_str()
+                    .context("Can't convert directory name to string")?
+                    .parse()
+                    .ok()
+                    .context("Invalid version number")?;
+
+                if version < package.version {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
     }
 }
 

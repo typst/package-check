@@ -241,6 +241,27 @@ async fn github_hook<G: GitHubAuth>(
                 .collect::<HashSet<_>>();
 
             if let Some(pr) = pr {
+                let mut has_new_packages = false;
+                let mut has_updated_packages = false;
+                for package in &touched_packages {
+                    if git_repo
+                        .has_previous_version(package)
+                        .await
+                        .unwrap_or(false)
+                    {
+                        has_updated_packages = true;
+                    } else {
+                        has_new_packages = true;
+                    }
+                }
+                let mut labels = Vec::new();
+                if has_new_packages {
+                    labels.push("new".to_owned())
+                }
+                if has_updated_packages {
+                    labels.push("update".to_owned());
+                }
+
                 let mut package_names = touched_packages
                     .iter()
                     .map(|p| format!("{}:{}", p.name, p.version))
@@ -265,6 +286,7 @@ async fn github_hook<G: GitHubAuth>(
                                 pr.number,
                                 PullRequestUpdate {
                                     title: expected_pr_title,
+                                    labels,
                                 },
                             )
                             .await
