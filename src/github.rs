@@ -16,7 +16,7 @@ use codespan_reporting::{
     files::Files,
 };
 use eyre::Context;
-use hook::CheckRunPayload;
+use hook::{CheckRunPayload, PullRequestAction, PullRequestPayload};
 use jwt_simple::prelude::*;
 use pr::{AnyPullRequest, MinimalPullRequest, PullRequest, PullRequestUpdate};
 use tracing::{debug, error, info, warn};
@@ -166,6 +166,15 @@ async fn github_hook<G: GitHubAuth>(
             check_run.check_suite.head_sha.clone(),
             check_run.check_suite.pull_requests.pop(),
             Some(check_run),
+        ),
+        HookPayload::PullRequest(PullRequestPayload {
+            action: PullRequestAction::Opened | PullRequestAction::Synchronize,
+            pull_request,
+            ..
+        }) => (
+            pull_request.head.sha.clone(),
+            Some(AnyPullRequest::Full(pull_request)),
+            None,
         ),
         HookPayload::CheckRun(_)
         | HookPayload::CheckSuite(CheckSuitePayload {

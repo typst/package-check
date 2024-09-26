@@ -8,6 +8,7 @@ use crate::github::AppState;
 
 use super::{
     check::{CheckRun, CheckRunAction, CheckSuite, CheckSuiteAction},
+    pr::PullRequest,
     AsInstallation, Installation,
 };
 
@@ -16,6 +17,7 @@ pub enum HookPayload {
     Installation(InstallationPayload),
     CheckSuite(CheckSuitePayload),
     CheckRun(CheckRunPayload),
+    PullRequest(PullRequestPayload),
 }
 
 impl HookPayload {
@@ -24,6 +26,7 @@ impl HookPayload {
             HookPayload::CheckSuite(cs) => &cs.installation,
             HookPayload::Installation(i) => &i.installation,
             HookPayload::CheckRun(cr) => &cr.installation,
+            HookPayload::PullRequest(pr) => &pr.installation,
         }
     }
 }
@@ -113,6 +116,7 @@ impl FromRequest<AppState> for HookPayload {
             Some(b"installation") => try_deser!(Installation, &raw_payload),
             Some(b"check_suite") => try_deser!(CheckSuite, &raw_payload),
             Some(b"check_run") => try_deser!(CheckRun, &raw_payload),
+            Some(b"pull_request") => try_deser!(PullRequest, &raw_payload),
             Some(x) => {
                 debug!(
                     "Uknown event type: {}",
@@ -143,4 +147,18 @@ pub struct CheckRunPayload {
     pub installation: Installation,
     pub action: CheckRunAction,
     pub check_run: CheckRun,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PullRequestPayload {
+    pub installation: Installation,
+    pub action: PullRequestAction,
+    pub pull_request: PullRequest,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PullRequestAction {
+    Opened,
+    Synchronize,
 }
