@@ -133,6 +133,15 @@ impl GitHubAuth for GitHub<AuthJwt> {
         let installation_id = installation.id();
         let installation_token: InstallationToken = self
             .post(format!("app/installations/{installation_id}/access_tokens"))
+            .json(&serde_json::json!({
+                "repositories": ["packages"],
+                "permissions": {
+                    "metadata": "read",
+                    "issues": "write",
+                    "pull_requests": "write",
+                    "checks": "write",
+                }
+            }))
             .send()
             .await?
             .parse_json()
