@@ -32,6 +32,7 @@ pub struct PullRequest {
     pub number: usize,
     pub head: Commit,
     pub title: String,
+    pub body: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -64,6 +65,8 @@ pub struct Commit {
 pub struct PullRequestUpdate {
     pub title: String,
     pub labels: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
 }
 
 impl GitHub<AuthInstallation> {

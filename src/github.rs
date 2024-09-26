@@ -241,6 +241,7 @@ async fn github_hook<G: GitHubAuth>(
                 .collect::<HashSet<_>>();
 
             if let Some(pr) = pr {
+                // Update labels
                 let mut has_new_packages = false;
                 let mut has_updated_packages = false;
                 for package in &touched_packages {
@@ -262,6 +263,42 @@ async fn github_hook<G: GitHubAuth>(
                     labels.push("update".to_owned());
                 }
 
+                // Update checks in PR body if needed
+                let mut body_changed = false;
+                let new_body = pr
+                    .body
+                    .lines()
+                    .map(|l| {
+                        let line = l.trim();
+                        if line.starts_with("-") {
+                            let marked = line.contains("[x]");
+                            if line.ends_with("a new package") {
+                                body_changed |= marked != has_new_packages;
+                                if has_new_packages {
+                                    return "- [x] a new package";
+                                } else {
+                                    return "- [ ] a new package";
+                                }
+                            }
+
+                            if line.ends_with("an update for a package") {
+                                body_changed |= marked != has_updated_packages;
+                                if has_updated_packages {
+                                    return "- [x] an update for a package";
+                                } else {
+                                    return "- [ ] an update for a package";
+                                }
+                            }
+                        }
+
+                        l
+                    })
+                    .fold(String::with_capacity(pr.body.len()), |body, line| {
+                        body + "\n" + line
+                    });
+                let body = if body_changed { Some(new_body) } else { None };
+
+                // Update title
                 let mut package_names = touched_packages
                     .iter()
                     .map(|p| format!("{}:{}", p.name, p.version))
@@ -277,8 +314,10 @@ async fn github_hook<G: GitHubAuth>(
                 } else {
                     last_package
                 };
+
+                // Actually update the PR, if needed
                 if let Some(expected_pr_title) = expected_pr_title {
-                    if pr.title != expected_pr_title {
+                    if pr.title != expected_pr_title || !labels.is_empty() || body.is_some() {
                         api_client
                             .update_pull_request(
                                 repository.owner(),
@@ -287,6 +326,7 @@ async fn github_hook<G: GitHubAuth>(
                                 PullRequestUpdate {
                                     title: expected_pr_title,
                                     labels,
+                                    body,
                                 },
                             )
                             .await
