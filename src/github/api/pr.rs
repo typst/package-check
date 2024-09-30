@@ -88,12 +88,12 @@ impl GitHub<AuthInstallation> {
         Ok(())
     }
 
-    pub async fn pr_for_commit(
+    pub async fn prs_for_commit(
         &self,
         owner: OwnerId,
         repo: RepoId,
         commit: String,
-    ) -> Result<PullRequest, ApiError> {
+    ) -> Result<Vec<PullRequest>, ApiError> {
         self.get(format!("repos/{owner}/{repo}/commits/{commit}/pulls"))
             .send()
             .await?

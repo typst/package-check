@@ -384,13 +384,20 @@ async fn github_hook<G: GitHubAuth>(
                 // Check that the author of this PR is the same as the one of
                 // the previous version.
                 if let Some(current_pr) = &pr {
+                    debug!("There is a current PR");
                     if let Some(previous_commit) =
                         check::authors::commit_for_previous_version(package)
                     {
-                        if let Ok(previous_pr) = api_client
-                            .pr_for_commit(repository.owner(), repository.name(), previous_commit)
+                        debug!("Found previous commit: {previous_commit}");
+                        if let Ok(Some(previous_pr)) = api_client
+                            .prs_for_commit(repository.owner(), repository.name(), previous_commit)
                             .await
+                            .map(|prs| prs.into_iter().next())
                         {
+                            debug!(
+                                "Found previous PR: #{} (author: {})",
+                                previous_pr.number, previous_pr.user.login
+                            );
                             if previous_pr.user.login != current_pr.user.login {
                                 if let Err(e) = api_client
                                     .post_pr_comment(
