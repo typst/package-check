@@ -405,8 +405,12 @@ async fn github_hook<G: GitHubAuth>(
                                         repository.name(),
                                         current_pr.number,
                                         format!(
-                                            "@{} You released {}:{}, you probably \
-                                            want to have a look at this pull request.",
+                                            "@{} You released {}:{}, so you probably \
+                                            want to have a look at this pull request. \
+                                            If you want this update to be merged, \
+                                            please leave a comment stating so. \
+                                            Without your permission, the pull request \
+                                            will not be merged.",
                                             previous_pr.user.login,
                                             package.name,
                                             package.previous_version()
