@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{ApiError, AuthInstallation, GitHub, JsonExt, OwnerId, RepoId};
+use super::{user::User, ApiError, AuthInstallation, GitHub, JsonExt, OwnerId, RepoId};
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct MinimalPullRequest {
@@ -33,6 +33,7 @@ pub struct PullRequest {
     pub head: Commit,
     pub title: String,
     pub body: String,
+    pub user: User,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -79,6 +80,39 @@ impl GitHub<AuthInstallation> {
     ) -> Result<(), ApiError> {
         self.patch(format!("repos/{}/{}/issues/{}", owner, repo, pr))
             .json(&update)
+            .send()
+            .await?
+            .parse_json::<serde_json::Value>()
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn pr_for_commit(
+        &self,
+        owner: OwnerId,
+        repo: RepoId,
+        commit: String,
+    ) -> Result<PullRequest, ApiError> {
+        self.get(format!("repos/{owner}/{repo}/commits/{commit}/pulls"))
+            .send()
+            .await?
+            .parse_json()
+            .await
+            .map_err(ApiError::from)
+    }
+
+    pub async fn post_pr_comment(
+        &self,
+        owner: OwnerId,
+        repo: RepoId,
+        pr: usize,
+        message: String,
+    ) -> Result<(), ApiError> {
+        self.post(format!("repos/{owner}/{repo}/issues/{pr}/comments"))
+            .json(&serde_json::json!({
+                "body": message
+            }))
             .send()
             .await?
             .parse_json::<serde_json::Value>()

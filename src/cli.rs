@@ -5,20 +5,17 @@ use ignore::overrides::Override;
 use tracing::error;
 use typst::syntax::{package::PackageSpec, FileId, Source};
 
-use crate::{check::all_checks, world::SystemWorld};
+use crate::{check::all_checks, package::PackageExt, world::SystemWorld};
 
 pub async fn main(package_spec: String) {
     let package_spec: Option<PackageSpec> = package_spec.parse().ok();
     let package_dir = if let Some(ref package_spec) = package_spec {
-        Path::new(".")
-            .join(package_spec.namespace.to_string())
-            .join(package_spec.name.to_string())
-            .join(package_spec.version.to_string())
+        package_spec.directory()
     } else {
         Path::new(".").to_owned()
     };
 
-    match all_checks(package_spec.as_ref(), package_dir).await {
+    match all_checks(package_spec.as_ref(), package_dir, true).await {
         Ok((mut world, diags)) => {
             if let Err(err) = print_diagnostics(&mut world, diags.errors(), diags.warnings()) {
                 error!("failed to print diagnostics ({err})")

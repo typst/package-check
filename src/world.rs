@@ -22,6 +22,8 @@ use typst::{
     Library, World,
 };
 
+use crate::package::PackageExt;
+
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
     /// The working directory.
@@ -503,15 +505,7 @@ pub fn prepare_package(spec: &PackageSpec) -> PackageResult<PathBuf> {
         spec.namespace, spec.name, spec.version
     );
 
-    let local_package_dir = PathBuf::from(format!(
-        "{}{}/{}/{}",
-        std::env::var("PACKAGES_DIR")
-            .map(|dir| format!("{}/packages/", dir))
-            .unwrap_or_default(),
-        spec.namespace,
-        spec.name,
-        spec.version
-    ));
+    let local_package_dir = spec.directory();
     if local_package_dir.exists() {
         return Ok(local_package_dir);
     }

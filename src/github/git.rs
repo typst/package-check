@@ -11,6 +11,11 @@ use tokio::process::Command;
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 
+pub fn repo_dir() -> PathBuf {
+    let repo_path = std::env::var("PACKAGES_DIR").unwrap_or("..".to_owned());
+    PathBuf::from(repo_path)
+}
+
 pub struct GitRepo<'a> {
     dir: &'a Path,
 }
@@ -153,6 +158,35 @@ impl<'a> GitRepo<'a> {
 
         debug!("Done");
         Some(authors)
+    }
+
+    pub fn commit_for_file(&self, file: &Path) -> Option<String> {
+        use std::process::Command;
+
+        debug!("Finding the commit that last touched {}", file.display());
+
+        let output = String::from_utf8(
+            Command::new("git")
+                .args([
+                    "-C",
+                    self.dir.to_str()?,
+                    "blame",
+                    "--porcelain",
+                    "--",
+                    Path::new(".").canonicalize().ok()?.join(file).to_str()?,
+                ])
+                .output()
+                .ok()?
+                .stdout,
+        )
+        .ok()?;
+
+        output
+            .lines()
+            .next()?
+            .split(' ')
+            .next()
+            .map(|commit| commit.to_owned())
     }
 
     pub fn dir(&self) -> eyre::Result<&str> {

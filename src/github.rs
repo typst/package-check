@@ -22,7 +22,7 @@ use pr::{AnyPullRequest, MinimalPullRequest, PullRequest, PullRequestUpdate};
 use tracing::{debug, error, info, warn};
 use typst::syntax::{package::PackageSpec, FileId};
 
-use crate::{check, world::SystemWorld};
+use crate::{check, package::PackageExt, world::SystemWorld};
 
 use api::{
     check::{CheckRun, CheckRunAction},
@@ -240,7 +240,7 @@ async fn github_hook<G: GitHubAuth>(
                 })
                 .collect::<HashSet<_>>();
 
-            if let Some(pr) = pr {
+            if let Some(pr) = &pr {
                 // Update labels
                 let mut has_new_packages = false;
                 let mut has_updated_packages = false;
@@ -381,6 +381,41 @@ async fn github_hook<G: GitHubAuth>(
                     .await
                     .context("Failed to checkout commit")?;
 
+                // Check that the author of this PR is the same as the one of
+                // the previous version.
+                if let Some(current_pr) = &pr {
+                    if let Some(previous_commit) =
+                        check::authors::commit_for_previous_version(package)
+                    {
+                        if let Ok(previous_pr) = api_client
+                            .pr_for_commit(repository.owner(), repository.name(), previous_commit)
+                            .await
+                        {
+                            if previous_pr.user.login != current_pr.user.login {
+                                if let Err(e) = api_client
+                                    .post_pr_comment(
+                                        repository.owner(),
+                                        repository.name(),
+                                        current_pr.number,
+                                        format!(
+                                            "@{} You released {}:{}, you probably \
+                                            want to have a look at this pull request.",
+                                            previous_pr.user.login,
+                                            package.name,
+                                            package.previous_version()
+                                                .expect("If there is no previous version, this branch should not be reached")
+                                                .version
+                                        ),
+                                    )
+                                    .await
+                                    {
+                                        warn!("Error while posting PR comment: {:?}", e)
+                                    }
+                            }
+                        }
+                    }
+                }
+
                 let (world, diags) = match check::all_checks(
                     Some(package),
                     PathBuf::new()
@@ -389,6 +424,7 @@ async fn github_hook<G: GitHubAuth>(
                         .join(package.namespace.as_str())
                         .join(package.name.as_str())
                         .join(package.version.to_string()),
+                    false,
                 )
                 .await
                 {

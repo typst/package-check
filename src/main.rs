@@ -3,6 +3,7 @@ use tracing_subscriber::EnvFilter;
 mod check;
 mod cli;
 mod github;
+mod package;
 mod world;
 
 #[tokio::main]

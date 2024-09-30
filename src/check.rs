@@ -8,7 +8,7 @@ use typst::{
 
 use crate::world::SystemWorld;
 
-mod authors;
+pub mod authors;
 mod compile;
 mod diagnostics;
 mod file_size;
@@ -21,6 +21,7 @@ pub use diagnostics::Diagnostics;
 pub async fn all_checks(
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
+    check_authors: bool,
 ) -> eyre::Result<(SystemWorld, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
@@ -40,7 +41,7 @@ pub async fn all_checks(
     let res = imports::check(&mut diags, package_spec, &package_dir, &worlds.package);
     diags.maybe_emit(res);
 
-    if let Some(spec) = package_spec {
+    if let Some(spec) = package_spec.filter(|_| check_authors) {
         authors::check(&mut diags, spec);
     }
 

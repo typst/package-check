@@ -21,6 +21,7 @@ use super::AppState;
 pub mod check;
 pub mod hook;
 pub mod pr;
+mod user;
 
 #[derive(Debug)]
 pub enum ApiError {
