@@ -68,6 +68,9 @@ pub async fn check(
     let name = check_name(diags, manifest_file_id, &manifest, package_spec);
     let version = check_version(diags, manifest_file_id, &manifest, package_spec);
 
+    let res = check_universe_fields(diags, manifest_file_id, &manifest);
+    diags.maybe_emit(res);
+
     let res = check_file_names(diags, package_dir);
     diags.maybe_emit(res);
 
@@ -398,6 +401,53 @@ fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) -> eyre::Result
                 ),
             )
         }
+    }
+
+    Ok(())
+}
+
+/// Some fields are optional for the bundler, but required to be published in Typst Universe.
+/// Check that they are present.
+fn check_universe_fields(
+    diags: &mut Diagnostics,
+    manifest_file_id: FileId,
+    manifest: &toml_edit::ImDocument<&String>,
+) -> eyre::Result<()> {
+    let pkg = manifest
+        .get("package")
+        .context("[package] not found")?
+        .as_table()
+        .context("[package] is not a table")?;
+
+    if pkg.get("license").map(|l| !l.is_str()).unwrap_or(true) {
+        diags.emit(
+            Diagnostic::error()
+                .with_message("The `license` field should be a string")
+                .with_labels(vec![Label::primary(manifest_file_id, 0..0)]),
+        );
+        // TODO: check that it is a valid SPDX identifier and that it is OSI approved?
+    }
+
+    if pkg.get("description").map(|d| !d.is_str()).unwrap_or(true) {
+        diags.emit(
+            Diagnostic::error()
+                .with_message("The `description` field should be a string")
+                .with_labels(vec![Label::primary(manifest_file_id, 0..0)]),
+        );
+    }
+
+    if pkg
+        .get("authors")
+        .and_then(|a| a.as_array())
+        .map(|a| a.iter().any(|item| !item.is_str()))
+        .unwrap_or(true)
+    {
+        diags.emit(
+            Diagnostic::error()
+                .with_message("The `authors` field should be an array of strings")
+                .with_labels(vec![Label::primary(manifest_file_id, 0..0)]),
+        );
+        // TODO: check that the format is correct?
     }
 
     Ok(())
