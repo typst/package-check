@@ -419,13 +419,44 @@ fn check_universe_fields(
         .as_table()
         .context("[package] is not a table")?;
 
-    if pkg.get("license").map(|l| !l.is_str()).unwrap_or(true) {
+    if let Some((license, span)) = pkg.get("license").and_then(|l|
+        l.as_str().map(|s| (s, l.span().unwrap_or_default()))
+    ) {
+        if let Ok(license) = spdx::Expression::parse(license) {
+            for requirement in license.requirements() {
+                if let Some(id) = requirement
+                    .req
+                    .license
+                    .id()
+                {
+                    if !id.is_osi_approved() {
+                        diags.emit(
+                            Diagnostic::error()
+                                .with_message("The `license` field should be OSI approved")
+                                .with_labels(vec![Label::primary(manifest_file_id, span.clone())]),
+                        );
+                    }
+                } else {
+                    diags.emit(
+                        Diagnostic::error()
+                            .with_message("The `license` field should not contain a referencer")
+                            .with_labels(vec![Label::primary(manifest_file_id, span.clone())]),
+                    );
+                }
+            }
+        } else {
+            diags.emit(
+                Diagnostic::error()
+                    .with_message("The `license` field should be a valid SPDX-2 expression")
+                    .with_labels(vec![Label::primary(manifest_file_id, span.clone())]),
+            );
+        }
+    } else {
         diags.emit(
             Diagnostic::error()
                 .with_message("The `license` field should be a string")
                 .with_labels(vec![Label::primary(manifest_file_id, 0..0)]),
         );
-        // TODO: check that it is a valid SPDX identifier and that it is OSI approved?
     }
 
     if pkg.get("description").map(|d| !d.is_str()).unwrap_or(true) {
