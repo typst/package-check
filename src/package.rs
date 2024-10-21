@@ -12,20 +12,11 @@ pub trait PackageExt: Sized {
 
     fn previous_version(&self) -> Option<Self>;
 
-    fn versionless(&self) -> Self::Versionless;
-
     fn directory(&self) -> PathBuf;
 }
 
 impl PackageExt for PackageSpec {
     type Versionless = VersionlessPackageSpec;
-
-    fn versionless(&self) -> Self::Versionless {
-        VersionlessPackageSpec {
-            name: self.name.clone(),
-            namespace: self.namespace.clone(),
-        }
-    }
 
     fn previous_version(&self) -> Option<Self> {
         let all_versions_dir = self.versionless().directory();

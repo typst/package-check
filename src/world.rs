@@ -9,7 +9,6 @@ use std::{
 };
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
-use comemo::Prehashed;
 use fontdb::Database;
 use ignore::overrides::Override;
 use parking_lot::Mutex;
@@ -19,6 +18,7 @@ use typst::{
     foundations::{Bytes, Datetime},
     syntax::{package::PackageSpec, FileId, Source, VirtualPath},
     text::{Font, FontBook, FontInfo},
+    utils::LazyHash,
     Library, World,
 };
 
@@ -33,9 +33,9 @@ pub struct SystemWorld {
     /// The input path.
     main: FileId,
     /// Typst's standard library.
-    library: Prehashed<Library>,
+    library: LazyHash<Library>,
     /// Metadata about discovered fonts.
-    book: Prehashed<FontBook>,
+    book: LazyHash<FontBook>,
     /// Locations of and storage for lazily loaded fonts.
     fonts: Vec<FontSlot>,
     /// Maps file ids to source files and buffers.
@@ -67,8 +67,8 @@ impl SystemWorld {
             workdir: std::env::current_dir().ok(),
             root,
             main,
-            library: Prehashed::new(library),
-            book: Prehashed::new(searcher.book),
+            library: LazyHash::new(library),
+            book: LazyHash::new(searcher.book),
             fonts: searcher.fonts,
             slots: Mutex::new(HashMap::new()),
             now: OnceLock::new(),
@@ -109,17 +109,18 @@ impl SystemWorld {
 }
 
 impl World for SystemWorld {
-    fn library(&self) -> &Prehashed<Library> {
+    fn library(&self) -> &LazyHash<Library> {
         &self.library
     }
 
-    fn book(&self) -> &Prehashed<FontBook> {
+    fn book(&self) -> &LazyHash<FontBook> {
         &self.book
     }
 
-    fn main(&self) -> Source {
+    fn main(&self) -> FileId {
         self.source(self.main)
             .expect("Error while accessing main source file")
+            .id()
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
@@ -261,7 +262,7 @@ impl<T: Clone> SlotCell<T> {
 
         // Read and hash the file.
         let result = load();
-        let fingerprint = typst::util::hash128(&result);
+        let fingerprint = typst::utils::hash128(&result);
 
         // If the file contents didn't change, yield the old processed data.
         if std::mem::replace(&mut self.fingerprint, fingerprint) == fingerprint {

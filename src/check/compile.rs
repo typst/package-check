@@ -1,7 +1,6 @@
 use codespan_reporting::diagnostic::Diagnostic;
 use typst::{
     diag::{Severity, SourceDiagnostic},
-    eval::Tracer,
     model::Document,
     syntax::FileId,
 };
@@ -11,11 +10,10 @@ use crate::world::SystemWorld;
 use super::{label, Diagnostics};
 
 pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<Document> {
-    let mut tracer = Tracer::new();
-    let result = typst::compile(world, &mut tracer);
-    diags.emit_many(convert_diagnostics(world, tracer.warnings()));
+    let result = typst::compile(world);
+    diags.emit_many(convert_diagnostics(world, result.warnings));
 
-    match result {
+    match result.output {
         Ok(doc) => Some(doc),
         Err(errors) => {
             diags.emit_many(convert_diagnostics(world, errors));

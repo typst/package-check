@@ -3,8 +3,7 @@ use std::collections::HashSet;
 use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use comemo::Track;
 use typst::{
-    engine::Route,
-    eval::Tracer,
+    engine::{Route, Sink, Traced},
     syntax::{
         ast::{self, AstNode},
         FileId, Source, SyntaxNode,
@@ -18,22 +17,24 @@ use super::{label, Diagnostics};
 
 // Check that all public identifiers are in kebab-case
 pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
+    let main = world.source(world.main()).ok()?;
+
     let public_names: HashSet<_> = {
         let world = <dyn World>::track(world);
-        let mut tracer = Tracer::new();
 
+        let mut sink = Sink::new();
         let module = typst::eval::eval(
             world,
+            Traced::default().track(),
+            sink.track_mut(),
             Route::default().track(),
-            tracer.track_mut(),
-            &world.main(),
+            &main,
         )
         .ok()?;
         let scope = module.scope();
-        scope.iter().map(|(name, _)| name.to_string()).collect()
+        scope.iter().map(|(name, _, _)| name.to_string()).collect()
     };
 
-    let main = world.main();
     let mut visited = HashSet::new();
     check_source(main, world, &public_names, diags, &mut visited);
 

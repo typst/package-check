@@ -35,7 +35,7 @@ pub fn check_dir(
 ) -> eyre::Result<()> {
     let root_path = world.root();
     let main_path = root_path
-        .join(world.main().id().vpath().as_rootless_path())
+        .join(world.main().vpath().as_rootless_path())
         .canonicalize()
         .ok();
 
