@@ -35,4 +35,4 @@ tower-http = { version = "0.5", features = ["trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
 typst = "0.12.0"
-typst-assets = { version = "0.11.0", features = [ "fonts" ] }
+typst-assets = { version = "0.12.0", features = [ "fonts" ] }

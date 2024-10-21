@@ -3459,7 +3459,7 @@ dependencies = [
  "ttf-parser",
  "two-face",
  "typed-arena",
- "typst-assets 0.12.0",
+ "typst-assets",
  "typst-macros",
  "typst-syntax",
  "typst-timing",
@@ -3473,12 +3473,6 @@ dependencies = [
  "wasmi",
  "xmlwriter",
 ]
-
-[[package]]
-name = "typst-assets"
-version = "0.11.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b3061f8d268e8eec7481c9ab24540455cb4912983c49aae38fa6e8bf8ef4d9c"
 
 [[package]]
 name = "typst-assets"
@@ -3531,7 +3525,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "typst",
- "typst-assets 0.11.1",
+ "typst-assets",
 ]
 
 [[package]]
