@@ -1,6 +1,7 @@
 use std::{
     ops::Range,
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
@@ -67,6 +68,8 @@ pub async fn check(
 
     let name = check_name(diags, manifest_file_id, &manifest, package_spec);
     let version = check_version(diags, manifest_file_id, &manifest, package_spec);
+
+    check_compiler_version(diags, manifest_file_id, &manifest);
 
     let res = check_universe_fields(diags, manifest_file_id, &manifest);
     diags.maybe_emit(res);
@@ -227,6 +230,33 @@ fn check_version(
     }
 
     Some(version)
+}
+
+fn check_compiler_version(
+    diags: &mut Diagnostics,
+    manifest_file_id: FileId,
+    manifest: &toml_edit::ImDocument<&String>,
+) -> Option<()> {
+    let compiler = manifest.get("package")?.get("compiler")?;
+    let Some(compiler_str) = compiler.as_str() else {
+        diags.emit(
+            Diagnostic::error()
+                .with_labels(vec![Label::primary(manifest_file_id, compiler.span()?)])
+                .with_message("Compiler version should be a string"),
+        );
+        return None;
+    };
+
+    if PackageVersion::from_str(compiler_str).is_err() {
+        diags.emit(
+            Diagnostic::error()
+                .with_labels(vec![Label::primary(manifest_file_id, compiler.span()?)])
+                .with_message("Compiler version should be a valid semantic version, with three components (for example `0.12.0`)"),
+        );
+        return None;
+    }
+
+    Some(())
 }
 
 fn exclude_large_files(
@@ -419,16 +449,13 @@ fn check_universe_fields(
         .as_table()
         .context("[package] is not a table")?;
 
-    if let Some((license, span)) = pkg.get("license").and_then(|l|
-        l.as_str().map(|s| (s, l.span().unwrap_or_default()))
-    ) {
+    if let Some((license, span)) = pkg
+        .get("license")
+        .and_then(|l| l.as_str().map(|s| (s, l.span().unwrap_or_default())))
+    {
         if let Ok(license) = spdx::Expression::parse(license) {
             for requirement in license.requirements() {
-                if let Some(id) = requirement
-                    .req
-                    .license
-                    .id()
-                {
+                if let Some(id) = requirement.req.license.id() {
                     if !id.is_osi_approved() {
                         diags.emit(
                             Diagnostic::error()
