@@ -26,21 +26,23 @@ fn convert_diagnostics<'a>(
     world: &'a SystemWorld,
     iter: impl IntoIterator<Item = SourceDiagnostic> + 'a,
 ) -> impl Iterator<Item = Diagnostic<FileId>> + 'a {
-    iter.into_iter().map(|diagnostic| {
-        let severity = if diagnostic.severity == Severity::Error {
-            "error"
-        } else {
-            "warning"
-        };
+    iter.into_iter()
+        .filter(|diagnostic| diagnostic.message.starts_with("unknown font family:"))
+        .map(|diagnostic| {
+            let severity = if diagnostic.severity == Severity::Error {
+                "error"
+            } else {
+                "warning"
+            };
 
-        match diagnostic.severity {
-            Severity::Error => Diagnostic::error(),
-            Severity::Warning => Diagnostic::warning(),
-        }
-        .with_message(format!(
-            "The following {} was reported by the Typst compiler: {}",
-            severity, diagnostic.message
-        ))
-        .with_labels(label(world, diagnostic.span).into_iter().collect())
-    })
+            match diagnostic.severity {
+                Severity::Error => Diagnostic::error(),
+                Severity::Warning => Diagnostic::warning(),
+            }
+            .with_message(format!(
+                "The following {} was reported by the Typst compiler: {}",
+                severity, diagnostic.message
+            ))
+            .with_labels(label(world, diagnostic.span).into_iter().collect())
+        })
 }
