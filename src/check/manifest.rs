@@ -1,5 +1,6 @@
 use std::{
     ops::Range,
+    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -280,6 +281,62 @@ fn exclude_large_files(
         {
             // Thumbnail is always excluded
             continue;
+        }
+
+        if path.extension().and_then(|ext| ext.to_str()) == Some("wasm") {
+            let path = package_dir.join(&path);
+            if let Some(file_name) = path.file_name() {
+                let out = std::env::temp_dir().join(file_name);
+
+                let wasm_opt_result = wasm_opt::OptimizationOptions::new_optimize_for_size()
+                    // Explicitely enable and disable features to best match what wasmi supports
+                    // https://github.com/wasmi-labs/wasmi?tab=readme-ov-file#webassembly-proposals
+                    .enable_feature(wasm_opt::Feature::MutableGlobals)
+                    .enable_feature(wasm_opt::Feature::TruncSat)
+                    .enable_feature(wasm_opt::Feature::SignExt)
+                    .enable_feature(wasm_opt::Feature::Multivalue)
+                    .enable_feature(wasm_opt::Feature::BulkMemory)
+                    .enable_feature(wasm_opt::Feature::ReferenceTypes)
+                    .enable_feature(wasm_opt::Feature::TailCall)
+                    .enable_feature(wasm_opt::Feature::ExtendedConst)
+                    .enable_feature(wasm_opt::Feature::MultiMemory)
+                    .disable_feature(wasm_opt::Feature::Simd)
+                    .disable_feature(wasm_opt::Feature::RelaxedSimd)
+                    .disable_feature(wasm_opt::Feature::Gc)
+                    .disable_feature(wasm_opt::Feature::ExceptionHandling)
+                    .run(&path, &out);
+
+                if wasm_opt_result.is_ok() {
+                    let original_size = std::fs::metadata(&path).map(|m| m.size());
+                    let new_size = std::fs::metadata(&out).map(|m| m.size());
+
+                    match (new_size, original_size) {
+                        (Ok(new_size), Ok(original_size)) if new_size < original_size => {
+                            let diff = (original_size - new_size) / 1024;
+
+                            if diff > 20 {
+                                diags.emit(
+                                    Diagnostic::warning()
+                                        .with_labels(vec![Label::primary(
+                                            FileId::new(
+                                                None,
+                                                VirtualPath::new(path.strip_prefix(package_dir)?),
+                                            ),
+                                            0..0,
+                                        )])
+                                        .with_message(format!(
+                                        "This file could be {diff}kB smaller with `wasm-opt -Os`."
+                                    )),
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+
+                    // TODO: ideally this should be async
+                    std::fs::remove_file(out).ok();
+                }
+            }
         }
 
         let fid = FileId::new(None, VirtualPath::new(&path));
