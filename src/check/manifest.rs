@@ -265,6 +265,8 @@ fn exclude_large_files(
     manifest: &toml_edit::ImDocument<&String>,
     thumbnail_path: Option<PathBuf>,
 ) -> eyre::Result<()> {
+    let template_root = template_root(manifest);
+    let template_dir = template_root.and_then(|root| package_dir.join(&root).canonicalize().ok());
     let (exclude, _) = read_exclude(package_dir, manifest)?;
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
@@ -321,6 +323,14 @@ fn exclude_large_files(
         };
 
         if metadata.is_dir() {
+            continue;
+        }
+
+        if template_dir
+            .as_ref()
+            .is_some_and(|template_dir| ch.path().starts_with(template_dir))
+        {
+            // Don't exclude template files, even if they contain "example" or "test" in their name.
             continue;
         }
 
@@ -615,10 +625,7 @@ fn dont_exclude_template_files(
     package_dir: &Path,
     exclude: Override,
 ) -> Option<()> {
-    let template_root = manifest
-        .get("template")
-        .and_then(|t| t.get("path"))?
-        .as_str()?;
+    let template_root = template_root(manifest)?;
     for entry in ignore::Walk::new(package_dir.join(template_root)).flatten() {
         // For build artifacts, ask the package author to delete them.
         let ext = entry.path().extension().and_then(|e| e.to_str());
@@ -665,6 +672,15 @@ fn dont_exclude_template_files(
     }
 
     Some(())
+}
+
+fn template_root(manifest: &toml_edit::ImDocument<&String>) -> Option<PathBuf> {
+    Some(PathBuf::from(
+        manifest
+            .get("template")
+            .and_then(|t| t.get("path"))?
+            .as_str()?,
+    ))
 }
 
 fn check_thumbnail(
