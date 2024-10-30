@@ -512,6 +512,7 @@ async fn github_hook<G: GitHubAuth>(
                                 .iter()
                                 .chain(diags.warnings())
                                 .filter_map(|diag| diagnostic_to_annotation(&world, package, diag))
+                                .take(50)
                                 .collect::<Vec<_>>(),
                         },
                     )
