@@ -95,15 +95,11 @@ fn check_source(
             for param in func.params().children() {
                 let (name, span) = match param {
                     ast::Param::Named(named) => (named.name().as_str(), named.span()),
-                    ast::Param::Spread(spread) => {
-                        let Some(sink) = spread.sink_ident() else {
-                            continue;
-                        };
-                        (sink.as_str(), sink.span())
-                    }
                     ast::Param::Pos(ast::Pattern::Normal(ast::Expr::Ident(i))) => {
                         (i.as_str(), i.span())
                     }
+                    // Spread params can safely be ignored, their name is only
+                    // exposed to the body of the function, not the caller.
                     _ => continue,
                 };
 

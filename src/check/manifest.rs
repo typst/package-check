@@ -337,6 +337,10 @@ fn exclude_large_files(
                     std::fs::remove_file(out).ok();
                 }
             }
+
+            // Don't suggest to exclude WASM files, they are generally necessary
+            // for the package to work.
+            continue;
         }
 
         let fid = FileId::new(None, VirtualPath::new(&path));
