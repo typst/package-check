@@ -27,7 +27,7 @@ fn convert_diagnostics<'a>(
     iter: impl IntoIterator<Item = SourceDiagnostic> + 'a,
 ) -> impl Iterator<Item = Diagnostic<FileId>> + 'a {
     iter.into_iter()
-        .filter(|diagnostic| diagnostic.message.starts_with("unknown font family:"))
+        .filter(|diagnostic| !diagnostic.message.starts_with("unknown font family:"))
         .map(|diagnostic| {
             let severity = if diagnostic.severity == Severity::Error {
                 "error"
