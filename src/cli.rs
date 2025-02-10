@@ -18,7 +18,12 @@ pub async fn main(package_spec: String) {
     match all_checks(package_spec.as_ref(), package_dir, true).await {
         Ok((mut world, diags)) => {
             if let Err(err) = print_diagnostics(&mut world, diags.errors(), diags.warnings()) {
-                error!("failed to print diagnostics ({err})")
+                error!("failed to print diagnostics ({err})");
+                error!(
+                    "Raw diagnostics: {:#?}\n{:#?}",
+                    diags.errors(),
+                    diags.warnings()
+                );
             }
         }
         Err(e) => println!("Fatal error: {}", e),
