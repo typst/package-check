@@ -1,7 +1,7 @@
 use codespan_reporting::diagnostic::Diagnostic;
 use typst::{
     diag::{Severity, SourceDiagnostic},
-    model::Document,
+    layout::PagedDocument,
     syntax::FileId,
 };
 
@@ -9,7 +9,7 @@ use crate::world::SystemWorld;
 
 use super::{label, Diagnostics};
 
-pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<Document> {
+pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<PagedDocument> {
     let result = typst::compile(world);
     diags.emit_many(convert_diagnostics(world, result.warnings));
 

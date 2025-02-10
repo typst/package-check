@@ -25,7 +25,8 @@
                 src = ./.;
                 nativeBuildInputs = [ pkgs.pkg-config ];
                 buildInputs = [ pkgs.openssl.dev pkgs.git ];
-                cargoHash = "sha256-nJJBMiFdLxNvLGKsThUlbFVT59JxVXMRfnaPAtOgROo=";
+                useFetchCargoVendor = true;
+                cargoHash = "sha256-j9eIXUr1+5OUm4sy8tnfgz77ErPNKdVELKEq8ik27PU=";
                 # Don't run `cargo test`, as there are no tests to run.
                 doCheck = false;
               };

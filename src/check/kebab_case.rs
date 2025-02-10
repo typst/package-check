@@ -8,7 +8,7 @@ use typst::{
         ast::{self, AstNode},
         FileId, Source, SyntaxNode,
     },
-    World,
+    World, ROUTINES,
 };
 
 use crate::world::SystemWorld;
@@ -23,7 +23,8 @@ pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
         let world = <dyn World>::track(world);
 
         let mut sink = Sink::new();
-        let module = typst::eval::eval(
+        let module = typst_eval::eval(
+            &ROUTINES,
             world,
             Traced::default().track(),
             sink.track_mut(),
@@ -32,7 +33,7 @@ pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
         )
         .ok()?;
         let scope = module.scope();
-        scope.iter().map(|(name, _, _)| name.to_string()).collect()
+        scope.iter().map(|(name, _)| name.to_string()).collect()
     };
 
     let mut visited = HashSet::new();

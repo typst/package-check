@@ -222,7 +222,7 @@ impl FileSlot {
     ) -> FileResult<Bytes> {
         self.file.get_or_init(
             || read(self.id, project_root, package_override, excluded),
-            |data, _| Ok(data.into()),
+            |data, _| Ok(Bytes::new(data)),
         )
     }
 }
@@ -429,7 +429,7 @@ impl FontSlot {
     pub fn get(&self) -> Option<Font> {
         self.font
             .get_or_init(|| {
-                let data = std::fs::read(&self.path).ok()?.into();
+                let data = Bytes::new(std::fs::read(&self.path).ok()?);
                 Font::new(data, self.index)
             })
             .clone()
@@ -486,7 +486,7 @@ impl FontSearcher {
     /// Add fonts that are embedded in the binary.
     fn add_embedded(&mut self) {
         for data in typst_assets::fonts() {
-            let buffer = typst::foundations::Bytes::from_static(data);
+            let buffer = typst::foundations::Bytes::new(data);
             for (i, font) in Font::iter(buffer).enumerate() {
                 self.book.push(font.info().clone());
                 self.fonts.push(FontSlot {
