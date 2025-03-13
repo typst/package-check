@@ -99,7 +99,6 @@ impl GitHub<AuthInstallation> {
             .await?
             .parse_json()
             .await
-            .map_err(ApiError::from)
     }
 
     pub async fn post_pr_comment(

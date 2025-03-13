@@ -34,7 +34,7 @@ toml_edit = "0.22.12"
 tower-http = { version = "0.5", features = ["trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
-typst = "0.13"
-typst-assets = { version = "0.13", features = [ "fonts" ] }
-typst-eval = "0.13"
+typst = "0.13.1"
+typst-assets = { version = "0.13.1", features = [ "fonts" ] }
+typst-eval = "0.13.1"
 wasm-opt = "0.116.1"
