@@ -104,7 +104,10 @@ fn check_source(
                     _ => continue,
                 };
 
-                if name != casbab::kebab(name) {
+                // We recommend kebab-style names but do not warn on
+                // all-uppercase names that may represent real-world
+                // acronyms.
+                if name != casbab::kebab(name) && name != casbab::screaming(name) {
                     diags.emit(Diagnostic {
                         severity: Severity::Warning,
                         message: "This argument seems to be part of public function. \
