@@ -561,6 +561,7 @@ fn diagnostic_to_annotation(
     } else {
         (None, None)
     };
+    let package = label.file_id.package().unwrap_or(package);
     Some(Annotation {
         path: Path::new("packages")
             .join(package.namespace.to_string())
