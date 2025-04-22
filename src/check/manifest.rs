@@ -1,6 +1,5 @@
 use std::{
     ops::Range,
-    os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
     str::FromStr,
 };
@@ -307,8 +306,8 @@ fn exclude_large_files(
                     .run(&path, &out);
 
                 if wasm_opt_result.is_ok() {
-                    let original_size = std::fs::metadata(&path).map(|m| m.size());
-                    let new_size = std::fs::metadata(&out).map(|m| m.size());
+                    let original_size = std::fs::metadata(&path).map(|m| m.len());
+                    let new_size = std::fs::metadata(&out).map(|m| m.len());
 
                     match (new_size, original_size) {
                         (Ok(new_size), Ok(original_size)) if new_size < original_size => {
