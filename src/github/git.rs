@@ -120,10 +120,7 @@ impl<'a> GitRepo<'a> {
 
         debug!("Done");
 
-        Ok(command_output
-            .lines()
-            .map(|l| Path::new(l).to_owned())
-            .collect())
+        Ok(parse_diff_tree_paths(&command_output))
     }
 
     pub fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
@@ -246,4 +243,115 @@ async fn traced_git(
     }
 
     Ok(out)
+}
+
+fn parse_diff_tree_paths(output: &str) -> Vec<PathBuf> {
+    output
+        .lines()
+        .map(|l| {
+            if l.starts_with('"') && l.ends_with('"') {
+                let mut path = Vec::new();
+                let mut escape_seq = 0;
+                let mut escaped = String::new();
+                for c in l[1..l.len() - 2].chars() {
+                    if c == '\\' {
+                        escape_seq = 3;
+                        continue;
+                    }
+
+                    if escape_seq == 0 {
+                        let start = path.len();
+                        path.resize(start + c.len_utf8(), 0);
+                        c.encode_utf8(&mut path[start..]);
+                    } else {
+                        escaped.push(c);
+                        escape_seq -= 1;
+
+                        if escape_seq == 0 {
+                            path.push(
+                                u8::from_str_radix(&escaped, 8)
+                                    .expect("Invalid escape sequence from Git"),
+                            );
+                            escaped = String::new()
+                        }
+                    }
+                }
+
+                PathBuf::from(String::from_utf8(path).expect("Invalid UTF8 in path")).to_owned()
+            } else {
+                Path::new(l).to_owned()
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    #[test]
+    fn touched_filed() {
+        let output = r#"packages/preview/scholarly-tauthesis/0.8.0/.gitattributes
+packages/preview/scholarly-tauthesis/0.8.0/.gitignore
+packages/preview/scholarly-tauthesis/0.8.0/LICENSE
+packages/preview/scholarly-tauthesis/0.8.0/README.md
+packages/preview/scholarly-tauthesis/0.8.0/tauthesis.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/bibliography.bib
+packages/preview/scholarly-tauthesis/0.8.0/template/code/README.md
+packages/preview/scholarly-tauthesis/0.8.0/template/code/square.jl
+packages/preview/scholarly-tauthesis/0.8.0/template/content/01.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/content/02.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/content/03.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/content/04.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/content/A.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/content/README.md
+packages/preview/scholarly-tauthesis/0.8.0/template/content/abstract.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/content/glossary.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/content/preface.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/content/tekoalyn-kaytto.typ
+"packages/preview/scholarly-tauthesis/0.8.0/template/content/tiivistelm\303\244.typ"
+packages/preview/scholarly-tauthesis/0.8.0/template/content/use-of-ai.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/images/README.md
+packages/preview/scholarly-tauthesis/0.8.0/template/images/tau-logo-fin-eng.svg
+packages/preview/scholarly-tauthesis/0.8.0/template/main.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/meta.typ
+packages/preview/scholarly-tauthesis/0.8.0/template/preamble.typ
+packages/preview/scholarly-tauthesis/0.8.0/thumbnail.png
+packages/preview/scholarly-tauthesis/0.8.0/typst.toml"#;
+        assert_eq!(
+            super::parse_diff_tree_paths(output),
+            [
+                "packages/preview/scholarly-tauthesis/0.8.0/.gitattributes",
+                "packages/preview/scholarly-tauthesis/0.8.0/.gitignore",
+                "packages/preview/scholarly-tauthesis/0.8.0/LICENSE",
+                "packages/preview/scholarly-tauthesis/0.8.0/README.md",
+                "packages/preview/scholarly-tauthesis/0.8.0/tauthesis.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/bibliography.bib",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/code/README.md",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/code/square.jl",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/01.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/02.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/03.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/04.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/A.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/README.md",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/abstract.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/glossary.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/preface.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/tekoalyn-kaytto.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/tiivistelmä.ty",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/content/use-of-ai.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/images/README.md",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/images/tau-logo-fin-eng.svg",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/main.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/meta.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/template/preamble.typ",
+                "packages/preview/scholarly-tauthesis/0.8.0/thumbnail.png",
+                "packages/preview/scholarly-tauthesis/0.8.0/typst.toml"
+            ]
+            .iter()
+            .map(PathBuf::from)
+            .collect::<Vec<_>>()
+        )
+    }
 }
