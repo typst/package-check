@@ -118,9 +118,7 @@ impl World for SystemWorld {
     }
 
     fn main(&self) -> FileId {
-        self.source(self.main)
-            .expect("Error while accessing main source file")
-            .id()
+        self.main
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
