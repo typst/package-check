@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{path::Path, process::exit};
 
 use codespan_reporting::{diagnostic::Diagnostic, term};
 use ignore::overrides::Override;
@@ -25,8 +25,19 @@ pub async fn main(package_spec: String) {
                     diags.warnings()
                 );
             }
+
+            if !diags.errors().is_empty() {
+                exit(1)
+            }
+
+            if !diags.warnings().is_empty() {
+                exit(2)
+            }
         }
-        Err(e) => println!("Fatal error: {}", e),
+        Err(e) => {
+            println!("Fatal error: {}", e);
+            exit(1)
+        }
     }
 }
 
