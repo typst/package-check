@@ -1,3 +1,4 @@
+use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
 mod check;
@@ -5,6 +6,28 @@ mod cli;
 mod github;
 mod package;
 mod world;
+
+#[derive(clap::Parser)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(clap::Subcommand, Clone)]
+enum Commands {
+    /// Start a server to handle GitHub webhooks and report checks in pull
+    /// requests.
+    Server,
+    /// Check a local package at the specified version. To be run in
+    /// typst/packages/packages or your own repository.
+    Check {
+        /// Packages to check. Either the name of a directory with a typst.toml
+        /// manifest (to run in your own repository), or a package specification
+        /// in the @preview/name:version format (to run in the packages
+        /// directory of typst/packages).
+        packages: Vec<String>,
+    },
+}
 
 #[tokio::main]
 async fn main() {
@@ -21,26 +44,17 @@ async fn main() {
             .init();
     }
 
-    let mut args = std::env::args();
-    let cmd = args.next();
-    let subcommand = args.next();
-    if Some("server") == subcommand.as_deref() {
-        github::hook_server().await;
-    } else if Some("check") == subcommand.as_deref() {
-        cli::main(args.next().unwrap_or_default()).await;
-    } else {
-        show_help(&cmd.unwrap_or("typst-package-check".to_owned()));
-    }
-}
+    let args = Cli::parse();
+    match args.command {
+        Commands::Server => github::hook_server().await,
+        Commands::Check { packages } => {
+            if packages.is_empty() {
+                cli::main(".".into()).await
+            }
 
-fn show_help(program: &str) {
-    println!("Usage :");
-    println!("  {program} server");
-    println!("    Start a server to handle GitHub webhooks and report checks in pull requests.");
-    println!("  {program} check @preview/PACKAGE:VERSION");
-    println!(
-        "    Check a local package at the specified version. To be run in typst/packages/packages."
-    );
-    println!("  {program} check");
-    println!("    Check the package in the current directory.");
+            for package in packages {
+                cli::main(package).await
+            }
+        }
+    }
 }
