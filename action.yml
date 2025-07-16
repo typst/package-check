@@ -20,3 +20,5 @@ runs:
     GITHUB_INSTALLATION: ${{ inputs.installation-id }}
     GITHUB_PRIVATE_KEY: ${{ inputs.private-key }}
     GITHUB_APP_IDENTIFIER: ${{ inputs.app-id }}
+    RUST_LOG: debug
+    RUST_BACKTRACE: 1

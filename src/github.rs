@@ -101,7 +101,14 @@ pub async fn run_github_check(
         })
         .collect::<HashSet<_>>();
 
+    debug!(
+        "This commit touched the following packages: {:#?}",
+        touched_packages
+    );
+
     if let Some(pr) = &pr {
+        debug!("This commit is linked to PR {}", pr.number);
+
         // Update labels
         let mut has_new_packages = false;
         let mut has_updated_packages = false;
@@ -176,6 +183,10 @@ pub async fn run_github_check(
             last_package
         };
 
+        debug!(
+            "Updating PR metadata. Expected title : {:?}, expected labels: {:?}",
+            expected_pr_title, labels
+        );
         // Actually update the PR, if needed
         if let Some(expected_pr_title) = expected_pr_title {
             if pr.title != expected_pr_title || !labels.is_empty() || body.is_some() {
@@ -208,6 +219,7 @@ pub async fn run_github_check(
         {
             previous
         } else {
+            debug!("Creating a new check run");
             &api_client
                 .create_check_run(
                     repository.owner(),
