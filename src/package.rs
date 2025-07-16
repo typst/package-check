@@ -1,10 +1,12 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
 
+use crate::github::git;
+
 /// Return the path of the directory containing all the packages (i.e. `typst/packages/packages`).
-pub fn dir() -> PathBuf {
-    Path::new(&std::env::var("PACKAGES_DIR").unwrap_or("..".to_owned())).join("packages")
+fn dir() -> PathBuf {
+    git::repo_dir().join("packages")
 }
 
 pub trait PackageExt: Sized {

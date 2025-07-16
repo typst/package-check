@@ -12,8 +12,11 @@ use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 
 pub fn repo_dir() -> PathBuf {
-    let repo_path = std::env::var("PACKAGES_DIR").unwrap_or("..".to_owned());
-    PathBuf::from(repo_path)
+    PathBuf::from(
+        &std::env::var("PACKAGES_DIR")
+            .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
+            .unwrap_or("..".to_owned()),
+    )
 }
 
 pub struct GitRepo<'a> {
@@ -23,16 +26,6 @@ pub struct GitRepo<'a> {
 impl<'a> GitRepo<'a> {
     pub fn open(dir: &'a Path) -> Self {
         GitRepo { dir }
-    }
-
-    pub async fn clone_if_needed(&self, url: &str) -> eyre::Result<()> {
-        let status = traced_git(["-C", self.dir()?, "status"]).await?.status;
-
-        if !status.success() {
-            traced_git(["clone", url, self.dir()?]).await?;
-        }
-
-        Ok(())
     }
 
     pub async fn pull_main(&self) -> eyre::Result<()> {

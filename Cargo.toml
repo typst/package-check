@@ -1,11 +1,9 @@
 [package]
 name = "typst-package-check"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 
 [dependencies]
-async-trait = "0.1.80"
-axum = "0.7.5"
 casbab = "0.1.1"
 chrono = "0.4.38"
 clap = { version= "4.5.40", features = ["derive"] }
@@ -30,9 +28,8 @@ sha1 = "0.10.6"
 spdx = "0.10"
 stringcase = "0.2.1"
 tar = "0.4.40"
-tokio = { version = "1.37.0", features = ["rt-multi-thread", "process", "fs"] }
+tokio = { version = "1.37.0", features = ["rt-multi-thread", "process", "fs", "macros"] }
 toml_edit = "0.22.12"
-tower-http = { version = "0.5", features = ["trace"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
 typst = "0.13.1"

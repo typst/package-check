@@ -2,24 +2,6 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-use super::pr::AnyPullRequest;
-
-#[derive(Debug, Deserialize, Clone, Copy)]
-#[serde(transparent)]
-pub struct CheckSuiteId(#[allow(dead_code)] u64);
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CheckSuite {
-    pub head_sha: String,
-    pub pull_requests: Vec<AnyPullRequest>,
-}
-
-#[derive(Clone, Deserialize)]
-pub struct MinimalCheckSuite {
-    #[allow(dead_code)]
-    pub id: CheckSuiteId,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CheckSuiteAction {
@@ -51,20 +33,9 @@ impl Display for CheckRunId {
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct CheckRun<S = CheckSuite> {
+pub struct CheckRun {
     pub id: CheckRunId,
     pub name: String,
-    pub check_suite: S,
-}
-
-impl<S> CheckRun<S> {
-    pub fn without_suite(self) -> CheckRun<()> {
-        CheckRun {
-            id: self.id,
-            name: self.name,
-            check_suite: (),
-        }
-    }
 }
 
 #[derive(Debug, Serialize)]

@@ -2,24 +2,14 @@
 
 use std::fmt::Display;
 
-use axum::{extract::FromRequestParts, http::request::Parts};
-use check::MinimalCheckSuite;
 use eyre::Error;
-use jwt_simple::{
-    algorithms::{RS256KeyPair, RSAKeyPairLike},
-    claims::Claims,
-    reexports::coarsetime::Duration,
-};
 use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use self::check::{CheckRun, CheckRunId, CheckRunOutput};
 
-use super::AppState;
-
 pub mod check;
-pub mod hook;
 pub mod pr;
 mod user;
 
@@ -66,7 +56,7 @@ impl From<serde_json::Error> for ApiError {
 type ApiResult<T> = Result<T, ApiError>;
 
 /// Authentication for the GitHub API using a JWT token.
-pub struct AuthJwt(String);
+pub struct AuthJwt(pub String);
 
 impl Display for AuthJwt {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -87,8 +77,8 @@ impl Display for AuthInstallation {
 
 /// A GitHub API client
 pub struct GitHub<A = AuthJwt> {
-    auth: A,
-    req: reqwest::Client,
+    pub(crate) auth: A,
+    pub(crate) req: reqwest::Client,
 }
 
 impl<A: ToString> GitHub<A> {
@@ -121,7 +111,7 @@ impl<A: ToString> GitHub<A> {
 pub trait GitHubAuth {
     async fn auth_installation(
         self,
-        installation: &impl AsInstallation,
+        installation: &Installation,
     ) -> ApiResult<GitHub<AuthInstallation>>;
 }
 
@@ -129,9 +119,9 @@ impl GitHubAuth for GitHub<AuthJwt> {
     #[tracing::instrument(skip_all)]
     async fn auth_installation(
         self,
-        installation: &impl AsInstallation,
+        installation: &Installation,
     ) -> ApiResult<GitHub<AuthInstallation>> {
-        let installation_id = installation.id();
+        let installation_id = installation.id;
         let installation_token: InstallationToken = self
             .post(format!("app/installations/{installation_id}/access_tokens"))
             .json(&serde_json::json!({
@@ -158,7 +148,7 @@ impl GitHubAuth for GitHub<AuthJwt> {
 impl GitHubAuth for GitHub<AuthInstallation> {
     async fn auth_installation(
         self,
-        _installation: &impl AsInstallation,
+        _installation: &Installation,
     ) -> ApiResult<GitHub<AuthInstallation>> {
         Ok(self)
     }
@@ -172,7 +162,7 @@ impl GitHub<AuthInstallation> {
         repo: RepoId,
         check_run_name: String,
         head_sha: &str,
-    ) -> ApiResult<CheckRun<MinimalCheckSuite>> {
+    ) -> ApiResult<CheckRun> {
         let response = self
             .post(format!("repos/{owner}/{repo}/check-runs"))
             .body(serde_json::to_string(&serde_json::json!({
@@ -192,13 +182,13 @@ impl GitHub<AuthInstallation> {
     }
 
     #[tracing::instrument(skip(self, output))]
-    pub async fn update_check_run<'a>(
+    pub async fn update_check_run(
         &self,
         owner: OwnerId,
         repo: RepoId,
         check_run: CheckRunId,
         success: bool,
-        output: CheckRunOutput<'a>,
+        output: CheckRunOutput<'_>,
     ) -> ApiResult<()> {
         let res = self
             .patch(format!("repos/{owner}/{repo}/check-runs/{check_run}"))
@@ -213,32 +203,6 @@ impl GitHub<AuthInstallation> {
             .await?;
         debug!("GitHub said: {}", res);
         Ok(())
-    }
-}
-
-#[async_trait::async_trait]
-impl FromRequestParts<AppState> for GitHub {
-    type Rejection = StatusCode;
-
-    async fn from_request_parts<'a, 's>(
-        _parts: &'a mut Parts,
-        state: &'s AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let Ok(private_key) = RS256KeyPair::from_pem(&state.private_key) else {
-            warn!("The private key in the .env file cannot be parsed as PEM.");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        };
-
-        let claims = Claims::create(Duration::from_mins(10)).with_issuer(&state.app_id);
-        let Ok(token) = private_key.sign(claims) else {
-            warn!("Couldn't sign JWT claims.");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        };
-
-        Ok(Self {
-            auth: AuthJwt(token),
-            req: reqwest::Client::new(),
-        })
     }
 }
 
@@ -300,16 +264,6 @@ impl Repository {
 #[derive(Debug, Deserialize)]
 pub struct Installation {
     pub id: u64,
-}
-
-pub trait AsInstallation {
-    fn id(&self) -> u64;
-}
-
-impl AsInstallation for Installation {
-    fn id(&self) -> u64 {
-        self.id
-    }
 }
 
 #[derive(Deserialize)]

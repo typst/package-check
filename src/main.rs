@@ -1,6 +1,7 @@
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
+mod action;
 mod check;
 mod cli;
 mod github;
@@ -15,9 +16,6 @@ struct Cli {
 
 #[derive(clap::Subcommand, Clone)]
 enum Commands {
-    /// Start a server to handle GitHub webhooks and report checks in pull
-    /// requests.
-    Server,
     /// Check a local package at the specified version. To be run in
     /// typst/packages/packages or your own repository.
     Check {
@@ -27,6 +25,13 @@ enum Commands {
         /// directory of typst/packages).
         packages: Vec<String>,
     },
+    /// Check the any modified package, and report the results as a GitHub check.
+    ///
+    /// This command assumes to be run in GitHub Action and to have access to some
+    /// GitHub specific environment variables. It is only meant to be used to lint
+    /// PRs submitted to typst/packages, the `check` subcommand is more suitable to
+    /// use in CI for your own repositories.
+    Action,
 }
 
 #[tokio::main]
@@ -46,7 +51,6 @@ async fn main() {
 
     let args = Cli::parse();
     match args.command {
-        Commands::Server => github::hook_server().await,
         Commands::Check { packages } => {
             if packages.is_empty() {
                 cli::main(".".into()).await
@@ -56,5 +60,6 @@ async fn main() {
                 cli::main(package).await
             }
         }
+        Commands::Action => action::main().await,
     }
 }

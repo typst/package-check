@@ -30,36 +30,9 @@ impl MinimalPullRequest {
 #[derive(Clone, Debug, Deserialize)]
 pub struct PullRequest {
     pub number: usize,
-    pub head: Commit,
     pub title: String,
     pub body: String,
     pub user: User,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-#[serde(untagged)]
-pub enum AnyPullRequest {
-    Full(PullRequest),
-    Minimal(MinimalPullRequest),
-}
-
-impl AnyPullRequest {
-    pub async fn get_full(
-        self,
-        api: &GitHub<AuthInstallation>,
-        owner: OwnerId,
-        repo: RepoId,
-    ) -> Result<PullRequest, ApiError> {
-        match self {
-            AnyPullRequest::Full(pr) => Ok(pr),
-            AnyPullRequest::Minimal(pr) => pr.get_full(api, owner, repo).await,
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct Commit {
-    pub sha: String,
 }
 
 #[derive(Serialize)]

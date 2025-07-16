@@ -1,0 +1,23 @@
+
+name: 'Typst package check'
+description: 'Lint Typst packages before publishing them to Typst Universe'
+inputs:
+  installation-id:
+    description: 'GitHub installation ID for the package check app in the current repository'
+    required: true
+  app-id:
+    description: 'GitHub application ID for the package check app'
+    required: true
+  private-key:
+    description: 'GitHub private key for the package check app, as PEM'
+    required: true
+runs:
+  using: 'docker'
+  image: 'ghcr.io/typst/package-check'
+  args:
+    - ci
+  env:
+    GITHUB_INSTALLATION: ${{ inputs.installation-id }}
+    GITHUB_PRIVATE_KEY: ${{ inputs.private-key }}
+    GITHUB_APP_IDENTIFIER: ${{ inputs.app-id }}
+    GITHUB_WEBHOOK_SECRET: 'Should not be used but still required'
