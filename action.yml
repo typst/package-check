@@ -13,11 +13,10 @@ inputs:
     required: true
 runs:
   using: 'docker'
-  image: 'ghcr.io/typst/package-check'
+  image: 'docker://ghcr.io/typst/package-check'
   args:
-    - ci
+    - action
   env:
     GITHUB_INSTALLATION: ${{ inputs.installation-id }}
     GITHUB_PRIVATE_KEY: ${{ inputs.private-key }}
     GITHUB_APP_IDENTIFIER: ${{ inputs.app-id }}
-    GITHUB_WEBHOOK_SECRET: 'Should not be used but still required'
