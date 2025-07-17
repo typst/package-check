@@ -74,7 +74,7 @@ pub async fn run_github_check(
     previous_check_run: Option<CheckRun>,
     pr: Option<PullRequest>,
 ) -> eyre::Result<()> {
-    let git_repo = GitRepo::open(Path::new(git_dir));
+    let git_repo = GitRepo::open(Path::new(git_dir)).await?;
     git_repo.pull_main().await?;
     git_repo.fetch_commit(&head_sha).await?;
     let touched_files = git_repo.files_touched_by(&head_sha).await?;
@@ -257,7 +257,9 @@ pub async fn run_github_check(
         // the previous version.
         if let Some(current_pr) = &pr {
             debug!("There is a current PR");
-            if let Some(previous_commit) = check::authors::commit_for_previous_version(package) {
+            if let Some(previous_commit) =
+                check::authors::commit_for_previous_version(package).await
+            {
                 debug!("Found previous commit: {previous_commit}");
                 if let Ok(Some(previous_pr)) = api_client
                     .prs_for_commit(repository.owner(), repository.name(), previous_commit)

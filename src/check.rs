@@ -42,7 +42,7 @@ pub async fn all_checks(
     diags.maybe_emit(res);
 
     if let Some(spec) = package_spec.filter(|_| check_authors) {
-        authors::check(&mut diags, spec);
+        authors::check(&mut diags, spec).await;
     }
 
     Ok((worlds.package, diags))

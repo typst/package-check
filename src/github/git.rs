@@ -24,8 +24,10 @@ pub struct GitRepo<'a> {
 }
 
 impl<'a> GitRepo<'a> {
-    pub fn open(dir: &'a Path) -> Self {
-        GitRepo { dir }
+    pub async fn open(dir: &'a Path) -> eyre::Result<Self> {
+        let repo = GitRepo { dir };
+        traced_git(["config", "--global", "--add", "safe.directory", repo.dir()?]).await?;
+        Ok(repo)
     }
 
     pub async fn pull_main(&self) -> eyre::Result<()> {
