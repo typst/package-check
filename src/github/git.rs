@@ -96,21 +96,22 @@ impl<'a> GitRepo<'a> {
     pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> eyre::Result<Vec<PathBuf>> {
         debug!("Listing files touched by {}", sha.as_ref());
         let command_output = String::from_utf8(
-            Command::new("git")
-                .args([
-                    "-C",
-                    self.dir()?,
-                    "diff-tree",
-                    "--no-commit-id",
-                    "--name-only",
-                    "-r",
-                    "--merge-base",
-                    "main",
-                    sha.as_ref(),
-                ])
-                .output()
-                .await?
-                .stdout,
+            traced_git([
+                "-C",
+                self.dir()?,
+                "diff-tree",
+                "--no-commit-id",
+                "--name-only",
+                "-r",
+                "--merge-base",
+                std::env::var("GITHUB_BASE_REF")
+                    .as_deref()
+                    .unwrap_or("main"),
+                sha.as_ref(),
+                "--",
+            ])
+            .await?
+            .stdout,
         )?;
 
         debug!("Done");
