@@ -6,7 +6,7 @@ use std::{
     process::{Output, Stdio},
 };
 
-use eyre::{Context, ContextCompat};
+use eyre::ContextCompat;
 use tokio::process::Command;
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
@@ -28,40 +28,6 @@ impl<'a> GitRepo<'a> {
         let repo = GitRepo { dir };
         traced_git(["config", "--global", "--add", "safe.directory", repo.dir()?]).await?;
         Ok(repo)
-    }
-
-    pub async fn pull_main(&self) -> eyre::Result<()> {
-        debug!("Pulling main branch");
-        traced_git([
-            "-C",
-            self.dir()?,
-            "-c",
-            "receive.maxInputSize=134217728", // 128MB
-            "pull",
-            "origin",
-            "main",
-            "--ff-only",
-        ])
-        .await?;
-        debug!("Done");
-        Ok(())
-    }
-
-    pub async fn fetch_commit(&self, sha: impl AsRef<str>) -> eyre::Result<()> {
-        debug!("Fetching commit: {}", sha.as_ref());
-        traced_git([
-            "-C",
-            self.dir()?,
-            "-c",
-            "receive.maxInputSize=134217728", // 128MB
-            "fetch",
-            "origin",
-            sha.as_ref(),
-        ])
-        .await
-        .context("Failed to fetch {} (probably because of some large file).")?;
-        debug!("Done");
-        Ok(())
     }
 
     /// Checks out a commit in a new working tree

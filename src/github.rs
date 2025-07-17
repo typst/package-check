@@ -68,6 +68,7 @@ impl AppState {
 
 pub async fn run_github_check(
     git_dir: &String,
+    merge_sha: String,
     head_sha: String,
     api_client: GitHub<AuthInstallation>,
     repository: Repository,
@@ -75,9 +76,7 @@ pub async fn run_github_check(
     pr: Option<PullRequest>,
 ) -> eyre::Result<()> {
     let git_repo = GitRepo::open(Path::new(git_dir)).await?;
-    git_repo.pull_main().await?;
-    git_repo.fetch_commit(&head_sha).await?;
-    let touched_files = git_repo.files_touched_by(&head_sha).await?;
+    let touched_files = git_repo.files_touched_by(&merge_sha).await?;
 
     let mut touches_outside_of_packages = false;
 
@@ -247,9 +246,9 @@ pub async fn run_github_check(
             continue;
         }
 
-        let checkout_dir = format!("checkout-{}", head_sha);
+        let checkout_dir = format!("checkout-{}", merge_sha);
         git_repo
-            .checkout_commit(&head_sha, &checkout_dir)
+            .checkout_commit(&merge_sha, &checkout_dir)
             .await
             .context("Failed to checkout commit")?;
 
