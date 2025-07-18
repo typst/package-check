@@ -2,29 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use super::{user::User, ApiError, AuthInstallation, GitHub, JsonExt, OwnerId, RepoId};
 
-#[derive(Clone, Debug, Deserialize)]
-pub struct MinimalPullRequest {
-    pub number: usize,
-}
-
-impl MinimalPullRequest {
-    pub async fn get_full(
-        &self,
-        api: &GitHub<AuthInstallation>,
-        owner: OwnerId,
-        repo: RepoId,
-    ) -> Result<PullRequest, ApiError> {
-        api.get(format!(
-            "repos/{owner}/{repo}/pulls/{pull_number}",
-            owner = owner,
-            repo = repo,
-            pull_number = self.number
-        ))
-        .send()
-        .await?
-        .parse_json()
-        .await
-    }
+#[derive(Deserialize)]
+pub struct PullRequestEvent {
+    pub pull_request: PullRequest,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -33,6 +13,12 @@ pub struct PullRequest {
     pub title: String,
     pub body: String,
     pub user: User,
+    pub head: Commit,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Commit {
+    pub sha: String,
 }
 
 #[derive(Serialize)]
