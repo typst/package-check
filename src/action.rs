@@ -36,7 +36,6 @@ pub async fn main() {
 
     run_github_check(
         &state.git_dir,
-        std::env::var("GITHUB_SHA").expect("This command should be run in GitHub Actions"),
         event.pull_request.head.sha.clone(),
         api_client,
         repository,

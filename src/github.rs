@@ -68,7 +68,6 @@ impl AppState {
 
 pub async fn run_github_check(
     git_dir: &String,
-    merge_sha: String,
     head_sha: String,
     api_client: GitHub<AuthInstallation>,
     repository: Repository,
@@ -76,7 +75,7 @@ pub async fn run_github_check(
     pr: Option<PullRequest>,
 ) -> eyre::Result<()> {
     let git_repo = GitRepo::open(Path::new(git_dir)).await?;
-    let touched_files = git_repo.files_touched_by(&merge_sha).await?;
+    let touched_files = git_repo.files_touched_by("HEAD").await?;
 
     let mut touches_outside_of_packages = false;
 
@@ -246,12 +245,6 @@ pub async fn run_github_check(
             continue;
         }
 
-        let checkout_dir = format!("checkout-{}", merge_sha);
-        git_repo
-            .checkout_commit(&merge_sha, &checkout_dir)
-            .await
-            .context("Failed to checkout commit")?;
-
         // Check that the author of this PR is the same as the one of
         // the previous version.
         if let Some(current_pr) = &pr {
@@ -301,7 +294,6 @@ pub async fn run_github_check(
         let (world, diags) = match check::all_checks(
             Some(package),
             PathBuf::new()
-                .join(&checkout_dir)
                 .join("packages")
                 .join(package.namespace.as_str())
                 .join(package.name.as_str())
@@ -386,8 +378,6 @@ pub async fn run_github_check(
             )
             .await
             .context("Failed to send report")?;
-
-        tokio::fs::remove_dir_all(checkout_dir).await?;
     }
 
     Ok(())

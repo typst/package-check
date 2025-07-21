@@ -30,35 +30,6 @@ impl<'a> GitRepo<'a> {
         Ok(repo)
     }
 
-    /// Checks out a commit in a new working tree
-    pub async fn checkout_commit(
-        &self,
-        sha: impl AsRef<str>,
-        working_tree: impl AsRef<Path>,
-    ) -> eyre::Result<()> {
-        debug!(
-            "Checking out {} in {}",
-            sha.as_ref(),
-            working_tree.as_ref().display()
-        );
-        tokio::fs::create_dir_all(&working_tree).await?;
-        let working_tree = working_tree.as_ref().canonicalize()?;
-        traced_git([
-            "-C",
-            self.dir
-                .to_str()
-                .context("Directory name is not valid unicode")?,
-            &format!("--work-tree={}", working_tree.display()),
-            "checkout",
-            sha.as_ref(),
-            "--",
-            ".",
-        ])
-        .await?;
-        debug!("Done");
-        Ok(())
-    }
-
     pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> eyre::Result<Vec<PathBuf>> {
         debug!("Listing files touched by {}", sha.as_ref());
         let command_output = String::from_utf8(
