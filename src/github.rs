@@ -75,7 +75,7 @@ pub async fn run_github_check(
     pr: Option<PullRequest>,
 ) -> eyre::Result<()> {
     let git_repo = GitRepo::open(Path::new(git_dir)).await?;
-    let touched_files = git_repo.files_touched_by(&head_sha).await?;
+    let touched_files = git_repo.files_touched_by("HEAD").await?;
 
     let mut touches_outside_of_packages = false;
 
