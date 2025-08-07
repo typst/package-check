@@ -24,6 +24,10 @@ enum Commands {
         /// in the @preview/name:version format (to run in the packages
         /// directory of typst/packages).
         packages: Vec<String>,
+
+        /// Whether to output diagnostics in JSON.
+        #[clap(long, default_value_t = false)]
+        json: bool,
     },
     /// Check the any modified package, and report the results as a GitHub check.
     ///
@@ -51,13 +55,13 @@ async fn main() {
 
     let args = Cli::parse();
     match args.command {
-        Commands::Check { packages } => {
+        Commands::Check { packages, json } => {
             if packages.is_empty() {
-                cli::main(".".into()).await
+                cli::main(".".into(), json).await
             }
 
             for package in packages {
-                cli::main(package).await
+                cli::main(package, json).await
             }
         }
         Commands::Action => action::main().await,

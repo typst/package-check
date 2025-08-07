@@ -7,7 +7,7 @@ use typst::syntax::{package::PackageSpec, FileId, Source};
 
 use crate::{check::all_checks, package::PackageExt, world::SystemWorld};
 
-pub async fn main(package_spec: String) {
+pub async fn main(package_spec: String, json_output: bool) {
     let package_spec: Option<PackageSpec> = package_spec.parse().ok();
     let package_dir = if let Some(ref package_spec) = package_spec {
         package_spec.directory()
@@ -17,7 +17,9 @@ pub async fn main(package_spec: String) {
 
     match all_checks(package_spec.as_ref(), package_dir, true).await {
         Ok((mut world, diags)) => {
-            if let Err(err) = print_diagnostics(&mut world, diags.errors(), diags.warnings()) {
+            if let Err(err) =
+                print_diagnostics(&mut world, diags.errors(), diags.warnings(), json_output)
+            {
                 error!("failed to print diagnostics ({err})");
                 error!(
                     "Raw diagnostics: {:#?}\n{:#?}",
@@ -46,6 +48,7 @@ pub fn print_diagnostics(
     world: &mut SystemWorld,
     errors: &[Diagnostic<FileId>],
     warnings: &[Diagnostic<FileId>],
+    json: bool,
 ) -> Result<(), codespan_reporting::files::Error> {
     let config = term::Config {
         tab_width: 2,
@@ -59,12 +62,16 @@ pub fn print_diagnostics(
     world.reset_file_cache();
 
     for diagnostic in warnings.iter().chain(errors) {
-        term::emit(
-            &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Always),
-            &config,
-            world,
-            diagnostic,
-        )?;
+        if json {
+            json::emit(&mut std::io::stdout(), world, diagnostic)?;
+        } else {
+            term::emit(
+                &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Always),
+                &config,
+                world,
+                diagnostic,
+            )?;
+        }
     }
 
     Ok(())
@@ -137,5 +144,54 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
                 CodespanError::IndexTooLarge { given, max }
             }
         })
+    }
+}
+
+mod json {
+    use std::io::Write;
+
+    use codespan_reporting::diagnostic::{Diagnostic, Severity};
+    use serde::Serialize;
+
+    use crate::cli::CodespanResult;
+
+    #[derive(Serialize)]
+    struct JsonDiagnostic<'a> {
+        kind: &'a str,
+        message: &'a str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file: Option<&'a str>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        code: Option<&'a str>,
+    }
+
+    pub fn emit<'a, F: Copy>(
+        w: &mut impl Write,
+        files: &'a mut impl codespan_reporting::files::Files<'a, FileId = F>,
+        diag: &Diagnostic<F>,
+    ) -> CodespanResult<()> {
+        let file = if diag.labels.is_empty() {
+            None
+        } else {
+            Some(files.name(diag.labels[0].file_id)?.to_string())
+        };
+        let code = diag.code.as_deref();
+        serde_json::to_writer(
+            &mut *w,
+            &JsonDiagnostic {
+                kind: if diag.severity == Severity::Error {
+                    "error"
+                } else {
+                    "warning"
+                },
+                file: file.as_deref(),
+                message: &diag.message,
+                code,
+            },
+        )
+        .unwrap();
+        writeln!(w).unwrap();
+
+        Ok(())
     }
 }
