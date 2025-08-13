@@ -29,6 +29,7 @@ enum Commands {
         #[clap(long, default_value_t = false)]
         json: bool,
     },
+    TypstVersion,
     /// Check the any modified package, and report the results as a GitHub check.
     ///
     /// This command assumes to be run in GitHub Action and to have access to some
@@ -63,6 +64,9 @@ async fn main() {
             for package in packages {
                 cli::main(package, json).await
             }
+        }
+        Commands::TypstVersion => {
+            println!("0.13.1")
         }
         Commands::Action => action::main().await,
     }
