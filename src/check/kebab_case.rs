@@ -88,7 +88,7 @@ fn check_source(
                         .to_owned(),
                 labels: label(world, name_ident.span()).into_iter().collect(),
                 notes: Vec::new(),
-                code: None,
+                code: Some("kebab-case/value".into()),
             })
         }
 
@@ -115,7 +115,7 @@ fn check_source(
                             .to_owned(),
                         labels: label(world, span).into_iter().collect(),
                         notes: Vec::new(),
-                        code: None,
+                        code: Some("kebab-case/parameter".into()),
                     })
                 }
             }

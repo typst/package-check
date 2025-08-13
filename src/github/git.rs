@@ -6,10 +6,11 @@ use std::{
     process::{Output, Stdio},
 };
 
-use eyre::ContextCompat;
 use tokio::process::Command;
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
+
+use crate::check::{Result, TryExt};
 
 pub fn repo_dir() -> PathBuf {
     PathBuf::from(
@@ -24,13 +25,13 @@ pub struct GitRepo<'a> {
 }
 
 impl<'a> GitRepo<'a> {
-    pub async fn open(dir: &'a Path) -> eyre::Result<Self> {
+    pub async fn open(dir: &'a Path) -> Result<Self> {
         let repo = GitRepo { dir };
         traced_git(["config", "--global", "--add", "safe.directory", repo.dir()?]).await?;
         Ok(repo)
     }
 
-    pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> eyre::Result<Vec<PathBuf>> {
+    pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> Result<Vec<PathBuf>> {
         debug!("Listing files touched by {}", sha.as_ref());
         let command_output = String::from_utf8(
             traced_git([
@@ -49,7 +50,8 @@ impl<'a> GitRepo<'a> {
             ])
             .await?
             .stdout,
-        )?;
+        )
+        .error("git/touched-by/utf-8", "Invalid UTF-8 output from Git")?;
 
         debug!("Done");
 
@@ -119,18 +121,20 @@ impl<'a> GitRepo<'a> {
             .map(|commit| commit.to_owned())
     }
 
-    pub fn dir(&self) -> eyre::Result<&str> {
+    pub fn dir(&self) -> Result<&str> {
         self.dir
             .to_str()
-            .context("Directory name is not valid unicode")
+            .error("git/dir/utf-8", "Directory name is not valid unicode")
     }
 
-    pub async fn has_previous_version(&self, package: &PackageSpec) -> eyre::Result<bool> {
+    pub async fn has_previous_version(&self, package: &PackageSpec) -> Result<bool> {
         let package_dir = PathBuf::from(self.dir()?)
             .join("packages")
             .join(package.namespace.as_str())
             .join(package.name.as_str());
-        let mut all_versions = tokio::fs::read_dir(package_dir).await?;
+        let mut all_versions = tokio::fs::read_dir(package_dir)
+            .await
+            .error("io/list-versions", "Failed to list versions")?;
         while let Ok(Some(version)) = all_versions.next_entry().await {
             if version
                 .file_type()
@@ -141,10 +145,10 @@ impl<'a> GitRepo<'a> {
                 let version: PackageVersion = version
                     .file_name()
                     .to_str()
-                    .context("Can't convert directory name to string")?
+                    .error("utf-8", "Can't convert directory name to string")?
                     .parse()
                     .ok()
-                    .context("Invalid version number")?;
+                    .error("fs/version/invalid", "Invalid version number")?;
 
                 if version < package.version {
                     return Ok(true);
@@ -157,16 +161,16 @@ impl<'a> GitRepo<'a> {
 }
 
 #[tracing::instrument(name = "git-command")]
-async fn traced_git(
-    args: impl IntoIterator<Item = &str> + std::fmt::Debug,
-) -> eyre::Result<Output> {
+async fn traced_git(args: impl IntoIterator<Item = &str> + std::fmt::Debug) -> Result<Output> {
     let out = Command::new("git")
         .args(args)
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
-        .spawn()?
+        .spawn()
+        .error("io", "Failed to spawn git subprocess")?
         .wait_with_output()
-        .await?;
+        .await
+        .error("io", "Failed to read git output")?;
 
     if let Ok(stderr) = std::str::from_utf8(&out.stderr) {
         debug!(stderr = stderr)

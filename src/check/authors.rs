@@ -15,6 +15,7 @@ pub async fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
                     .with_message(
                         "The authors of this version are not the same as those of the previous one (according to Git)."
                     )
+                    .with_code("authors/changed")
             );
     }
 

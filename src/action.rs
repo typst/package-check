@@ -1,8 +1,9 @@
-use eyre::Context;
-
-use crate::github::{
-    api::{pr::PullRequestEvent, GitHubAuth, Installation, Repository},
-    run_github_check, AppState,
+use crate::{
+    check::TryExt,
+    github::{
+        api::{pr::PullRequestEvent, GitHubAuth, Installation, Repository},
+        run_github_check, AppState,
+    },
 };
 
 pub async fn main() {
@@ -28,10 +29,10 @@ pub async fn main() {
         std::env::var("GITHUB_EVENT_PATH").expect("This command should be run in GitHub Actions"),
     )
     .await
-    .context("Failed to read event metadata")
+    .error("github/actions/event", "Failed to read event metadata")
     .unwrap();
     let event: PullRequestEvent = serde_json::from_str(&event)
-        .context("Invalid event JSON")
+        .error("github/actions/event/invalid", "Invalid event JSON")
         .unwrap();
 
     run_github_check(

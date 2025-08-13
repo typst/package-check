@@ -2,7 +2,6 @@
 
 use std::fmt::Display;
 
-use eyre::Error;
 use reqwest::{RequestBuilder, Response, StatusCode};
 use serde::Deserialize;
 use tracing::debug;
@@ -230,9 +229,9 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub fn new(name: &str) -> eyre::Result<Self> {
+    pub fn new(name: &str) -> Result<Self, &'static str> {
         if !name.contains('/') {
-            return Err(Error::msg("Invalid repository path"));
+            return Err("Invalid repository path");
         }
 
         Ok(Self {

@@ -3,6 +3,32 @@ use std::path::Path;
 use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use typst::syntax::{FileId, VirtualPath};
 
+pub type Result<T> = std::result::Result<T, Diagnostic<FileId>>;
+
+pub trait TryExt<T> {
+    fn error(self, code: &'static str, message: impl Into<String>) -> Result<T>;
+}
+
+impl<T, E> TryExt<T> for std::result::Result<T, E> {
+    fn error(self, code: &'static str, message: impl Into<String>) -> Result<T> {
+        match self {
+            std::result::Result::Ok(t) => Ok(t),
+            std::result::Result::Err(_) => {
+                Err(Diagnostic::error().with_message(message).with_code(code))
+            }
+        }
+    }
+}
+
+impl<T> TryExt<T> for Option<T> {
+    fn error(self, code: &'static str, message: impl Into<String>) -> Result<T> {
+        match self {
+            Option::Some(t) => Ok(t),
+            Option::None => Err(Diagnostic::error().with_message(message).with_code(code)),
+        }
+    }
+}
+
 #[derive(Default, Debug)]
 pub struct Diagnostics {
     warnings: Vec<Diagnostic<FileId>>,
@@ -10,9 +36,9 @@ pub struct Diagnostics {
 }
 
 impl Diagnostics {
-    pub fn maybe_emit<T>(&mut self, maybe_err: eyre::Result<T>) {
+    pub fn maybe_emit<T>(&mut self, maybe_err: Result<T>) {
         if let Err(e) = maybe_err {
-            self.emit(Diagnostic::error().with_message(format!("{}", e)))
+            self.emit(e)
         }
     }
 

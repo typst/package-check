@@ -44,5 +44,10 @@ fn convert_diagnostics<'a>(
                 severity, diagnostic.message
             ))
             .with_labels(label(world, diagnostic.span).into_iter().collect())
+            .with_code(if diagnostic.severity == Severity::Error {
+                "compile/error"
+            } else {
+                "compile/warning"
+            })
         })
 }

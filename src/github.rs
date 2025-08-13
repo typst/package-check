@@ -7,13 +7,16 @@ use codespan_reporting::{
     diagnostic::{Diagnostic, Severity},
     files::Files,
 };
-use eyre::Context;
 use jwt_simple::prelude::*;
 use pr::{PullRequest, PullRequestUpdate};
 use tracing::{debug, warn};
 use typst::syntax::{package::PackageSpec, FileId};
 
-use crate::{check, package::PackageExt, world::SystemWorld};
+use crate::{
+    check::{self, Result, TryExt},
+    package::PackageExt,
+    world::SystemWorld,
+};
 
 use api::{check::CheckRun, *};
 
@@ -47,7 +50,7 @@ impl AppState {
         }
     }
 
-    pub fn as_github_api(&self) -> Result<GitHub<AuthJwt>, ()> {
+    pub fn as_github_api(&self) -> std::result::Result<GitHub<AuthJwt>, ()> {
         let Ok(private_key) = RS256KeyPair::from_pem(&self.private_key) else {
             warn!("The private key in the .env file cannot be parsed as PEM.");
             return Err(());
@@ -73,7 +76,7 @@ pub async fn run_github_check(
     repository: Repository,
     previous_check_run: Option<CheckRun>,
     pr: Option<PullRequest>,
-) -> eyre::Result<()> {
+) -> Result<()> {
     let git_repo = GitRepo::open(Path::new(git_dir)).await?;
     let touched_files = git_repo.files_touched_by("HEAD").await?;
 
@@ -200,7 +203,7 @@ pub async fn run_github_check(
                         },
                     )
                     .await
-                    .context("Failed to update pull request")?;
+                    .error("github/api/pull/update", "Failed to update pull request")?;
             }
         }
     }
@@ -226,7 +229,10 @@ pub async fn run_github_check(
                     &head_sha,
                 )
                 .await
-                .context("Failed to create a new check run")?
+                .error(
+                    "github/api/check-run/create",
+                    "Failed to create a new check run",
+                )?
         };
 
         if touches_outside_of_packages {
@@ -241,7 +247,7 @@ pub async fn run_github_check(
                     annotations: &[],
                 },
             ).await
-            .context("Failed to cancel a check run because the branch does too many things")?;
+            .error("github/api/check-run/cancel", "Failed to cancel a check run because the branch does too many things")?;
             continue;
         }
 
@@ -312,12 +318,15 @@ pub async fn run_github_check(
                         false,
                         CheckRunOutput {
                             title: "Fatal error",
-                            summary: &format!("The following error was encountered:\n\n{}", e),
+                            summary: &format!(
+                                "The following error was encountered:\n\n{}",
+                                e.message
+                            ),
                             annotations: &[],
                         },
                     )
                     .await
-                    .context("Failed to report fatal error")?;
+                    .error("github/api/check-run/fatal", "Failed to report fatal error")?;
                 return Err(e);
             }
         };
@@ -377,7 +386,7 @@ pub async fn run_github_check(
                 },
             )
             .await
-            .context("Failed to send report")?;
+            .error("github/api/check-run/finalize", "Failed to send report")?;
     }
 
     Ok(())

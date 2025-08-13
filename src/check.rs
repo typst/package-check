@@ -16,13 +16,13 @@ mod imports;
 mod kebab_case;
 mod manifest;
 
-pub use diagnostics::Diagnostics;
+pub use diagnostics::{Diagnostics, Result, TryExt};
 
 pub async fn all_checks(
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
     check_authors: bool,
-) -> eyre::Result<(SystemWorld, Diagnostics)> {
+) -> Result<(SystemWorld, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
     let worlds = manifest::check(&package_dir, &mut diags, package_spec).await?;

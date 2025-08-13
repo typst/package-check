@@ -4,7 +4,6 @@ use std::{
 };
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
-use eyre::Context;
 use typst::{
     syntax::{
         ast::{self, AstNode, ModuleImport},
@@ -14,15 +13,15 @@ use typst::{
     World, WorldExt,
 };
 
-use crate::world::SystemWorld;
+use crate::{check::TryExt, world::SystemWorld};
 
-use super::Diagnostics;
+use super::{Diagnostics, Result};
 
-pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -> eyre::Result<()> {
+pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -> Result<()> {
     check_dir(diags, package_dir, world)
 }
 
-pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> eyre::Result<()> {
+pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> Result<()> {
     let root_path = world.root();
     let main_path = root_path
         .join(world.main().vpath().as_rootless_path())
@@ -33,7 +32,7 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> ey
         .and_then(|package_dir| package_dir.parent())
         .and_then(|namespace_dir| namespace_dir.parent());
 
-    for ch in std::fs::read_dir(dir).context("Can't read directory")? {
+    for ch in std::fs::read_dir(dir).error("internal/io", "Can't read directory")? {
         let Ok(ch) = ch else {
             continue;
         };
@@ -51,12 +50,13 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> ey
                 VirtualPath::new(
                     path.strip_prefix(root_path)
                         // Not actually true
-                        .context(
+                        .error(
+                            "internal",
                             "Prefix striping failed even though `path` is built from `root_dir`",
                         )?,
                 ),
             );
-            let source = world.lookup(fid).context("Can't read source file")?;
+            let source = world.lookup(fid).error("io", "Can't read source file")?;
             let imports = source
                 .root()
                 .children()
@@ -78,6 +78,7 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> ey
                                 fid,
                                 world.range(import.span()).unwrap_or_default(),
                             )])
+                            .with_code("import/relative")
                             .with_message(
                                 "This import should use the package specification, not a relative path."
                             )
@@ -96,6 +97,7 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> ey
                                         fid,
                                         world.range(import.span()).unwrap_or_default(),
                                     )])
+                                    .with_code("import/outdated")
                                     .with_message(
                                         "This import seems to use an older version of the package.",
                                     ),
