@@ -30,6 +30,7 @@
             copyToRoot = with pkgs.dockerTools; [
               caCertificates
               pkgs.git
+              pkgs.bashNonInteractive
               typst-package-check
             ];
             config = {
