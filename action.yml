@@ -1,19 +1,18 @@
-
-name: 'Typst package check'
-description: 'Lint Typst packages before publishing them to Typst Universe'
+name: "Typst package check"
+description: "Lint Typst packages before publishing them to Typst Universe"
 inputs:
   installation-id:
-    description: 'GitHub installation ID for the package check app in the current repository'
+    description: "GitHub installation ID for the package check app in the current repository"
     required: true
   app-id:
-    description: 'GitHub application ID for the package check app'
+    description: "GitHub application ID for the package check app"
     required: true
   private-key:
-    description: 'GitHub private key for the package check app, as PEM'
+    description: "GitHub private key for the package check app, as PEM"
     required: true
 runs:
-  using: 'docker'
-  image: 'docker://ghcr.io/typst/package-check:0.3.0'
+  using: "docker"
+  image: "docker://ghcr.io/typst/package-check:0.3.1"
   args:
     - action
   env:
