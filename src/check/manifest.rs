@@ -302,7 +302,7 @@ fn exclude_large_files(
     thumbnail_path: Option<PathBuf>,
 ) -> Result<()> {
     let template_root = template_root(manifest);
-    let template_dir = template_root.and_then(|root| package_dir.join(&root).canonicalize().ok());
+    let template_dir = template_root.map(|root| package_dir.join(&root));
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
 
@@ -793,10 +793,7 @@ fn dont_exclude_template_files(
 
         // For other files, check that they are indeed not excluded.
         if exclude
-            .matched(
-                entry.path().canonicalize().ok()?,
-                entry.metadata().ok()?.is_dir(),
-            )
+            .matched(entry.path(), entry.metadata().ok()?.is_dir())
             .is_ignore()
         {
             diags.emit(
