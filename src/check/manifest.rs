@@ -723,11 +723,7 @@ fn read_exclude(
         .and_then(|item| item.as_array())
         .unwrap_or(&empty_array);
 
-    let mut exclude_globs = OverrideBuilder::new(
-        package_dir
-            .canonicalize()
-            .error("internal", "Failed to canonicalize package directory")?,
-    );
+    let mut exclude_globs = OverrideBuilder::new(package_dir);
     for exclusion in exclude {
         let Some(exclusion) = exclusion.as_str() else {
             continue;
