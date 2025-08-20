@@ -1,4 +1,5 @@
-use std::{path::Path, process::exit};
+use std::path::PathBuf;
+use std::process::exit;
 
 use codespan_reporting::{diagnostic::Diagnostic, term};
 use ignore::overrides::Override;
@@ -7,12 +8,12 @@ use typst::syntax::{package::PackageSpec, FileId, Source};
 
 use crate::{check::all_checks, package::PackageExt, world::SystemWorld};
 
-pub async fn main(package_spec: String, json_output: bool) {
-    let package_spec: Option<PackageSpec> = package_spec.parse().ok();
+pub async fn main(spec_or_path: String, json_output: bool) {
+    let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
     let package_dir = if let Some(ref package_spec) = package_spec {
         package_spec.directory()
     } else {
-        Path::new(".").to_owned()
+        PathBuf::from(spec_or_path)
     };
 
     match all_checks(package_spec.as_ref(), package_dir, true).await {

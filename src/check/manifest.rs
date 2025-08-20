@@ -83,12 +83,12 @@ pub async fn check(
     let res = check_file_names(diags, package_dir);
     diags.maybe_emit(res);
 
-    let res = dont_over_exclude(diags, package_dir, manifest_file_id, &manifest);
+    let (exclude, exclude_span) = read_exclude(package_dir, &manifest)?;
+
+    let res = dont_over_exclude(diags, manifest_file_id, &exclude, exclude_span.clone());
     diags.maybe_emit(res);
 
     check_repo(diags, manifest_file_id, &manifest).await;
-
-    let (exclude, _) = read_exclude(package_dir, &manifest)?;
 
     let template_world = if let (Some(name), Some(version)) = (name, version) {
         let inferred_package_spec = PackageSpec {
@@ -107,10 +107,10 @@ pub async fn check(
         None
     };
 
-    dont_exclude_template_files(diags, &manifest, package_dir, exclude);
+    dont_exclude_template_files(diags, &manifest, package_dir, &exclude);
     let thumbnail_path = check_thumbnail(diags, &manifest, manifest_file_id, package_dir);
 
-    let res = exclude_large_files(diags, package_dir, &manifest, thumbnail_path);
+    let res = exclude_large_files(diags, package_dir, &manifest, &exclude, thumbnail_path);
     diags.maybe_emit(res);
 
     Ok(Worlds {
@@ -298,11 +298,11 @@ fn exclude_large_files(
     diags: &mut Diagnostics,
     package_dir: &Path,
     manifest: &toml_edit::ImDocument<&String>,
+    exclude: &Override,
     thumbnail_path: Option<PathBuf>,
 ) -> Result<()> {
     let template_root = template_root(manifest);
-    let template_dir = template_root.and_then(|root| package_dir.join(&root).canonicalize().ok());
-    let (exclude, _) = read_exclude(package_dir, manifest)?;
+    let template_dir = template_root.map(|root| package_dir.join(&root));
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
 
@@ -419,7 +419,7 @@ fn exclude_large_files(
 
     // Also exclude examples
     for ch in ignore::WalkBuilder::new(package_dir)
-        .overrides(exclude)
+        .overrides(exclude.clone())
         .build()
     {
         let Ok(ch) = ch else {
@@ -483,12 +483,10 @@ fn exclude_large_files(
 
 fn dont_over_exclude(
     diags: &mut Diagnostics,
-    package_dir: &Path,
     manifest_file_id: FileId,
-    manifest: &toml_edit::ImDocument<&String>,
+    exclude: &Override,
+    span: std::ops::Range<usize>,
 ) -> Result<()> {
-    let (exclude, span) = read_exclude(package_dir, manifest)?;
-
     let warning = Diagnostic::warning().with_labels(vec![Label::primary(manifest_file_id, span)]);
 
     if exclude.matched("LICENSE", false).is_ignore() {
@@ -723,11 +721,7 @@ fn read_exclude(
         .and_then(|item| item.as_array())
         .unwrap_or(&empty_array);
 
-    let mut exclude_globs = OverrideBuilder::new(
-        package_dir
-            .canonicalize()
-            .error("internal", "Failed to canonicalize package directory")?,
-    );
+    let mut exclude_globs = OverrideBuilder::new(package_dir);
     for exclusion in exclude {
         let Some(exclusion) = exclusion.as_str() else {
             continue;
@@ -770,7 +764,7 @@ fn dont_exclude_template_files(
     diags: &mut Diagnostics,
     manifest: &toml_edit::ImDocument<&String>,
     package_dir: &Path,
-    exclude: Override,
+    exclude: &Override,
 ) -> Option<()> {
     let template_root = template_root(manifest)?;
     for entry in ignore::Walk::new(package_dir.join(template_root)).flatten() {
@@ -799,10 +793,7 @@ fn dont_exclude_template_files(
 
         // For other files, check that they are indeed not excluded.
         if exclude
-            .matched(
-                entry.path().canonicalize().ok()?,
-                entry.metadata().ok()?.is_dir(),
-            )
+            .matched(entry.path(), entry.metadata().ok()?.is_dir())
             .is_ignore()
         {
             diags.emit(
