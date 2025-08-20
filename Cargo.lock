@@ -3860,7 +3860,7 @@ dependencies = [
 
 [[package]]
 name = "typst-package-check"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "casbab",
  "chrono",
