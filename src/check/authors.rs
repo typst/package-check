@@ -28,7 +28,7 @@ pub async fn commit_for_previous_version(spec: &PackageSpec) -> Option<String> {
     let repo = git::repo_dir();
     let repo = git::GitRepo::open(&repo).await.ok()?;
 
-    repo.commit_for_file(&last_manifest)
+    repo.commit_for_file(&last_manifest).await
 }
 
 pub async fn authors_are_differents(spec: &PackageSpec) -> Option<bool> {

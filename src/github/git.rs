@@ -92,24 +92,21 @@ impl<'a> GitRepo<'a> {
         Some(authors)
     }
 
-    pub fn commit_for_file(&self, file: &Path) -> Option<String> {
-        use std::process::Command;
-
+    pub async fn commit_for_file(&self, file: &Path) -> Option<String> {
         debug!("Finding the commit that last touched {}", file.display());
 
         let output = String::from_utf8(
-            Command::new("git")
-                .args([
-                    "-C",
-                    self.dir.to_str()?,
-                    "blame",
-                    "--porcelain",
-                    "--",
-                    Path::new(".").canonicalize().ok()?.join(file).to_str()?,
-                ])
-                .output()
-                .ok()?
-                .stdout,
+            traced_git([
+                "-C",
+                self.dir.to_str()?,
+                "blame",
+                "--porcelain",
+                "--",
+                Path::new(".").canonicalize().ok()?.join(file).to_str()?,
+            ])
+            .await
+            .ok()?
+            .stdout,
         )
         .ok()?;
 
