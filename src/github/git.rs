@@ -61,7 +61,7 @@ impl<'a> GitRepo<'a> {
     pub fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
         use std::process::Command;
 
-        debug!("Lisiting authors of {}", file.display());
+        debug!("Listing authors of {}", file.display());
 
         let output = String::from_utf8(
             Command::new("git")
