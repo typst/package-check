@@ -58,24 +58,21 @@ impl<'a> GitRepo<'a> {
         Ok(parse_diff_tree_paths(&command_output))
     }
 
-    pub fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
-        use std::process::Command;
-
+    pub async fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
         debug!("Listing authors of {}", file.display());
 
         let output = String::from_utf8(
-            Command::new("git")
-                .args([
-                    "-C",
-                    self.dir.to_str()?,
-                    "blame",
-                    "--porcelain",
-                    "--",
-                    Path::new(".").canonicalize().ok()?.join(file).to_str()?,
-                ])
-                .output()
-                .ok()?
-                .stdout,
+            traced_git([
+                "-C",
+                self.dir.to_str()?,
+                "blame",
+                "--porcelain",
+                "--",
+                Path::new(".").canonicalize().ok()?.join(file).to_str()?,
+            ])
+            .await
+            .ok()?
+            .stdout,
         )
         .ok()?;
 

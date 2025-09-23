@@ -38,8 +38,8 @@ pub async fn authors_are_differents(spec: &PackageSpec) -> Option<bool> {
     let repo = git::repo_dir();
     let repo = git::GitRepo::open(&repo).await.ok()?;
 
-    let last_authors = repo.authors_of(&last_manifest)?;
-    let new_authors = repo.authors_of(&new_manifest)?;
+    let last_authors = repo.authors_of(&last_manifest).await?;
+    let new_authors = repo.authors_of(&new_manifest).await?;
     Some(
         !last_authors.is_empty()
             && !new_authors.is_empty()
