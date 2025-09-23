@@ -31,6 +31,7 @@
               caCertificates
               pkgs.git
               pkgs.bashNonInteractive
+              pkgs.busybox
               typst-package-check
             ];
             config = {
