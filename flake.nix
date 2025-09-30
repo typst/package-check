@@ -29,8 +29,9 @@
             tag = typst-package-check.version;
             copyToRoot = with pkgs.dockerTools; [
               caCertificates
-              pkgs.git
+              pkgs.gitMinimal
               pkgs.bashNonInteractive
+              pkgs.busybox
               typst-package-check
             ];
             config = {
