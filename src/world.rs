@@ -102,9 +102,12 @@ impl SystemWorld {
         self.excluded = globs;
     }
 
-    pub fn reset_file_cache(&mut self) {
-        let mut slots = self.slots.lock();
-        slots.clear();
+    pub fn virtual_source(&self, id: FileId, src: Bytes, line_shift: usize) -> FileResult<Source> {
+        self.slot(id, |slot| slot.virtual_source(src, line_shift))
+    }
+
+    pub fn virtual_line(&self, id: FileId) -> usize {
+        self.slot(id, |f| f.line_shift)
     }
 }
 
@@ -178,6 +181,7 @@ struct FileSlot {
     source: SlotCell<Source>,
     /// The lazily loaded raw byte buffer.
     file: SlotCell<Bytes>,
+    line_shift: usize,
 }
 
 impl FileSlot {
@@ -187,6 +191,7 @@ impl FileSlot {
             id,
             file: SlotCell::new(),
             source: SlotCell::new(),
+            line_shift: 0,
         }
     }
 
@@ -199,6 +204,22 @@ impl FileSlot {
     ) -> FileResult<Source> {
         self.source.get_or_init(
             || read(self.id, project_root, package_override, excluded),
+            |data, prev| {
+                let text = decode_utf8(&data)?;
+                if let Some(mut prev) = prev {
+                    prev.replace(text);
+                    Ok(prev)
+                } else {
+                    Ok(Source::new(self.id, text.into()))
+                }
+            },
+        )
+    }
+
+    fn virtual_source(&mut self, src: Bytes, line_shift: usize) -> FileResult<Source> {
+        self.line_shift = line_shift;
+        self.source.get_or_init(
+            || Ok(src.to_vec()),
             |data, prev| {
                 let text = decode_utf8(&data)?;
                 if let Some(mut prev) = prev {

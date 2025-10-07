@@ -6,7 +6,7 @@ use typst::{
     WorldExt,
 };
 
-use crate::world::SystemWorld;
+use crate::{check::readme::check_readme, world::SystemWorld};
 
 pub mod authors;
 mod compile;
@@ -15,6 +15,7 @@ mod file_size;
 mod imports;
 mod kebab_case;
 mod manifest;
+mod readme;
 
 pub use diagnostics::{Diagnostics, Result, TryExt};
 
@@ -36,6 +37,10 @@ pub async fn all_checks(
             .expect("Template should be in a subfolder of the package");
         diags.extend(template_diags, template_dir);
     }
+
+    let res = check_readme(&worlds.package, &mut diags).await;
+    diags.maybe_emit(res);
+
     kebab_case::check(&mut diags, &worlds.package);
 
     let res = imports::check(&mut diags, &package_dir, &worlds.package);

@@ -60,7 +60,6 @@ pub fn print_diagnostics(
     // don't remove the exclusion, it will fail to read and display the file
     // contents.
     world.exclude(Override::empty());
-    world.reset_file_cache();
 
     for diagnostic in warnings.iter().chain(errors) {
         if json {
@@ -119,6 +118,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
         let source = self.source(id)?;
         source
             .byte_to_line(given)
+            .map(|line| line + self.virtual_line(id))
             .ok_or_else(|| CodespanError::IndexTooLarge {
                 given,
                 max: source.len_bytes(),
@@ -127,6 +127,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
 
     fn line_range(&'a self, id: FileId, given: usize) -> CodespanResult<std::ops::Range<usize>> {
         let source = self.source(id)?;
+        let given = given - self.virtual_line(id);
         source
             .line_to_range(given)
             .ok_or_else(|| CodespanError::LineTooLarge {

@@ -55,12 +55,46 @@ fn check_source(
     }
     visited.insert(src.id());
 
-    // Check all let bindings
-    for binding in src
+    check_ast(world, diags, public_names, src.root(), false);
+
+    // Check imported files recursively.
+    //
+    // Because we evaluated the module above, we know that no cyclic import will
+    // occur. `visited` still exist because some modules may be imported
+    // multiple times.
+    //
+    // Only imports at the root of the AST will be checked, as this is the most
+    // common case anyway.
+    for import in src
         .root()
         .children()
-        .filter_map(|c| c.cast::<ast::LetBinding>())
+        .filter_map(|c| c.cast::<ast::ModuleImport>())
     {
+        let file_path = match import.source() {
+            ast::Expr::Str(s) => src.id().vpath().join(s.get().as_str()),
+            _ => continue,
+        };
+        let fid = FileId::new(None, file_path);
+        let Ok(source) = world.source(fid) else {
+            continue;
+        };
+
+        check_source(source, world, public_names, diags, visited);
+    }
+
+    Some(())
+}
+
+pub fn check_ast(
+    world: &SystemWorld,
+    diags: &mut Diagnostics,
+    public_names: &HashSet<String>,
+    root: &typst::syntax::SyntaxNode,
+    // Whether to check function calls (useful when veryfying README examples)
+    check_calls: bool,
+) {
+    // Check all let bindings
+    for binding in root.children().filter_map(|c| c.cast::<ast::LetBinding>()) {
         let Some(name_ident) = find_first::<ast::Ident>(binding.to_untyped()) else {
             continue;
         };
@@ -122,32 +156,45 @@ fn check_source(
         }
     }
 
-    // Check imported files recursively.
-    //
-    // Because we evaluated the module above, we know that no cyclic import will
-    // occur. `visited` still exist because some modules may be imported
-    // multiple times.
-    //
-    // Only imports at the root of the AST will be checked, as this is the most
-    // common case anyway.
-    for import in src
-        .root()
-        .children()
-        .filter_map(|c| c.cast::<ast::ModuleImport>())
-    {
-        let file_path = match import.source() {
-            ast::Expr::Str(s) => src.id().vpath().join(s.get().as_str()),
-            _ => continue,
-        };
-        let fid = FileId::new(None, file_path);
-        let Ok(source) = world.source(fid) else {
-            continue;
-        };
+    if check_calls {
+        for call in root.children().filter_map(|c| c.cast::<ast::FuncCall>()) {
+            let func_name = match call.callee() {
+                ast::Expr::Ident(i) => Some(i),
+                ast::Expr::FieldAccess(f) => Some(f.field()),
+                _ => None,
+            };
 
-        check_source(source, world, public_names, diags, visited);
+            if let Some(func_name) = func_name {
+                let func_name = func_name.as_str();
+                if func_name != casbab::kebab(func_name) {
+                    diags.emit(Diagnostic {
+                        severity: Severity::Warning,
+                        message: "This function should have a kebab-case name.".to_owned(),
+                        labels: label(world, call.span()).into_iter().collect(),
+                        notes: Vec::new(),
+                        code: Some("kebab-case/value".into()),
+                    })
+                }
+            }
+
+            for named_arg in call
+                .args()
+                .items()
+                .filter_map(|f| f.to_untyped().cast::<ast::Named>())
+            {
+                let arg_name = named_arg.name().as_str();
+                if arg_name != casbab::kebab(arg_name) {
+                    diags.emit(Diagnostic {
+                        severity: Severity::Warning,
+                        message: "This argument should have a kebab-case name.".to_owned(),
+                        labels: label(world, call.span()).into_iter().collect(),
+                        notes: Vec::new(),
+                        code: Some("kebab-case/parameter".into()),
+                    })
+                }
+            }
+        }
     }
-
-    Some(())
 }
 
 /// Find the first child of a given type in a syntax tree
