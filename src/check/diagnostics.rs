@@ -6,11 +6,11 @@ use typst::syntax::{FileId, VirtualPath};
 pub type Result<T> = std::result::Result<T, Diagnostic<FileId>>;
 
 pub trait TryExt<T> {
-    fn error(self, code: &'static str, message: impl Into<String>) -> Result<T>;
+    fn error(self, code: &'static str, message: impl ToString) -> Result<T>;
 }
 
 impl<T, E> TryExt<T> for std::result::Result<T, E> {
-    fn error(self, code: &'static str, message: impl Into<String>) -> Result<T> {
+    fn error(self, code: &'static str, message: impl ToString) -> Result<T> {
         match self {
             std::result::Result::Ok(t) => Ok(t),
             std::result::Result::Err(_) => {
@@ -21,7 +21,7 @@ impl<T, E> TryExt<T> for std::result::Result<T, E> {
 }
 
 impl<T> TryExt<T> for Option<T> {
-    fn error(self, code: &'static str, message: impl Into<String>) -> Result<T> {
+    fn error(self, code: &'static str, message: impl ToString) -> Result<T> {
         match self {
             Option::Some(t) => Ok(t),
             Option::None => Err(Diagnostic::error().with_message(message).with_code(code)),
