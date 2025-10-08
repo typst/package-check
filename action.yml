@@ -12,7 +12,7 @@ inputs:
     required: true
 runs:
   using: "docker"
-  image: "docker://ghcr.io/typst/package-check:0.3.2"
+  image: "docker://ghcr.io/typst/package-check:0.4.0"
   args:
     - action
   env:
