@@ -187,7 +187,7 @@ pub fn check_ast(
                     diags.emit(Diagnostic {
                         severity: Severity::Warning,
                         message: "This argument should have a kebab-case name.".to_owned(),
-                        labels: label(world, call.span()).into_iter().collect(),
+                        labels: label(world, named_arg.name().span()).into_iter().collect(),
                         notes: Vec::new(),
                         code: Some("kebab-case/parameter".into()),
                     })

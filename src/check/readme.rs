@@ -115,7 +115,7 @@ pub async fn check_readme(
                     .with_code("readme/syntax")
                     .with_message(format!(
                         "Syntax error in README.\n\n  {}\n\n\
-                        If this code block is not supposed to be parsed as a Typst source,\
+                        If this code block is not supposed to be parsed as a Typst source, \
                         please explicitely specify another language.",
                         err.message
                     ))
