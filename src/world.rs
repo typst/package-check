@@ -19,7 +19,7 @@ use typst::{
     syntax::{package::PackageSpec, FileId, Source, VirtualPath},
     text::{Font, FontBook, FontInfo},
     utils::LazyHash,
-    Library, World,
+    Library, LibraryExt, World,
 };
 
 use crate::package::PackageExt;

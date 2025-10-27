@@ -117,11 +117,12 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
     fn line_index(&'a self, id: FileId, given: usize) -> CodespanResult<usize> {
         let source = self.source(id)?;
         source
+            .lines()
             .byte_to_line(given)
             .map(|line| line + self.virtual_line(id))
             .ok_or_else(|| CodespanError::IndexTooLarge {
                 given,
-                max: source.len_bytes(),
+                max: source.lines().len_bytes(),
             })
     }
 
@@ -129,17 +130,18 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
         let source = self.source(id)?;
         let given = given - self.virtual_line(id);
         source
+            .lines()
             .line_to_range(given)
             .ok_or_else(|| CodespanError::LineTooLarge {
                 given,
-                max: source.len_lines(),
+                max: source.lines().len_lines(),
             })
     }
 
     fn column_number(&'a self, id: FileId, _: usize, given: usize) -> CodespanResult<usize> {
         let source = self.source(id)?;
-        source.byte_to_column(given).ok_or_else(|| {
-            let max = source.len_bytes();
+        source.lines().byte_to_column(given).ok_or_else(|| {
+            let max = source.lines().len_bytes();
             if given <= max {
                 CodespanError::InvalidCharBoundary { given }
             } else {
