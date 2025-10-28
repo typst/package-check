@@ -111,7 +111,7 @@ pub async fn check_readme(
             .unwrap();
         for err in source.root().errors() {
             diags.emit(
-                Diagnostic::error()
+                Diagnostic::warning()
                     .with_code("readme/syntax")
                     .with_message(format!(
                         "Syntax error in README.\n\n  {}\n\n\
