@@ -29,7 +29,7 @@ pub async fn check_readme(
         &readme,
         &comrak::Options {
             // Try to be faithful to the Universe parser
-            extension: comrak::ExtensionOptions {
+            extension: comrak::options::Extension {
                 strikethrough: true,
                 tagfilter: true,
                 table: true,
