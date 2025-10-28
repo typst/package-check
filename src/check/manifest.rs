@@ -334,7 +334,7 @@ fn exclude_large_files(
                     .enable_feature(wasm_opt::Feature::TailCall)
                     .enable_feature(wasm_opt::Feature::ExtendedConst)
                     .enable_feature(wasm_opt::Feature::MultiMemory)
-                    .disable_feature(wasm_opt::Feature::Simd)
+                    .enable_feature(wasm_opt::Feature::Simd)
                     .disable_feature(wasm_opt::Feature::RelaxedSimd)
                     .disable_feature(wasm_opt::Feature::Gc)
                     .disable_feature(wasm_opt::Feature::ExceptionHandling)
