@@ -66,7 +66,7 @@ async fn main() {
             }
         }
         Commands::TypstVersion => {
-            println!("0.13.1")
+            println!("0.14.0")
         }
         Commands::Action => action::main().await,
     }

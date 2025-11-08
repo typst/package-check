@@ -32,6 +32,7 @@ tokio = { version = "1.37.0", features = ["rt-multi-thread", "process", "fs", "m
 toml_edit = "0.23"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["json", "env-filter"] }
+# NOTE: Update this along with the output of `Commands::TypstVersion`
 typst = "0.14.0"
 typst-assets = { version = "0.14.0", features = [ "fonts" ] }
 typst-eval = "0.14.0"
