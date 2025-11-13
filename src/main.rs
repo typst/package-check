@@ -31,6 +31,8 @@ enum Commands {
     },
     /// Output the version of Typst bundled with this application.
     TypstVersion,
+    /// Output the version of this application.
+    Version,
     /// Check the any modified package, and report the results as a GitHub check.
     ///
     /// This command assumes to be run in GitHub Action and to have access to some
@@ -68,6 +70,9 @@ async fn main() {
         }
         Commands::TypstVersion => {
             println!("0.14.0")
+        }
+        Commands::Version => {
+            println!("{}", option_env!("CARGO_PKG_VERSION").unwrap_or("n/a"))
         }
         Commands::Action => action::main().await,
     }
