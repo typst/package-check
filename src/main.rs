@@ -29,6 +29,7 @@ enum Commands {
         #[clap(long, default_value_t = false)]
         json: bool,
     },
+    /// Output the version of Typst bundled with this application.
     TypstVersion,
     /// Check the any modified package, and report the results as a GitHub check.
     ///
