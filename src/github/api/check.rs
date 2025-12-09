@@ -2,26 +2,6 @@ use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CheckSuiteAction {
-    /// A check suite was requested (when code is pushed)
-    Requested,
-    /// A check suite was re-requested (when re-running on code that was previously pushed)
-    Rerequested,
-    /// A check suite has finished running
-    Completed,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CheckRunAction {
-    Created,
-    RequestedAction,
-    Rerequested,
-    Completed,
-}
-
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(transparent)]
 pub struct CheckRunId(u64);
