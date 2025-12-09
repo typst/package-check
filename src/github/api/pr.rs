@@ -11,7 +11,7 @@ pub struct PullRequestEvent {
 pub struct PullRequest {
     pub number: usize,
     pub title: String,
-    pub body: String,
+    pub body: Option<String>,
     pub user: User,
     pub head: Commit,
 }

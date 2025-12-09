@@ -133,39 +133,8 @@ pub async fn run_github_check(
         }
 
         // Update checks in PR body if needed
-        let mut body_changed = false;
-        let new_body = pr
-            .body
-            .lines()
-            .map(|l| {
-                let line = l.trim();
-                if line.starts_with("-") {
-                    let marked = line.contains("[x]");
-                    if line.ends_with("a new package") {
-                        body_changed |= marked != has_new_packages;
-                        if has_new_packages {
-                            return "- [x] a new package";
-                        } else {
-                            return "- [ ] a new package";
-                        }
-                    }
-
-                    if line.ends_with("an update for a package") {
-                        body_changed |= marked != has_updated_packages;
-                        if has_updated_packages {
-                            return "- [x] an update for a package";
-                        } else {
-                            return "- [ ] an update for a package";
-                        }
-                    }
-                }
-
-                l
-            })
-            .fold(String::with_capacity(pr.body.len()), |body, line| {
-                body + "\n" + line
-            });
-        let body = if body_changed { Some(new_body) } else { None };
+        let body =
+            update_description_checks(has_new_packages, has_updated_packages, pr.body.as_deref());
 
         // Update title
         let mut package_names = touched_packages
@@ -390,6 +359,57 @@ pub async fn run_github_check(
     }
 
     Ok(())
+}
+
+/// Update the "new package" / "update for a package" check boxes in the PR description if needed.
+///
+/// Returns `None` if there is nothing to change.
+fn update_description_checks(
+    has_new_packages: bool,
+    has_updated_packages: bool,
+    current_body: Option<&str>,
+) -> Option<String> {
+    let mut body_changed = false;
+    let new_body = current_body
+        .map(|body| {
+            body.lines()
+                .map(|l| {
+                    let line = l.trim();
+                    if line.starts_with("-") {
+                        let marked = line.contains("[x]");
+                        if line.ends_with("a new package") {
+                            body_changed |= marked != has_new_packages;
+                            if has_new_packages {
+                                return "- [x] a new package";
+                            } else {
+                                return "- [ ] a new package";
+                            }
+                        }
+
+                        if line.ends_with("an update for a package") {
+                            body_changed |= marked != has_updated_packages;
+                            if has_updated_packages {
+                                return "- [x] an update for a package";
+                            } else {
+                                return "- [ ] an update for a package";
+                            }
+                        }
+                    }
+
+                    l
+                })
+                .fold(
+                    String::with_capacity(current_body.map(|body| body.len()).unwrap_or(0)),
+                    |body, line| body + "\n" + line,
+                )
+        })
+        .unwrap_or_default();
+
+    if body_changed {
+        Some(new_body)
+    } else {
+        None
+    }
 }
 
 fn diagnostic_to_annotation(
