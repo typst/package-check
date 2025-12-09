@@ -15,7 +15,7 @@ use typst::syntax::{
 };
 
 use crate::{
-    check::{file_size, Diagnostics, Result, TryExt},
+    check::{files, Diagnostics, Result, TryExt},
     world::SystemWorld,
 };
 
@@ -306,7 +306,7 @@ fn exclude_large_files(
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
 
-    let large_files = file_size::find_large_files(package_dir, exclude.clone());
+    let large_files = files::find_large_files(package_dir, exclude.clone());
     for (path, size) in large_files? {
         if Some(path.as_ref())
             == thumbnail_path
