@@ -108,7 +108,7 @@ pub async fn check(
     };
 
     dont_exclude_template_files(diags, &manifest, package_dir, &exclude);
-    let thumbnail_path = check_thumbnail(diags, &manifest, manifest_file_id, package_dir);
+    let thumbnail_path = check_thumbnail(diags, &manifest, manifest_file_id, package_dir, &exclude);
 
     let res = exclude_large_files(diags, package_dir, &manifest, &exclude, thumbnail_path);
     diags.maybe_emit(res);
@@ -828,6 +828,7 @@ fn check_thumbnail(
     manifest: &toml_edit::Document<&String>,
     manifest_file_id: FileId,
     package_dir: &Path,
+    exclude: &Override,
 ) -> Option<PathBuf> {
     let thumbnail = manifest.get("template")?.as_table()?.get("thumbnail")?;
     let thumbnail_path = package_dir.join(thumbnail.as_str()?);
@@ -851,6 +852,31 @@ fn check_thumbnail(
                 .with_code("manifest/template/thumbnail/format")
                 .with_message("Thumbnails should be PNG or WebP files."),
         )
+    }
+
+    if exclude.matched(&thumbnail_path, false).is_ignore() {
+        diags.emit(
+            Diagnostic::error()
+                .with_label(Label::primary(manifest_file_id, thumbnail.span()?))
+                .with_code("manifest/template/thumbnail/exclude")
+                .with_message("The template thumbnail is automatically excluded"),
+        );
+    }
+
+    if let Some(root) = template_root(manifest) {
+        if thumbnail_path.starts_with(root) {
+            diags.emit(
+                Diagnostic::error()
+                    .with_label(Label::primary(manifest_file_id, thumbnail.span()?))
+                    .with_code("manifest/template/thumbnail/location")
+                    .with_message(
+                        "The thumbnail file should be outside of the template directory.\n\n\
+                        When your template will be used as a base for users's projects, \
+                        the template directory will be copied as is, and the thumbnail file
+                        is generally not displayed in documents based on your template.",
+                    ),
+            );
+        }
     }
 
     Some(thumbnail_path)
