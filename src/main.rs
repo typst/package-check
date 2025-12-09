@@ -69,7 +69,7 @@ async fn main() {
             }
         }
         Commands::TypstVersion => {
-            println!("0.14.0")
+            println!("0.14.1")
         }
         Commands::Version => {
             println!("{}", option_env!("CARGO_PKG_VERSION").unwrap_or("n/a"))
