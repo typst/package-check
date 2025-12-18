@@ -301,8 +301,7 @@ fn exclude_large_files(
     exclude: &Override,
     thumbnail_path: Option<PathBuf>,
 ) -> Result<()> {
-    let template_root = template_root(manifest);
-    let template_dir = template_root.map(|root| package_dir.join(&root));
+    let template_dir = template_root(package_dir, manifest);
 
     const REALLY_LARGE: u64 = 50 * 1024 * 1024;
 
@@ -766,8 +765,8 @@ fn dont_exclude_template_files(
     package_dir: &Path,
     exclude: &Override,
 ) -> Option<()> {
-    let template_root = template_root(manifest)?;
-    for entry in ignore::Walk::new(package_dir.join(template_root)).flatten() {
+    let template_root = template_root(package_dir, manifest)?;
+    for entry in ignore::Walk::new(template_root).flatten() {
         // For build artifacts, ask the package author to delete them.
         let ext = entry.path().extension().and_then(|e| e.to_str());
         if matches!(ext, Some("pdf" | "png" | "svg")) && entry.path().with_extension("typ").exists()
@@ -814,13 +813,12 @@ fn dont_exclude_template_files(
     Some(())
 }
 
-fn template_root(manifest: &toml_edit::Document<&String>) -> Option<PathBuf> {
-    Some(PathBuf::from(
-        manifest
-            .get("template")
-            .and_then(|t| t.get("path"))?
-            .as_str()?,
-    ))
+fn template_root(package_dir: &Path, manifest: &toml_edit::Document<&String>) -> Option<PathBuf> {
+    let root = manifest
+        .get("template")
+        .and_then(|t| t.get("path"))?
+        .as_str()?;
+    Some(package_dir.join(root))
 }
 
 fn check_thumbnail(
@@ -863,7 +861,7 @@ fn check_thumbnail(
         );
     }
 
-    if let Some(root) = template_root(manifest) {
+    if let Some(root) = template_root(package_dir, manifest) {
         if thumbnail_path.starts_with(root) {
             diags.emit(
                 Diagnostic::error()
