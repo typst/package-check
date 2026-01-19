@@ -83,7 +83,7 @@ pub async fn check(
     let res = check_file_names(diags, package_dir);
     diags.maybe_emit(res);
 
-    let (exclude, exclude_span) = read_exclude(package_dir, &manifest)?;
+    let (exclude, exclude_span) = read_exclude(diags, manifest_file_id, &manifest, package_dir)?;
 
     let res = dont_over_exclude(diags, manifest_file_id, &exclude, exclude_span.clone());
     diags.maybe_emit(res);
@@ -710,8 +710,10 @@ async fn check_repo(
 }
 
 fn read_exclude(
-    package_dir: &Path,
+    diags: &mut Diagnostics,
+    manifest_file_id: FileId,
     manifest: &toml_edit::Document<&String>,
+    package_dir: &Path,
 ) -> Result<(Override, Range<usize>)> {
     let empty_array = toml_edit::Array::new();
     let exclude = manifest
@@ -722,17 +724,27 @@ fn read_exclude(
 
     let mut exclude_globs = OverrideBuilder::new(package_dir);
     for exclusion in exclude {
-        let Some(exclusion) = exclusion.as_str() else {
+        let Some(exclusion_str) = exclusion.as_str() else {
             continue;
         };
 
-        if exclusion.starts_with('!') {
+        if exclusion_str.starts_with('!') {
             warn!("globs with '!' are not supported");
             continue;
         }
 
-        let exclusion = exclusion.trim_start_matches("./");
-        exclude_globs.add(&format!("!{exclusion}")).ok();
+        let exclusion_str = exclusion_str
+            .strip_prefix("./")
+            .inspect(|_| {
+                diags.emit(
+                    Diagnostic::warning()
+                        .with_label(Label::primary(manifest_file_id, exclusion.span().unwrap_or_default()))
+                        .with_code("manifest/package/exclude/leading-dot")
+                        .with_message("Leading `./` of exclusions are trimmed. Use an absolute path starting with `/` to avoid recursive matching."),
+                );
+            })
+            .unwrap_or(exclusion_str);
+        exclude_globs.add(&format!("!{exclusion_str}")).ok();
     }
     Ok((
         exclude_globs
