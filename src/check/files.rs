@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ignore::overrides::Override;
@@ -68,4 +68,18 @@ pub fn forbid_font_files(
     }
 
     Ok(())
+}
+
+/// Stips any any leading root components (`/` or `\`) of the path before
+/// joining it to the `root` path.
+///
+/// Absolute paths (starting with `/` or `\`) replace the complete path when
+/// `join`ed with a parent path.
+pub fn path_relative_to(root: &Path, path: &Path) -> PathBuf {
+    let components = path
+        .components()
+        .skip_while(|c| matches!(c, Component::RootDir))
+        .map(|c| Path::new(c.as_os_str()));
+
+    PathBuf::from_iter(std::iter::once(root).chain(components))
 }
