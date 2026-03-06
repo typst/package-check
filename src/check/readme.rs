@@ -248,6 +248,8 @@ fn check_readme_link_url(
     if url.contains("://") {
         // TODO: Should we check the URL here like for the `homepage` and
         // `repository` manifest fields?
+
+        check_repo_file_url(diags, readme, sourcepos, url);
     } else if url.starts_with("#") {
         // TODO: Validate markdown anchor.
     } else {
@@ -257,9 +259,9 @@ fn check_readme_link_url(
                 Diagnostic::error()
                     .with_code("readme/link/file-not-found")
                     .with_message(format_args!(
-                        "Linked file not found: `{url}`. Make sure to commit all linked files, \
-                        and possibly add them to the `exclude` list. \
-                        More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
+                        "Linked file not found: `{url}`.\n\n\
+                         Make sure to commit all linked files and possibly add them to the `exclude` list.\n\n\
+                         More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
                     ))
                     .with_labels(vec![Label::primary(
                         readme_fake_file_id(),
@@ -268,6 +270,89 @@ fn check_readme_link_url(
             );
         }
     }
+}
+
+const DEFAULT_BRANCHES: [&str; 2] = ["main", "master"];
+
+fn check_repo_file_url(
+    diags: &mut Diagnostics,
+    readme: &str,
+    sourcepos: Sourcepos,
+    url: &str,
+) -> Option<()> {
+    static GITHUB_URL: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"https://github.com/([^/]+)/([^/]+)/(?:blob|tree)/([^/]+)/(.+)").unwrap()
+    });
+    static GITHUB_RAW_URL: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(
+            r"^https://raw.githubusercontent.com/([^/]+)/([^/]+)/(?:refs/heads/)?([^/]+)/(.+)$",
+        )
+        .unwrap()
+    });
+    static GITLAB_URL: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"https://gitlab.com/([^/]+)/([^/]+)/-/(?:raw|blob|tree)/([^/]+)/(.+)").unwrap()
+    });
+    static CODEBERG_URL: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"https://codeberg.org/([^/]+)/([^/]+)/(?:raw|src)/branch/([^/]+)/(.+)").unwrap()
+    });
+
+    enum Host {
+        Github,
+        Gitlab,
+        Codeberg,
+    }
+
+    let (host, captures) = if let Some(captures) =
+        (GITHUB_URL.captures(url)).or_else(|| GITHUB_RAW_URL.captures(url))
+    {
+        (Host::Github, captures)
+    } else if let Some(captures) = GITLAB_URL.captures(url) {
+        (Host::Gitlab, captures)
+    } else if let Some(captures) = CODEBERG_URL.captures(url) {
+        (Host::Codeberg, captures)
+    } else {
+        return None;
+    };
+
+    let user = captures.get(1).unwrap().as_str();
+    let repo = captures.get(2).unwrap().as_str();
+    let branch = captures.get(3).unwrap().as_str();
+    let path = captures.get(4).unwrap().as_str();
+
+    if !DEFAULT_BRANCHES.contains(&branch) {
+        return None;
+    }
+
+    let name = match host {
+        Host::Github => "GitHub",
+        Host::Gitlab => "Gitlab",
+        Host::Codeberg => "Codeberg",
+    };
+
+    let non_raw_url = match host {
+        Host::Github => format!("https://github.com/{user}/{repo}/blob/{branch}/{path}"),
+        Host::Gitlab => format!("https://gitlab.com/{user}/{repo}/-/blob/{branch}/{path}"),
+        Host::Codeberg => format!("https://codeberg.org/{user}/{repo}/src/branch/{branch}/{path}"),
+    };
+
+    diags.emit(
+        Diagnostic::warning()
+            .with_code("readme/link/github-url-permalink")
+            .with_message(format_args!(
+                "{name} URL links to default branch: `{url}`.\n\n\
+                 Consider using a link to a specific tag/release or a permalink to a commit instead. \
+                 This will ensure that the linked resource always matches this version of the package.\n\n\
+                 You can create a permalink here: {non_raw_url}\n\n\
+                 Alternatively you can also link to a local file. This is preferred if the linked file \
+                 is already present in the submitted package."
+            ))
+            .with_label(Label::primary(
+                readme_fake_file_id(),
+                sourcepos_to_range(readme, sourcepos),
+            )),
+    );
+
+    Some(())
 }
 
 fn check_image_alternative_description(
