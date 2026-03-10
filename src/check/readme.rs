@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::{collections::HashSet, ops::Range};
 
-use codespan_reporting::diagnostic::{Diagnostic, Label, Severity};
+use codespan_reporting::diagnostic::{Diagnostic, Label};
 use comrak::nodes::{LineColumn, NodeList, NodeValue as MdNode, Sourcepos};
 use html5ever::tendril::TendrilSink;
 use regex::Regex;
@@ -62,7 +62,7 @@ pub async fn check_readme(
                         .with_code("readme/unsupported-extension/alert")
                         .with_message("GFM alert boxes are not supported on Typst Universe.")
                         .with_labels(vec![Label::primary(
-                            readme_fake_file_id(),
+                            readme_file_id(),
                             sourcepos_to_range(&readme, md_node.sourcepos),
                         )]),
                 );
@@ -76,7 +76,7 @@ pub async fn check_readme(
                         .with_code("readme/unsupported-extension/tasklist")
                         .with_message("GFM task lists are not supported on Typst Universe.")
                         .with_label(Label::primary(
-                            readme_fake_file_id(),
+                            readme_file_id(),
                             sourcepos_to_range(&readme, md_node.sourcepos),
                         )),
                 );
@@ -126,9 +126,13 @@ fn check_readme_code_block(
         return;
     }
 
+    // It is important to create a fake ID for each markdown code block. This
+    // allows having multiple sources with the same file path, since the README
+    // can contain multiple Typst example blocks.
+    let readme_code_block_id = FileId::new_fake(VirtualPath::new("README.md"));
     let source = world
         .virtual_source(
-            readme_fake_file_id(),
+            readme_code_block_id,
             Bytes::from_string(code_block.literal.clone()),
             sourcepos.start.line,
         )
@@ -264,7 +268,7 @@ fn check_readme_link_url(
                          More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
                     ))
                     .with_labels(vec![Label::primary(
-                        readme_fake_file_id(),
+                        readme_file_id(),
                         sourcepos_to_range(readme, sourcepos),
                     )]),
             );
@@ -274,12 +278,7 @@ fn check_readme_link_url(
 
 const DEFAULT_BRANCHES: [&str; 2] = ["main", "master"];
 
-fn check_repo_file_url(
-    diags: &mut Diagnostics,
-    readme: &str,
-    sourcepos: Sourcepos,
-    url: &str,
-) -> Option<()> {
+fn check_repo_file_url(diags: &mut Diagnostics, readme: &str, sourcepos: Sourcepos, url: &str) {
     static GITHUB_URL: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"https://github.com/([^/]+)/([^/]+)/(?:blob|tree)/([^/]+)/(.+)").unwrap()
     });
@@ -311,7 +310,7 @@ fn check_repo_file_url(
     } else if let Some(captures) = CODEBERG_URL.captures(url) {
         (Host::Codeberg, captures)
     } else {
-        return None;
+        return;
     };
 
     let user = captures.get(1).unwrap().as_str();
@@ -320,7 +319,7 @@ fn check_repo_file_url(
     let path = captures.get(4).unwrap().as_str();
 
     if !DEFAULT_BRANCHES.contains(&branch) {
-        return None;
+        return;
     }
 
     let name = match host {
@@ -337,7 +336,7 @@ fn check_repo_file_url(
 
     diags.emit(
         Diagnostic::warning()
-            .with_code("readme/link/github-url-permalink")
+            .with_code("readme/link/repository-url-permalink")
             .with_message(format_args!(
                 "{name} URL links to default branch: `{url}`.\n\n\
                  Consider using a link to a specific tag/release or a permalink to a commit instead. \
@@ -347,12 +346,10 @@ fn check_repo_file_url(
                  is already present in the submitted package."
             ))
             .with_label(Label::primary(
-                readme_fake_file_id(),
+                readme_file_id(),
                 sourcepos_to_range(readme, sourcepos),
             )),
     );
-
-    Some(())
 }
 
 fn check_image_alternative_description(
@@ -368,27 +365,29 @@ fn check_image_alternative_description(
     static SINGLE_LETTER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\w$").unwrap());
 
     let alt = alt.trim();
-
-    if alt.is_empty() || SINGLE_WORD.is_match(alt) || SINGLE_LETTER.is_match(alt) {
-        let (severity, message) = if alt.is_empty() {
-            let message = String::from(
-                "Missing alternative description for image. \
-                 Please add a short description to make this image more accessible.",
-            );
-            (Severity::Error, message)
-        } else {
-            let message = format!(
-                "Possibly inadequate alternative description for image: `{alt}`. \
-                 Please add a short description to make this image more accessible.",
-            );
-            (Severity::Warning, message)
-        };
+    if alt.is_empty() {
         diags.emit(
-            Diagnostic::new(severity)
+            Diagnostic::error()
                 .with_code("readme/image/missing-alt")
-                .with_message(message)
+                .with_message(
+                    "Missing alternative description for image. \
+                     Please add a short description to make this image more accessible.",
+                )
                 .with_label(Label::primary(
-                    readme_fake_file_id(),
+                    readme_file_id(),
+                    sourcepos_to_range(readme, sourcepos),
+                )),
+        );
+    } else if SINGLE_WORD.is_match(alt) || SINGLE_LETTER.is_match(alt) {
+        diags.emit(
+            Diagnostic::warning()
+                .with_code("readme/image/inadequate-alt")
+                .with_message(format_args!(
+                    "Possibly inadequate alternative description for image: `{alt}`. \
+                     Please add a short description to make this image more accessible."
+                ))
+                .with_label(Label::primary(
+                    readme_file_id(),
                     sourcepos_to_range(readme, sourcepos),
                 )),
         );
@@ -415,9 +414,6 @@ fn sourcepos_to_range(s: &str, pos: Sourcepos) -> Range<usize> {
     start..end
 }
 
-/// It is important to create a fake ID for each node, this allows to
-/// have multiple sources with the same file path, which is useful here
-/// since the README can contain multiple Typst example blocks.
-fn readme_fake_file_id() -> FileId {
-    FileId::new_fake(VirtualPath::new("README.md"))
+fn readme_file_id() -> FileId {
+    FileId::new(None, VirtualPath::new("README.md"))
 }
