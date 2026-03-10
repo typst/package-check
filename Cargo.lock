@@ -4111,6 +4111,7 @@ dependencies = [
  "typst",
  "typst-assets",
  "typst-eval",
+ "url",
  "wasm-opt",
 ]
 

@@ -12,6 +12,7 @@ use typst::{
     syntax::{FileId, VirtualPath},
     World,
 };
+use url::Url;
 
 use crate::check::files;
 use crate::{
@@ -245,34 +246,69 @@ fn check_readme_link_url(
     diags: &mut Diagnostics,
     readme: &str,
     sourcepos: Sourcepos,
-    url: &str,
+    url_text: &str,
 ) {
-    let url = url.trim();
+    let url_text = url_text.trim();
 
-    if url.contains("://") {
-        // TODO: Should we check the URL here like for the `homepage` and
-        // `repository` manifest fields?
+    // Allow links that are only fragments: `#readme-section`.
+    if url_text.starts_with("#") {
+        // TODO: Consider validating that the fragment is valid.
+        return;
+    }
 
-        check_repo_file_url(diags, readme, sourcepos, url);
-    } else if url.starts_with("#") {
-        // TODO: Validate markdown anchor.
-    } else {
-        // Assume this URL is a path of a local file.
-        if !files::path_relative_to(world.root(), Path::new(url)).exists() {
-            diags.emit(
-                Diagnostic::error()
-                    .with_code("readme/link/file-not-found")
-                    .with_message(format_args!(
-                        "Linked file not found: `{url}`.\n\n\
-                         Make sure to commit all linked files and possibly add them to the `exclude` list.\n\n\
-                         More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
-                    ))
-                    .with_labels(vec![Label::primary(
-                        readme_file_id(),
-                        sourcepos_to_range(readme, sourcepos),
-                    )]),
-            );
+    let url_error = match Url::parse(url_text) {
+        Ok(url) => {
+            // TODO: Should we check the URL here like for the `homepage` and
+            // `repository` manifest fields?
+
+            check_repo_file_url(diags, readme, sourcepos, url.as_str());
+
+            return;
         }
+        Err(error) => error,
+    };
+
+    let invalid_url_error = || {
+        Diagnostic::error()
+            .with_code("readme/link/invalid-url")
+            .with_message(format_args!("Invalid url: `{url_text}`\n{url_error}"))
+            .with_labels(vec![Label::primary(
+                readme_file_id(),
+                sourcepos_to_range(readme, sourcepos),
+            )])
+    };
+
+    // The link couldn't be parsed as a URL, assume it's a local file.
+    let file_url = format!("file:///{url_text}");
+    let Ok(url) = Url::parse(&file_url) else {
+        diags.emit(invalid_url_error());
+        return;
+    };
+
+    // Don't allow URL with empty paths. If the path consists only of the root
+    // component that we added above, the path was completely empty before.
+    let absolute_path = url.path();
+    if absolute_path == "/" {
+        diags.emit(invalid_url_error());
+        return;
+    }
+
+    // Check if the local file exists.
+    if !files::path_relative_to(world.root(), Path::new(absolute_path)).exists() {
+        diags.emit(
+            Diagnostic::error()
+                .with_code("readme/link/file-not-found")
+                .with_message(format_args!(
+                    "Linked file not found: `{absolute_path}`.\n\n\
+                     Make sure to commit all linked files and possibly add them to the `exclude` list.\n\n\
+                     More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
+                ))
+                .with_note(format_args!("This link was assumed to be a local file because it's couldn't be parsed as an URL: `{url_text}`\n{url_error}"))
+                .with_labels(vec![Label::primary(
+                    readme_file_id(),
+                    sourcepos_to_range(readme, sourcepos),
+                )]),
+        );
     }
 }
 
