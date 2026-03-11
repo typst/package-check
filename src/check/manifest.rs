@@ -19,6 +19,36 @@ use crate::{
     world::SystemWorld,
 };
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct Spanned<T> {
+    val: T,
+    span: Range<usize>,
+}
+
+impl<T> Spanned<T> {
+    fn new(val: T, span: Range<usize>) -> Self {
+        Self { val, span }
+    }
+
+    fn span(&self) -> Range<usize> {
+        self.span.clone()
+    }
+}
+
+impl<T> std::ops::Deref for Spanned<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.val
+    }
+}
+
+impl<T> std::ops::DerefMut for Spanned<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.val
+    }
+}
+
 pub struct Worlds {
     pub package: SystemWorld,
     pub template: Option<SystemWorld>,
@@ -83,9 +113,9 @@ pub async fn check(
     let res = check_file_names(diags, package_dir);
     diags.maybe_emit(res);
 
-    let (exclude, exclude_span) = read_exclude(diags, manifest_file_id, &manifest, package_dir)?;
+    let exclude = read_exclude(diags, manifest_file_id, &manifest, package_dir)?;
 
-    let res = dont_over_exclude(diags, manifest_file_id, &exclude, exclude_span.clone());
+    let res = dont_over_exclude(diags, manifest_file_id, &exclude);
     diags.maybe_emit(res);
 
     check_repo(diags, manifest_file_id, &manifest).await;
@@ -101,7 +131,7 @@ pub async fn check(
             &manifest,
             package_dir,
             package_spec.unwrap_or(&inferred_package_spec),
-            exclude.clone(),
+            exclude.val.clone(),
         )
     } else {
         None
@@ -483,10 +513,10 @@ fn exclude_large_files(
 fn dont_over_exclude(
     diags: &mut Diagnostics,
     manifest_file_id: FileId,
-    exclude: &Override,
-    span: std::ops::Range<usize>,
+    exclude: &Spanned<Override>,
 ) -> Result<()> {
-    let warning = Diagnostic::warning().with_labels(vec![Label::primary(manifest_file_id, span)]);
+    let warning =
+        Diagnostic::warning().with_labels(vec![Label::primary(manifest_file_id, exclude.span())]);
 
     if exclude.matched("LICENSE", false).is_ignore() {
         diags.emit(
@@ -714,7 +744,7 @@ fn read_exclude(
     manifest_file_id: FileId,
     manifest: &toml_edit::Document<&String>,
     package_dir: &Path,
-) -> Result<(Override, Range<usize>)> {
+) -> Result<Spanned<Override>> {
     let empty_array = toml_edit::Array::new();
     let exclude = manifest
         .get("package")
@@ -746,7 +776,8 @@ fn read_exclude(
             .unwrap_or(exclusion_str);
         exclude_globs.add(&format!("!{exclusion_str}")).ok();
     }
-    Ok((
+
+    Ok(Spanned::new(
         exclude_globs
             .build()
             .error("manifest/exclude/invalid", "Invalid exclude globs")?,
@@ -838,7 +869,7 @@ fn check_thumbnail(
     manifest: &toml_edit::Document<&String>,
     manifest_file_id: FileId,
     package_dir: &Path,
-    exclude: &Override,
+    exclude: &Spanned<Override>,
 ) -> Option<PathBuf> {
     let thumbnail = manifest.get("template")?.as_table()?.get("thumbnail")?;
     let thumbnail_path = package_dir.join(thumbnail.as_str()?);
@@ -867,7 +898,7 @@ fn check_thumbnail(
     if exclude.matched(&thumbnail_path, false).is_ignore() {
         diags.emit(
             Diagnostic::error()
-                .with_label(Label::primary(manifest_file_id, thumbnail.span()?))
+                .with_label(Label::primary(manifest_file_id, exclude.span()))
                 .with_code("manifest/template/thumbnail/exclude")
                 .with_message("The template thumbnail is automatically excluded"),
         );
