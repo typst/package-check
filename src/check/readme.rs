@@ -258,8 +258,8 @@ fn check_readme_link_url(
 
     let url_error = match Url::parse(url_text) {
         Ok(url) => {
-            // TODO: Should we check the URL here like for the `homepage` and
-            // `repository` manifest fields?
+            // TODO: Should we fetch the URL here like for the `homepage` and
+            // `repository` manifest fields, to check it can be publicly accessed?
 
             check_repo_file_url(diags, readme, sourcepos, url.as_str());
 
