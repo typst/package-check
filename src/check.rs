@@ -28,7 +28,10 @@ pub async fn all_checks(
 ) -> Result<(SystemWorld, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
-    let worlds = manifest::check(&package_dir, &mut diags, package_spec).await?;
+    let (manifest, worlds) = manifest::check(&package_dir, &mut diags, package_spec).await?;
+
+    files::check(&mut diags, &package_dir, &manifest);
+
     compile::check(&mut diags, &worlds.package);
     if let Some(template_world) = worlds.template {
         let mut template_diags = Diagnostics::default();
