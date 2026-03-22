@@ -5,9 +5,15 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 
 use crate::check::manifest::Manifest;
 use crate::check::path::PackagePath;
+use crate::check::readme::Readme;
 use crate::check::Diagnostics;
 
-pub fn check(diags: &mut Diagnostics, package_dir: &Path, manifest: &Manifest) {
+pub fn check(
+    diags: &mut Diagnostics,
+    package_dir: &Path,
+    manifest: &Manifest,
+    readme: &Option<Readme>,
+) {
     let exclude = &manifest.package.exclude;
     let thumbnail_path = manifest.thumbnail();
 
@@ -43,6 +49,7 @@ pub fn check(diags: &mut Diagnostics, package_dir: &Path, manifest: &Manifest) {
         forbid_font_files(diags, file_path);
         exclude_large_files(diags, file_path, excluded, metadata.len());
         exclude_examples_and_tests(diags, file_path, excluded);
+        link_manuals(diags, readme, file_path, excluded);
     }
 }
 
@@ -110,10 +117,7 @@ fn exclude_large_files(
 }
 
 fn check_wasm_file_size(diags: &mut Diagnostics, path: PackagePath<&Path>, original_size: u64) {
-    let Some(file_name) = path.full().file_name() else {
-        return;
-    };
-    let out = std::env::temp_dir().join(file_name);
+    let out = std::env::temp_dir().join(path.file_name());
 
     let wasm_opt_result = wasm_opt::OptimizationOptions::new_optimize_for_size()
         // Explicitely enable and disable features to best match what wasmi supports
@@ -193,4 +197,34 @@ fn forbid_font_files(diags: &mut Diagnostics, path: PackagePath<&Path>) {
                 More details: https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages",
             ),
     );
+}
+
+fn link_manuals(
+    diags: &mut Diagnostics,
+    readme: &Option<Readme>,
+    path: PackagePath<&Path>,
+    excluded: bool,
+) {
+    let Some(readme) = readme.as_ref() else {
+        return;
+    };
+
+    let name = path.file_name().to_string_lossy().to_lowercase();
+
+    const MANUAL_FILES: [&str; 4] = ["manual.pdf", "doc.pdf", "docs.pdf", "documentation.pdf"];
+    if MANUAL_FILES.contains(&name.as_str())
+        && readme.linked_files.iter().all(|l| l.full() != path.full())
+    {
+        let note = (!excluded)
+            .then(|| "It should also be added to `exclude` in your `typst.toml`.".into());
+
+        diags.emit(Diagnostic::warning()
+            .with_label(Label::primary(path.file_id(), 0..0))
+            .with_code("files/manual/unlinked")
+            .with_message(
+                "This file seems to be a manual/documentation, but isn't linked in the readme. \
+                 It will be inacessible on Typst Universe.",
+            )
+            .with_notes_iter(note));
+    }
 }

@@ -36,9 +36,13 @@ pub struct Diagnostics {
 }
 
 impl Diagnostics {
-    pub fn maybe_emit<T>(&mut self, maybe_err: Result<T>) {
-        if let Err(e) = maybe_err {
-            self.emit(e)
+    pub fn maybe_emit<T>(&mut self, maybe_err: Result<T>) -> Option<T> {
+        match maybe_err {
+            Ok(v) => Some(v),
+            Err(e) => {
+                self.emit(e);
+                None
+            }
         }
     }
 

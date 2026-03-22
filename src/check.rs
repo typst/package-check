@@ -6,7 +6,6 @@ use typst::{
     WorldExt,
 };
 
-use crate::check::readme::check_readme;
 use crate::world::SystemWorld;
 
 pub mod authors;
@@ -30,8 +29,6 @@ pub async fn all_checks(
 
     let (manifest, worlds) = manifest::check(&package_dir, &mut diags, package_spec).await?;
 
-    files::check(&mut diags, &package_dir, &manifest);
-
     compile::check(&mut diags, &worlds.package);
     if let Some(template_world) = worlds.template {
         let mut template_diags = Diagnostics::default();
@@ -43,8 +40,10 @@ pub async fn all_checks(
         diags.extend(template_diags, template_dir);
     }
 
-    let res = check_readme(&worlds.package, &mut diags).await;
-    diags.maybe_emit(res);
+    let res = readme::check(&worlds.package, &mut diags).await;
+    let readme = diags.maybe_emit(res);
+
+    files::check(&mut diags, &package_dir, &manifest, &readme);
 
     kebab_case::check(&mut diags, &worlds.package);
 
