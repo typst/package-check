@@ -15,7 +15,7 @@ impl PackagePath<PathBuf> {
     /// Create a new package path from the package directory and a relative path
     /// within the directory.
     pub fn from_relative<T: AsRef<Path>>(package_dir: &Path, relative_path: T) -> Self {
-        let full_path = path_relative_to(package_dir, relative_path.as_ref());
+        let full_path = relative_to(package_dir, relative_path.as_ref());
         let offset = package_dir.components().count();
         Self { offset, full_path }
     }
@@ -31,6 +31,7 @@ impl PackagePath<PathBuf> {
 impl<T: AsRef<Path>> PackagePath<T> {
     /// Create a new package path from the package dir and a full path that has
     /// to start with the package directory.
+    #[track_caller]
     pub fn from_full(package_dir: &Path, full_path: T) -> Self {
         let path = full_path.as_ref();
 
@@ -75,8 +76,9 @@ impl<T: AsRef<Path>> PackagePath<T> {
 /// Strips any any leading root components (`/` or `\`) of the `path` before
 /// joining it to the `root` path. Absolute paths would otherwise replace the
 /// complete path when `join`ed with a parent path.
-pub fn path_relative_to(root: &Path, path: &Path) -> PathBuf {
+pub fn relative_to(root: &Path, path: impl AsRef<Path>) -> PathBuf {
     let components = path
+        .as_ref()
         .components()
         .skip_while(|c| matches!(c, std::path::Component::RootDir))
         .map(|c| Path::new(c.as_os_str()));

@@ -2,18 +2,14 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
-use ignore::overrides::Override;
 
+use crate::check::manifest::Manifest;
 use crate::check::path::PackagePath;
 use crate::check::Diagnostics;
 
-pub fn check_files(
-    diags: &mut Diagnostics,
-    package_dir: &Path,
-    exclude: &Override,
-    thumbnail_path: Option<PackagePath>,
-) {
-    let thumbnail_path = thumbnail_path.as_ref().map(PackagePath::as_path);
+pub fn check(diags: &mut Diagnostics, package_dir: &Path, manifest: &Manifest) {
+    let exclude = &manifest.package.exclude;
+    let thumbnail_path = manifest.thumbnail();
 
     // Manually keep track of excluded directories, to figure out if nested
     // files are ignored. This is done, so we can generate diagnostics for
@@ -39,13 +35,12 @@ pub fn check_files(
         }
 
         // The thumbnail is always excluded.
-        let is_thumbnail = Some(file_path) == thumbnail_path;
+        let is_thumbnail = thumbnail_path.is_some_and(|t| t.val == file_path);
         let excluded = is_thumbnail
             || parent_is_excluded(&excluded_dirs, file_path)
             || exclude.matched(file_path.relative(), false).is_ignore();
 
         forbid_font_files(diags, file_path);
-
         exclude_large_files(diags, file_path, excluded, metadata.len());
         exclude_examples_and_tests(diags, file_path, excluded);
     }
