@@ -6,10 +6,8 @@ use typst::{
     WorldExt,
 };
 
-use crate::{
-    check::{files::forbid_font_files, readme::check_readme},
-    world::SystemWorld,
-};
+use crate::check::readme::check_readme;
+use crate::world::SystemWorld;
 
 pub mod authors;
 mod compile;
@@ -18,6 +16,7 @@ mod files;
 mod imports;
 mod kebab_case;
 mod manifest;
+mod path;
 mod readme;
 
 pub use diagnostics::{Diagnostics, Result, TryExt};
@@ -40,9 +39,6 @@ pub async fn all_checks(
             .expect("Template should be in a subfolder of the package");
         diags.extend(template_diags, template_dir);
     }
-
-    let res = forbid_font_files(&package_dir, &mut diags);
-    diags.maybe_emit(res);
 
     let res = check_readme(&worlds.package, &mut diags).await;
     diags.maybe_emit(res);
