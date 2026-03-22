@@ -1,85 +1,201 @@
-use std::path::{Component, Path, PathBuf};
+use std::collections::HashSet;
+use std::path::Path;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ignore::overrides::Override;
-use typst::syntax::{FileId, VirtualPath};
 
-use crate::check::{Diagnostics, Result, TryExt};
+use crate::check::path::PackagePath;
+use crate::check::Diagnostics;
 
-/// Size (in bytes) after which a file is considered large.
-const SIZE_THRESHOLD: u64 = 1024 * 1024; // 1 MB
-
-pub fn find_large_files(dir: &Path, exclude: Override) -> Result<Vec<(PathBuf, u64)>> {
-    let mut result = Vec::new();
-    for ch in ignore::WalkBuilder::new(dir).overrides(exclude).build() {
-        let Ok(ch) = ch else {
-            continue;
-        };
-        let Ok(metadata) = ch.metadata() else {
-            continue;
-        };
-        if metadata.is_file() && metadata.len() > SIZE_THRESHOLD {
-            result.push((
-                ch.path()
-                    .strip_prefix(dir)
-                    .error("internal", "Prefix striping failed even though child path (`ch`) was constructed from parent path (`dir`)")?
-                    .to_owned(),
-                metadata.len(),
-            ))
-        }
-    }
-    Ok(result)
-}
-
-pub fn forbid_font_files(
-    package_dir: &Path,
+pub fn check_files(
     diags: &mut Diagnostics,
-) -> std::result::Result<(), Diagnostic<FileId>> {
-    for ch in ignore::WalkBuilder::new(package_dir).build() {
-        let Ok(ch) = ch else {
-            continue;
-        };
+    package_dir: &Path,
+    exclude: &Override,
+    thumbnail_path: Option<PackagePath>,
+) {
+    let thumbnail_path = thumbnail_path.as_ref().map(PackagePath::as_path);
+
+    // Manually keep track of excluded directories, to figure out if nested
+    // files are ignored. This is done, so we can generate diagnostics for
+    // excluded files.
+    let mut excluded_dirs = HashSet::new();
+
+    for ch in ignore::WalkBuilder::new(package_dir).hidden(false).build() {
+        let Ok(ch) = ch else { continue };
         let Ok(metadata) = ch.metadata() else {
             continue;
         };
 
-        let ext = ch
-            .path()
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or_default()
-            .to_lowercase();
-        if metadata.is_file() && (&ext == "otf" || &ext == "ttf") {
-            let file_id = FileId::new(None, VirtualPath::new(ch.path().strip_prefix(package_dir)
-                    .error("internal", "Prefix striping failed even though child path (`ch`) was constructed from parent path (`dir`)")?
-        ));
-            diags.emit(
-                Diagnostic::error()
-                    .with_label(Label::primary(file_id, 0..0))
-                    .with_code("files/fonts")
-                    .with_message(
-                        "Font files are not allowed.\n\n\
-                        Delete them and instruct your users to install them manually, \
-                        in your README and/or in a documentation comment.\n\n\
-                        More details: https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages",
-                    ),
-            );
-        }
-    }
+        let file_path = PackagePath::from_full(package_dir, ch.path());
 
-    Ok(())
+        if metadata.is_dir() {
+            // If the parent directory is ignored, all children are ignored too.
+            if parent_is_excluded(&excluded_dirs, file_path)
+                || exclude.matched(file_path.relative(), true).is_ignore()
+            {
+                excluded_dirs.insert(ch.into_path());
+            }
+            continue;
+        }
+
+        // The thumbnail is always excluded.
+        let is_thumbnail = Some(file_path) == thumbnail_path;
+        let excluded = is_thumbnail
+            || parent_is_excluded(&excluded_dirs, file_path)
+            || exclude.matched(file_path.relative(), false).is_ignore();
+
+        forbid_font_files(diags, file_path);
+
+        exclude_large_files(diags, file_path, excluded, metadata.len());
+        exclude_examples_and_tests(diags, file_path, excluded);
+    }
 }
 
-/// Stips any any leading root components (`/` or `\`) of the path before
-/// joining it to the `root` path.
-///
-/// Absolute paths (starting with `/` or `\`) replace the complete path when
-/// `join`ed with a parent path.
-pub fn path_relative_to(root: &Path, path: &Path) -> PathBuf {
-    let components = path
-        .components()
-        .skip_while(|c| matches!(c, Component::RootDir))
-        .map(|c| Path::new(c.as_os_str()));
+fn parent_is_excluded(
+    excluded_dirs: &HashSet<std::path::PathBuf>,
+    file_path: PackagePath<&Path>,
+) -> bool {
+    file_path
+        .full()
+        .parent()
+        .is_some_and(|parent| excluded_dirs.contains(parent))
+}
 
-    PathBuf::from_iter(std::iter::once(root).chain(components))
+fn exclude_large_files(
+    diags: &mut Diagnostics,
+    path: PackagePath<&Path>,
+    excluded: bool,
+    size: u64,
+) {
+    /// Size (in bytes) after which a file is considered large.
+    const LARGE: u64 = 1024 * 1024; // 1 MB
+    const REALLY_LARGE: u64 = 50 * 1024 * 1024; // 50 MB
+
+    if size < LARGE {
+        return;
+    }
+
+    if path.extension().is_some_and(|ext| ext == "wasm") {
+        check_wasm_file_size(diags, path, size);
+        // Don't suggest to exclude WASM files, they are generally necessary
+        // for the package to work.
+        return;
+    }
+
+    let (code, message) = if size > REALLY_LARGE {
+        (
+            "size/extra-large",
+            format!(
+                "This file is really large ({size}MB). \
+                 If possible, do not include it in this repository at all.",
+                size = size / 1024 / 1024
+            ),
+        )
+    } else if !excluded {
+        (
+            "size/large",
+            format!(
+                "This file is quite large ({size}MB). \
+                 If it is not required to use the package \
+                 (i.e. it is a documentation file, or part of an example), \
+                 it should be added to `exclude` in your `typst.toml`.",
+                size = size / 1024 / 1024
+            ),
+        )
+    } else {
+        return;
+    };
+
+    diags.emit(
+        Diagnostic::warning()
+            .with_code(code)
+            .with_label(Label::primary(path.file_id(), 0..0))
+            .with_message(message),
+    )
+}
+
+fn check_wasm_file_size(diags: &mut Diagnostics, path: PackagePath<&Path>, original_size: u64) {
+    let Some(file_name) = path.full().file_name() else {
+        return;
+    };
+    let out = std::env::temp_dir().join(file_name);
+
+    let wasm_opt_result = wasm_opt::OptimizationOptions::new_optimize_for_size()
+        // Explicitely enable and disable features to best match what wasmi supports
+        // https://github.com/wasmi-labs/wasmi?tab=readme-ov-file#webassembly-proposals
+        .enable_feature(wasm_opt::Feature::MutableGlobals)
+        .enable_feature(wasm_opt::Feature::TruncSat)
+        .enable_feature(wasm_opt::Feature::SignExt)
+        .enable_feature(wasm_opt::Feature::Multivalue)
+        .enable_feature(wasm_opt::Feature::BulkMemory)
+        .enable_feature(wasm_opt::Feature::ReferenceTypes)
+        .enable_feature(wasm_opt::Feature::TailCall)
+        .enable_feature(wasm_opt::Feature::ExtendedConst)
+        .enable_feature(wasm_opt::Feature::MultiMemory)
+        .enable_feature(wasm_opt::Feature::Simd)
+        .disable_feature(wasm_opt::Feature::RelaxedSimd)
+        .disable_feature(wasm_opt::Feature::Gc)
+        .disable_feature(wasm_opt::Feature::ExceptionHandling)
+        .run(path.full(), &out);
+
+    if wasm_opt_result.is_ok() {
+        if let Ok(new_size) = std::fs::metadata(&out).map(|m| m.len()) {
+            let diff = (original_size - new_size) / 1024;
+
+            if diff > 20 {
+                diags.emit(
+                    Diagnostic::warning()
+                        .with_label(Label::primary(path.file_id(), 0..0))
+                        .with_code("size/wasm")
+                        .with_message(format!(
+                            "This file could be {diff}kB smaller with `wasm-opt -Os`."
+                        )),
+                );
+            }
+        }
+
+        // TODO: ideally this should be async
+        std::fs::remove_file(out).ok();
+    }
+}
+
+fn exclude_examples_and_tests(diags: &mut Diagnostics, path: PackagePath<&Path>, excluded: bool) {
+    if excluded {
+        return;
+    }
+
+    let file_name = path.file_name().to_string_lossy();
+    let warning = || Diagnostic::warning().with_label(Label::primary(path.file_id(), 0..0));
+    if file_name.contains("example") {
+        diags.emit(warning().with_code("exclude/example").with_message(
+            "This file seems to be an example, \
+             and should probably be added to `exclude` in your `typst.toml`.",
+        ));
+    } else if file_name.contains("test") {
+        diags.emit(warning().with_code("exclude/test").with_message(
+            "This file seems to be a test, \
+             and should probably be added to `exclude` in your `typst.toml`.",
+        ));
+    }
+}
+
+fn forbid_font_files(diags: &mut Diagnostics, path: PackagePath<&Path>) {
+    let Some(ext) = path.extension() else {
+        return;
+    };
+    if !(ext == "otf" || ext == "ttf") {
+        return;
+    }
+
+    diags.emit(
+        Diagnostic::error()
+            .with_label(Label::primary(path.file_id(), 0..0))
+            .with_code("files/fonts")
+            .with_message(
+                "Font files are not allowed.\n\n\
+                Delete them and instruct your users to install them manually, \
+                in your README and/or in a documentation comment.\n\n\
+                More details: https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages",
+            ),
+    );
 }

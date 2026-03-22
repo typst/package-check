@@ -1,5 +1,4 @@
 use std::io::Cursor;
-use std::path::Path;
 use std::sync::LazyLock;
 use std::{collections::HashSet, ops::Range};
 
@@ -14,7 +13,7 @@ use typst::{
 };
 use url::Url;
 
-use crate::check::files;
+use crate::check::path::PackagePath;
 use crate::{
     check::{imports, kebab_case, label, Diagnostics, TryExt},
     world::SystemWorld,
@@ -294,7 +293,8 @@ fn check_readme_link_url(
     }
 
     // Check if the local file exists.
-    if !files::path_relative_to(world.root(), Path::new(absolute_path)).exists() {
+    let path = PackagePath::from_relative(world.root(), absolute_path);
+    if !path.full().exists() {
         diags.emit(
             Diagnostic::error()
                 .with_code("readme/link/file-not-found")

@@ -1,8 +1,4 @@
-use std::{
-    ops::Range,
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::{ops::Range, path::Path, str::FromStr};
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ignore::overrides::{Override, OverrideBuilder};
@@ -14,6 +10,7 @@ use typst::syntax::{
     FileId, VirtualPath,
 };
 
+use crate::check::path::PackagePath;
 use crate::{
     check::{files, Diagnostics, Result, TryExt},
     world::SystemWorld,
@@ -112,11 +109,14 @@ pub async fn check(
         None
     };
 
-    dont_exclude_template_files(diags, &manifest, package_dir, &exclude);
+    let template_dir = template_root(package_dir, &manifest);
+
+    if let Some(template_dir) = &template_dir {
+        dont_exclude_template_files(diags, package_dir, &exclude, template_dir.as_path());
+    }
     let thumbnail_path = check_thumbnail(diags, &manifest, manifest_file_id, package_dir, &exclude);
 
-    let res = exclude_large_files(diags, package_dir, &manifest, &exclude, thumbnail_path);
-    diags.maybe_emit(res);
+    files::check_files(diags, package_dir, &exclude, thumbnail_path);
 
     Ok(Worlds {
         package: world,
@@ -297,192 +297,6 @@ fn check_compiler_version(
     }
 
     Some(())
-}
-
-fn exclude_large_files(
-    diags: &mut Diagnostics,
-    package_dir: &Path,
-    manifest: &toml_edit::Document<&String>,
-    exclude: &Override,
-    thumbnail_path: Option<PathBuf>,
-) -> Result<()> {
-    let template_dir = template_root(package_dir, manifest);
-
-    const REALLY_LARGE: u64 = 50 * 1024 * 1024;
-
-    let large_files = files::find_large_files(package_dir, exclude.clone());
-    for (path, size) in large_files? {
-        if Some(path.as_ref())
-            == thumbnail_path
-                .as_ref()
-                .and_then(|t| t.strip_prefix(package_dir).ok())
-        {
-            // Thumbnail is always excluded
-            continue;
-        }
-
-        if path.extension().and_then(|ext| ext.to_str()) == Some("wasm") {
-            let path = package_dir.join(&path);
-            if let Some(file_name) = path.file_name() {
-                let out = std::env::temp_dir().join(file_name);
-
-                let wasm_opt_result = wasm_opt::OptimizationOptions::new_optimize_for_size()
-                    // Explicitely enable and disable features to best match what wasmi supports
-                    // https://github.com/wasmi-labs/wasmi?tab=readme-ov-file#webassembly-proposals
-                    .enable_feature(wasm_opt::Feature::MutableGlobals)
-                    .enable_feature(wasm_opt::Feature::TruncSat)
-                    .enable_feature(wasm_opt::Feature::SignExt)
-                    .enable_feature(wasm_opt::Feature::Multivalue)
-                    .enable_feature(wasm_opt::Feature::BulkMemory)
-                    .enable_feature(wasm_opt::Feature::ReferenceTypes)
-                    .enable_feature(wasm_opt::Feature::TailCall)
-                    .enable_feature(wasm_opt::Feature::ExtendedConst)
-                    .enable_feature(wasm_opt::Feature::MultiMemory)
-                    .enable_feature(wasm_opt::Feature::Simd)
-                    .disable_feature(wasm_opt::Feature::RelaxedSimd)
-                    .disable_feature(wasm_opt::Feature::Gc)
-                    .disable_feature(wasm_opt::Feature::ExceptionHandling)
-                    .run(&path, &out);
-
-                if wasm_opt_result.is_ok() {
-                    let original_size = std::fs::metadata(&path).map(|m| m.len());
-                    let new_size = std::fs::metadata(&out).map(|m| m.len());
-
-                    match (new_size, original_size) {
-                        (Ok(new_size), Ok(original_size)) if new_size < original_size => {
-                            let diff = (original_size - new_size) / 1024;
-
-                            if diff > 20 {
-                                diags.emit(
-                                    Diagnostic::warning()
-                                        .with_labels(vec![Label::primary(
-                                            FileId::new(
-                                                None,
-                                                VirtualPath::new(
-                                                    path.strip_prefix(package_dir).error(
-                                                        "internal",
-                                                        "Failed to string prefix",
-                                                    )?,
-                                                ),
-                                            ),
-                                            0..0,
-                                        )])
-                                        .with_code("size/wasm")
-                                        .with_message(format!(
-                                        "This file could be {diff}kB smaller with `wasm-opt -Os`."
-                                    )),
-                                );
-                            }
-                        }
-                        _ => {}
-                    }
-
-                    // TODO: ideally this should be async
-                    std::fs::remove_file(out).ok();
-                }
-            }
-
-            // Don't suggest to exclude WASM files, they are generally necessary
-            // for the package to work.
-            continue;
-        }
-
-        let fid = FileId::new(None, VirtualPath::new(&path));
-
-        let (code, message) = if size > REALLY_LARGE {
-            (
-                "size/extra-large",
-                format!(
-                    "This file is really large ({size}MB). \
-                If possible, do not include it in this repository at all.",
-                    size = size / 1024 / 1024
-                ),
-            )
-        } else if !exclude.matched(path, false).is_ignore() {
-            (
-                "size/large",
-                format!(
-                    "This file is quite large ({size}MB). \
-                If it is not required to use the package \
-                (i.e. it is a documentation file, or part of an example), \
-                it should be added to `exclude` in your `typst.toml`.",
-                    size = size / 1024 / 1024
-                ),
-            )
-        } else {
-            continue;
-        };
-
-        diags.emit(
-            Diagnostic::warning()
-                .with_code(code)
-                .with_labels(vec![Label::primary(fid, 0..0)])
-                .with_message(message),
-        )
-    }
-
-    // Also exclude examples
-    for ch in ignore::WalkBuilder::new(package_dir)
-        .overrides(exclude.clone())
-        .build()
-    {
-        let Ok(ch) = ch else {
-            continue;
-        };
-
-        let Ok(metadata) = ch.metadata() else {
-            continue;
-        };
-
-        if metadata.is_dir() {
-            continue;
-        }
-
-        if template_dir
-            .as_ref()
-            .is_some_and(|template_dir| ch.path().starts_with(template_dir))
-        {
-            // Don't exclude template files, even if they contain "example" or "test" in their name.
-            continue;
-        }
-
-        let relative_path = ch
-            .path()
-            .strip_prefix(package_dir)
-            .error("internal", "Child path is not part of parent path")?;
-
-        let file_name = ch.file_name();
-        let file_name_str = file_name.to_string_lossy();
-        let file_id = FileId::new(None, VirtualPath::new(relative_path));
-        let warning = Diagnostic::warning().with_labels(vec![Label::primary(file_id, 0..0)]);
-        if file_name_str.contains("example") {
-            diags.emit(
-                warning
-                    .clone()
-                    .with_message(
-                        "This file seems to be an example, \
-                    and should probably be added to `exclude` in your `typst.toml`.",
-                    )
-                    .with_code("exclude/example"),
-            );
-            continue;
-        }
-
-        if file_name_str.contains("test") {
-            diags.emit(
-                warning
-                    .clone()
-                    .with_message(
-                        "This file seems to be a test, \
-                    and should probably be added to `exclude` in your `typst.toml`.",
-                    )
-                    .with_code("exclude/test"),
-            );
-            continue;
-        }
-    }
-
-    Ok(())
 }
 
 fn dont_over_exclude(
@@ -778,12 +592,13 @@ fn world_for_template(
 
 fn dont_exclude_template_files(
     diags: &mut Diagnostics,
-    manifest: &toml_edit::Document<&String>,
     package_dir: &Path,
     exclude: &Override,
-) -> Option<()> {
-    let template_root = template_root(package_dir, manifest)?;
-    for entry in ignore::Walk::new(template_root).flatten() {
+    template_dir: PackagePath<&Path>,
+) {
+    for entry in ignore::Walk::new(template_dir.full()).flatten() {
+        let entry_path = PackagePath::from_full(package_dir, entry.path());
+
         // For build artifacts, ask the package author to delete them.
         let ext = entry.path().extension().and_then(|e| e.to_str());
         if matches!(ext, Some("pdf" | "png" | "svg")) && entry.path().with_extension("typ").exists()
@@ -791,10 +606,7 @@ fn dont_exclude_template_files(
             diags.emit(
                 Diagnostic::error()
                     .with_labels(vec![Label::primary(
-                        FileId::new(
-                            None,
-                            VirtualPath::new(entry.path().strip_prefix(package_dir).ok()?),
-                        ),
+                        FileId::new(None, VirtualPath::new(entry_path.relative())),
                         0..0,
                     )])
                     .with_code("files/compilation-artifact")
@@ -809,7 +621,7 @@ fn dont_exclude_template_files(
 
         // For other files, check that they are indeed not excluded.
         if exclude
-            .matched(entry.path(), entry.metadata().ok()?.is_dir())
+            .matched(entry.path(), entry.metadata().is_ok_and(|m| m.is_dir()))
             .is_ignore()
         {
             diags.emit(
@@ -817,25 +629,23 @@ fn dont_exclude_template_files(
                     .with_code("exclude/template")
                     .with_message("This file is part of the template and should not be excluded.")
                     .with_labels(vec![Label::primary(
-                        FileId::new(
-                            None,
-                            VirtualPath::new(entry.path().strip_prefix(package_dir).ok()?),
-                        ),
+                        FileId::new(None, VirtualPath::new(entry_path.relative())),
                         0..0,
                     )]),
             )
         }
     }
-
-    Some(())
 }
 
-fn template_root(package_dir: &Path, manifest: &toml_edit::Document<&String>) -> Option<PathBuf> {
+fn template_root(
+    package_dir: &Path,
+    manifest: &toml_edit::Document<&String>,
+) -> Option<PackagePath> {
     let root = manifest
         .get("template")
         .and_then(|t| t.get("path"))?
         .as_str()?;
-    Some(package_dir.join(root))
+    Some(PackagePath::from_relative(package_dir, root))
 }
 
 fn check_thumbnail(
@@ -844,11 +654,11 @@ fn check_thumbnail(
     manifest_file_id: FileId,
     package_dir: &Path,
     exclude: &Override,
-) -> Option<PathBuf> {
+) -> Option<PackagePath> {
     let thumbnail = manifest.get("template")?.as_table()?.get("thumbnail")?;
-    let thumbnail_path = package_dir.join(thumbnail.as_str()?);
+    let thumbnail_path = PackagePath::from_relative(package_dir, Path::new(thumbnail.as_str()?));
 
-    if !thumbnail_path.exists() {
+    if !thumbnail_path.full().exists() {
         diags.emit(
             Diagnostic::error()
                 .with_labels(vec![Label::primary(manifest_file_id, thumbnail.span()?)])
@@ -869,7 +679,7 @@ fn check_thumbnail(
         )
     }
 
-    if exclude.matched(&thumbnail_path, false).is_ignore() {
+    if exclude.matched(thumbnail_path.full(), false).is_ignore() {
         diags.emit(
             Diagnostic::error()
                 .with_label(Label::primary(manifest_file_id, thumbnail.span()?))
@@ -879,7 +689,7 @@ fn check_thumbnail(
     }
 
     if let Some(root) = template_root(package_dir, manifest) {
-        if thumbnail_path.starts_with(root) {
+        if thumbnail_path.full().starts_with(root.full()) {
             diags.emit(
                 Diagnostic::error()
                     .with_label(Label::primary(manifest_file_id, thumbnail.span()?))
