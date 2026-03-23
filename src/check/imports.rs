@@ -8,23 +8,16 @@ use typst::{
     syntax::{
         ast::{self, AstNode, ModuleImport},
         package::{PackageSpec, PackageVersion, VersionlessPackageSpec},
-        FileId, VirtualPath,
     },
     World,
 };
+use walkdir::WalkDir;
 
-use crate::{
-    check::{label, TryExt},
-    world::SystemWorld,
-};
-
-use super::{Diagnostics, Result};
+use crate::check::path::PackagePath;
+use crate::check::{label, Diagnostics, Result, TryExt};
+use crate::world::SystemWorld;
 
 pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -> Result<()> {
-    check_dir(diags, package_dir, world)
-}
-
-pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> Result<()> {
     let root_path = world.root();
     let main_path = root_path
         .join(world.main().vpath().as_rootless_path())
@@ -35,36 +28,24 @@ pub fn check_dir(diags: &mut Diagnostics, dir: &Path, world: &SystemWorld) -> Re
         .and_then(|package_dir| package_dir.parent())
         .and_then(|namespace_dir| namespace_dir.parent());
 
-    for ch in std::fs::read_dir(dir).error("internal/io", "Can't read directory")? {
-        let Ok(ch) = ch else {
-            continue;
-        };
+    for ch in WalkDir::new(package_dir).into_iter().flatten() {
         let Ok(meta) = ch.metadata() else {
             continue;
         };
-
-        let path = dir.join(ch.file_name());
-        if meta.is_dir() {
-            check_dir(diags, &path, world)?;
+        if !meta.is_file() {
+            continue;
         }
-        if path.extension().and_then(|ext| ext.to_str()) == Some("typ") {
-            let fid = FileId::new(
-                None,
-                VirtualPath::new(
-                    path.strip_prefix(root_path)
-                        // Not actually true
-                        .error(
-                            "internal",
-                            "Prefix striping failed even though `path` is built from `root_dir`",
-                        )?,
-                ),
-            );
-            let source = world.lookup(fid).error("io", "Can't read source file")?;
+
+        let path = PackagePath::from_full(package_dir, ch.path());
+        if path.extension().is_some_and(|ext| ext == "typ") {
+            let source = world
+                .lookup(path.file_id())
+                .error("io", "Can't read source file")?;
             check_ast(
                 diags,
                 world,
                 source.root(),
-                &path,
+                path.full(),
                 main_path.as_deref(),
                 all_packages,
             );
