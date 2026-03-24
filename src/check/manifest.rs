@@ -31,8 +31,15 @@ pub async fn check(
 ) -> Result<Worlds> {
     let manifest_path = package_dir.join("typst.toml");
     debug!("Reading manifest at {}", &manifest_path.display());
-    let manifest_contents = std::fs::read_to_string(manifest_path)
-        .error("manifest/io", "Failed to read manifest contents.")?;
+    let manifest_contents = std::fs::read_to_string(&manifest_path).map_err(|e| {
+        Diagnostic::error()
+            .with_code("manifest/io")
+            .with_message(format!(
+                "Failed to read manifest contents ({}). {}",
+                manifest_path.display(),
+                e
+            ))
+    })?;
     let manifest = toml_edit::Document::parse(&manifest_contents)
         .error("manifest/toml-syntax", "Failed to parse manifest contents")?;
 

@@ -1,3 +1,5 @@
+use std::env;
+
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -44,7 +46,9 @@ enum Commands {
 
 #[tokio::main]
 async fn main() {
-    dotenvy::dotenv().ok();
+    if env::var("IGNORE_DOTENV").is_err() {
+        dotenvy::dotenv().ok();
+    }
 
     if std::env::var("LOG_STYLE").as_deref().unwrap_or("human") == "json" {
         tracing_subscriber::fmt()

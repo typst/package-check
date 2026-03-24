@@ -38,7 +38,7 @@ pub async fn main(spec_or_path: String, json_output: bool) {
             }
         }
         Err(e) => {
-            println!("Fatal error: {}", e.message);
+            eprintln!("Fatal error: {}", e.message);
             exit(1)
         }
     }

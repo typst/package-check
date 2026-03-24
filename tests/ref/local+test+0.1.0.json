@@ -1,0 +1,25 @@
+[
+  {
+    "code": "manifest/package/license/type",
+    "file": "typst.toml",
+    "kind": "error",
+    "message": "The `license` field should be a string"
+  },
+  {
+    "code": "manifest/package/description/type",
+    "file": "typst.toml",
+    "kind": "error",
+    "message": "The `description` field should be a string"
+  },
+  {
+    "code": "manifest/package/authors/type",
+    "file": "typst.toml",
+    "kind": "error",
+    "message": "The `authors` field should be an array of strings"
+  },
+  {
+    "code": "io/readme",
+    "kind": "error",
+    "message": "Failed to read README.md"
+  }
+]
