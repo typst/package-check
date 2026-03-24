@@ -1,0 +1,38 @@
+[
+  {
+    "code": "size/large",
+    "file": "assets/paper/default.jpg",
+    "kind": "warning",
+    "message": "This file is quite large (1MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`."
+  },
+  {
+    "code": "size/large",
+    "file": "assets/paper/toa.jpg",
+    "kind": "warning",
+    "message": "This file is quite large (1MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`."
+  },
+  {
+    "code": "readme/link/repository-url-permalink",
+    "file": "README.md",
+    "kind": "warning",
+    "message": "GitHub URL links to default branch: `https://github.com/sa1g/dnd-typst-template/tree/master/fonts`.\n\nConsider using a link to a specific tag/release or a permalink to a commit instead. This will ensure that the linked resource always matches this version of the package.\n\nYou can create a permalink here: https://github.com/sa1g/dnd-typst-template/blob/master/fonts\n\nAlternatively you can also link to a local file. This is preferred if the linked file is already present in the submitted package."
+  },
+  {
+    "code": "compile/error",
+    "file": "lib/config.typ",
+    "kind": "error",
+    "message": "The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)"
+  },
+  {
+    "code": "compile/error",
+    "file": "@preview/mythographer-5e:0.0.1/lib/config.typ",
+    "kind": "error",
+    "message": "The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)"
+  },
+  {
+    "code": "readme/link/file-not-found",
+    "file": "README.md",
+    "kind": "error",
+    "message": "Linked file not found: `/github.com/sa1g/dnd-typst-template`.\n\nMake sure to commit all linked files and possibly add them to the `exclude` list.\n\nMore details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude"
+  }
+]

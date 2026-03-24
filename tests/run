@@ -1,0 +1,63 @@
+#!/bin/env bash
+
+set -e
+
+packages=$(ls ref | sed -e 's,\([a-z]\+\)+\([a-z0-9-]\+\)+\([0-9.]\+\).json,@\1/\2:\3,')
+
+package_paths=$(
+	echo $packages |
+	tr ' ' '\n' |
+	grep '^@preview/' |
+	tr -d '@' |
+	tr ':' '/' |
+	sed 's,^,packages/,'
+)
+
+if [[ ! -d packages ]]; then
+	mkdir packages
+fi
+
+pushd packages > /dev/null
+	git init --quiet
+	git sparse-checkout set $package_paths
+	if [[ -z $(git remote) ]]; then
+		git remote add upstream https://github.com/typst/packages.git
+		git config remote.upstream.partialclonefilter tree:0
+	fi
+	git fetch --quiet upstream main
+	git checkout --quiet main
+popd > /dev/null
+
+cp -r local packages/packages
+
+if [[ ! -d out ]]; then
+	mkdir out
+fi
+
+exit_code=0
+
+for pkg in $packages; do
+	printf "        $pkg…"
+
+	json_file=$(echo $pkg | tr -d '@' | tr '/:' '+' | sed 's/$/.json/')
+	ref_file=$(echo $json_file | sed 's,^,ref/,')
+	out_file=$(pwd)/$(echo $json_file | sed 's,^,out/,')
+	if [[ ! -f $ref_file ]]; then
+		printf "\r[ERROR] $pkg: reference file not found (searched at $ref_file)\n"
+		exit_code=1
+		continue
+	fi
+
+	pushd packages > /dev/null
+	env IGNORE_DOTENV=1 PACKAGES_DIR=$(pwd) typst-package-check check --json $pkg | jq -S -s '.' > $out_file
+  	popd > /dev/null
+
+  	if diff $ref_file $out_file; then
+		printf "\r[OK]    $pkg \n"
+	else
+	  printf "\r[ERROR] $pkg: reference does not match\n"
+	  exit_code=1
+	fi
+done
+
+exit $exit_code
