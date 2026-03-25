@@ -26,8 +26,6 @@ use crate::package::PackageExt;
 
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
-    /// The working directory.
-    workdir: Option<PathBuf>,
     /// The root relative to which absolute paths are resolved.
     root: PathBuf,
     /// The input path.
@@ -64,7 +62,6 @@ impl SystemWorld {
         searcher.search(&[]);
 
         Ok(Self {
-            workdir: std::env::current_dir().ok(),
             root,
             main,
             library: LazyHash::new(library),
@@ -85,11 +82,6 @@ impl SystemWorld {
     /// The root relative to which absolute paths are resolved.
     pub fn root(&self) -> &Path {
         &self.root
-    }
-
-    /// The current working directory.
-    pub fn workdir(&self) -> &Path {
-        self.workdir.as_deref().unwrap_or(Path::new("."))
     }
 
     /// Lookup a source file by id.
