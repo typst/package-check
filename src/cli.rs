@@ -90,14 +90,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
         Ok(if let Some(package) = id.package() {
             format!("{package}{}", vpath.as_rooted_path().display())
         } else {
-            // Try to express the path relative to the working directory.
-            vpath
-                .resolve(self.root())
-                .and_then(|abs| pathdiff::diff_paths(abs, self.workdir()))
-                .as_deref()
-                .unwrap_or_else(|| vpath.as_rootless_path())
-                .to_string_lossy()
-                .into()
+            vpath.as_rootless_path().to_string_lossy().into()
         })
     }
 
