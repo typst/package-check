@@ -1,0 +1,55 @@
+name: Pull request
+
+on: pull_request
+
+jobs:
+  checks:
+    name: Clippy and formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: dtolnay/rust-toolchain@f941e41d00837ee686f9d4575861485df1f7a655 # Rust 1.91.0
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - run: cargo clippy
+      - run: cargo fmt --check --all
+      - run: git diff --exit-code
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: dtolnay/rust-toolchain@f941e41d00837ee686f9d4575861485df1f7a655 # Rust 1.91.0
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - run: cargo build --release
+      - uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7
+        with:
+          name: typst-package-check
+          path: target/release/typst-package-check
+          retention-days: 1
+          if-no-files-found: error
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: [build]
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: typst-package-check
+          path: build
+      - name: Executable setup
+        run: |
+          chmod +x $GITHUB_WORKSPACE/build/typst-package-check
+          echo "$GITHUB_WORKSPACE/build" >> "$GITHUB_PATH"
+
+          ./build/typst-package-check --help
+          ./build/typst-package-check typst-version
+          ./build/typst-package-check version
+      - name: Run integration tests
+        run: |
+          cd tests
+          ./run
