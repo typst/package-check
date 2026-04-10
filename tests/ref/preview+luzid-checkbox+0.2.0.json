@@ -1,14 +1,34 @@
 [
   {
     "code": "readme/link/file-not-found",
-    "file": "README.md",
     "kind": "error",
+    "location": {
+      "file": "README.md",
+      "from": {
+        "column": 0,
+        "line": 42
+      },
+      "to": {
+        "column": 112,
+        "line": 42
+      }
+    },
     "message": "Linked file not found: `/example/example.1.png`.\n\nMake sure to commit all linked files and possibly add them to the `exclude` list.\n\nMore details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude"
   },
   {
     "code": "readme/link/file-not-found",
-    "file": "README.md",
     "kind": "error",
+    "location": {
+      "file": "README.md",
+      "from": {
+        "column": 0,
+        "line": 80
+      },
+      "to": {
+        "column": 112,
+        "line": 80
+      }
+    },
     "message": "Linked file not found: `/example/example.2.png`.\n\nMake sure to commit all linked files and possibly add them to the `exclude` list.\n\nMore details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude"
   }
 ]

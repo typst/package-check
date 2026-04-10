@@ -1,20 +1,50 @@
 [
   {
     "code": "manifest/package/license/type",
-    "file": "typst.toml",
     "kind": "error",
+    "location": {
+      "file": "typst.toml",
+      "from": {
+        "column": 0,
+        "line": 1
+      },
+      "to": {
+        "column": 0,
+        "line": 1
+      }
+    },
     "message": "The `license` field should be a string"
   },
   {
     "code": "manifest/package/description/type",
-    "file": "typst.toml",
     "kind": "error",
+    "location": {
+      "file": "typst.toml",
+      "from": {
+        "column": 0,
+        "line": 1
+      },
+      "to": {
+        "column": 0,
+        "line": 1
+      }
+    },
     "message": "The `description` field should be a string"
   },
   {
     "code": "manifest/package/authors/type",
-    "file": "typst.toml",
     "kind": "error",
+    "location": {
+      "file": "typst.toml",
+      "from": {
+        "column": 0,
+        "line": 1
+      },
+      "to": {
+        "column": 0,
+        "line": 1
+      }
+    },
     "message": "The `authors` field should be an array of strings"
   },
   {
