@@ -1,0 +1,49 @@
+warning[size/large]: This file is quite large (1MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.
+  ┌─ assets/paper/default.jpg:1:0
+  │
+1 │ 
+  │ ^
+
+warning[size/large]: This file is quite large (1MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.
+  ┌─ assets/paper/toa.jpg:1:0
+  │
+1 │ 
+  │ ^
+
+warning[readme/link/repository-url-permalink]: GitHub URL links to default branch: `https://github.com/sa1g/dnd-typst-template/tree/master/fonts`.
+
+Consider using a link to a specific tag/release or a permalink to a commit instead. This will ensure that the linked resource always matches this version of the package.
+
+You can create a permalink here: https://github.com/sa1g/dnd-typst-template/blob/master/fonts
+
+Alternatively you can also link to a local file. This is preferred if the linked file is already present in the submitted package.
+   ┌─ README.md:38:21
+   │
+38 │ They can be found in [/fonts](https://github.com/sa1g/dnd-typst-template/tree/master/fonts) folder of the repository.
+   │                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
+  ┌─ lib/config.typ:3:8
+  │
+3 │ #import "@preview/transl:0.1.1": transl
+  │         ^^^^^^^^^^^^^^^^^^^^^^^
+
+error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
+  ┌─ @preview/mythographer-5e:0.0.1/lib/config.typ:3:8
+  │
+3 │ #import "@preview/transl:0.1.1": transl
+  │         ^^^^^^^^^^^^^^^^^^^^^^^
+
+error[readme/link/file-not-found]: Linked file not found: `/github.com/sa1g/dnd-typst-template`.
+
+Make sure to commit all linked files and possibly add them to the `exclude` list.
+
+More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
+  ┌─ README.md:9:124
+  │
+9 │ - Fonts are not available by default, they need to be installed on the system to be correctly used. They are located on the [template repo](github.com/sa1g/dnd-typst-template).
+  │                                                                                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = This link was assumed to be a local file because it's couldn't be parsed as an URL: `github.com/sa1g/dnd-typst-template`
+    relative URL without a base
+

@@ -66,7 +66,7 @@ pub fn print_diagnostics(
             json::emit(&mut std::io::stdout(), world, diagnostic)?;
         } else {
             term::emit_to_write_style(
-                &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Always),
+                &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Auto),
                 &config,
                 world,
                 diagnostic,

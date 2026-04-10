@@ -2,7 +2,7 @@
 
 set -e
 
-packages=$(ls ref | sed -e 's,\([a-z]\+\)+\([a-z0-9-]\+\)+\([0-9.]\+\).json,@\1/\2:\3,')
+packages=$(ls ref | sed -e 's,\([a-z]\+\)+\([a-z0-9-]\+\)+\([0-9.]\+\).txt,@\1/\2:\3,')
 
 package_paths=$(
 	echo $packages |
@@ -39,9 +39,9 @@ exit_code=0
 for pkg in $packages; do
 	printf "        $pkg…"
 
-	json_file=$(echo $pkg | tr -d '@' | tr '/:' '+' | sed 's/$/.json/')
-	ref_file=$(echo $json_file | sed 's,^,ref/,')
-	out_file=$(pwd)/$(echo $json_file | sed 's,^,out/,')
+	txt_file=$(echo $pkg | tr -d '@' | tr '/:' '+' | sed 's/$/.txt/')
+	ref_file=$(echo $txt_file | sed 's,^,ref/,')
+	out_file=$(pwd)/$(echo $txt_file | sed 's,^,out/,')
 	if [[ ! -f $ref_file ]]; then
 		printf "\r[ERROR] $pkg: reference file not found (searched at $ref_file)\n"
 		exit_code=1
@@ -49,7 +49,7 @@ for pkg in $packages; do
 	fi
 
 	pushd packages > /dev/null
-	env IGNORE_DOTENV=1 PACKAGES_DIR=$(pwd) typst-package-check check --json $pkg | jq -S -s '.' > $out_file
+	env NO_COLOR=1 IGNORE_DOTENV=1 PACKAGES_DIR=$(pwd) typst-package-check check $pkg > $out_file || true
   	popd > /dev/null
 
   	if diff $ref_file $out_file; then
