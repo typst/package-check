@@ -1,0 +1,26 @@
+error[readme/link/file-not-found]: Linked file not found: `/example/example.1.png`.
+
+Make sure to commit all linked files and possibly add them to the `exclude` list.
+
+More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
+   ┌─ README.md:42:0
+   │
+42 │ ![Typst output for the previous code; a list with colored icons instead of bullet points](example/example.1.png)
+   │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   │
+   = This link was assumed to be a local file because it's couldn't be parsed as an URL: `example/example.1.png`
+     relative URL without a base
+
+error[readme/link/file-not-found]: Linked file not found: `/example/example.2.png`.
+
+Make sure to commit all linked files and possibly add them to the `exclude` list.
+
+More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
+   ┌─ README.md:80:0
+   │
+80 │ ![Typst output for the previous code; 3 checkboxes with modified color, icon and styling](example/example.2.png)
+   │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   │
+   = This link was assumed to be a local file because it's couldn't be parsed as an URL: `example/example.2.png`
+     relative URL without a base
+
