@@ -1,3 +1,9 @@
+warning[files/manual/unlinked]: This file seems to be a manual/documentation, but isn't linked in the readme. It will be inacessible on Typst Universe.
+  ┌─ docs/manual.pdf:1:0
+  │
+1 │ 
+  │ ^
+
 error[readme/image/missing-alt]: Missing alternative description for image. Please add a short description to make this image more accessible.
    ┌─ README.md:16:0
    │  
