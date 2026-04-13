@@ -1,0 +1,15 @@
+warning[size/wasm]: This file could be 228kB smaller with `wasm-opt -Os`.
+  ┌─ src/alexandria.wasm:1:0
+  │
+1 │ 
+  │ ^
+
+error[readme/image/missing-alt]: Missing alternative description for image. Please add a short description to make this image more accessible.
+   ┌─ README.md:25:0
+   │  
+25 │ ╭ <picture>
+26 │ │   <source media="(prefers-color-scheme: dark)" srcset="./thumbnail-dark.svg">
+27 │ │   <img src="./thumbnail-light.svg">
+28 │ │ </picture>
+   │ ╰──────────^
+

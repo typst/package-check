@@ -1,0 +1,8 @@
+error[readme/image/missing-alt]: Missing alternative description for image. Please add a short description to make this image more accessible.
+   ┌─ README.md:16:0
+   │  
+16 │ ╭ <picture>
+17 │ │   <img src="./thumbnail.svg">
+18 │ │ </picture>
+   │ ╰──────────^
+

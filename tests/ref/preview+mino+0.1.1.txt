@@ -1,0 +1,18 @@
+error[manifest/package/homepage/redundant]: Use the homepage field only if there is a dedicated website. Otherwise, prefer the `repository` field.
+  ┌─ typst.toml:9:11
+  │
+9 │ homepage = "https://github.com/Enter-tainer/mino"
+  │            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
+  ┌─ mino.typ:1:8
+  │
+1 │ #import "@preview/jogs:0.2.1": compile-js, call-js-function
+  │         ^^^^^^^^^^^^^^^^^^^^^
+
+error[readme/image/missing-alt]: Missing alternative description for image. Please add a short description to make this image more accessible.
+  ┌─ README.md:5:0
+  │
+5 │ ![](mino.svg)
+  │ ^^^^^^^^^^^^^
+

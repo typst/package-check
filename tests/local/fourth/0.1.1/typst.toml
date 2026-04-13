@@ -1,0 +1,3 @@
+[package]
+name = "forth"
+description = "Support for the forth programming language."

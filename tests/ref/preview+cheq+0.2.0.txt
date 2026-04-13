@@ -1,0 +1,86 @@
+warning[manifest/package/exclude/leading-dot]: Leading `./` of exclusions are trimmed. Use an absolute path starting with `/` to avoid recursive matching.
+  ┌─ typst.toml:6:11
+  │
+6 │ exclude = ["./examples"]
+  │            ^^^^^^^^^^^^
+
+warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Example`. Please add a short description to make this image more accessible.
+   ┌─ README.md:48:0
+   │
+48 │ ![Example](./examples/example.png)
+   │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning[import/outdated]: This import seems to use an older version of the package.
+   ┌─ README.md:53:1
+   │
+53 │ #import "@preview/cheq:0.1.0": checklist
+   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Example`. Please add a short description to make this image more accessible.
+   ┌─ README.md:84:0
+   │
+84 │ ![Example](./examples/custom-styles.png)
+   │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning[readme/syntax]: Syntax error in README.
+
+  unexpected dots
+
+If this code block is not supposed to be parsed as a Typst source, please explicitely specify another language.
+   ┌─ README.md:95:6
+   │
+95 │ ) = { .. }
+   │       ^^
+
+warning[readme/syntax]: Syntax error in README.
+
+  unexpected dots
+
+If this code block is not supposed to be parsed as a Typst source, please explicitely specify another language.
+    ┌─ README.md:139:74
+    │
+139 │ #let unchecked-sym(fill: white, stroke: rgb("#616161"), radius: .1em) = { .. }
+    │                                                                           ^^
+
+warning[readme/syntax]: Syntax error in README.
+
+  unexpected dots
+
+If this code block is not supposed to be parsed as a Typst source, please explicitely specify another language.
+    ┌─ README.md:152:72
+    │
+152 │ #let checked-sym(fill: white, stroke: rgb("#616161"), radius: .1em) = { .. }
+    │                                                                         ^^
+
+warning[readme/syntax]: Syntax error in README.
+
+  unexpected dots
+
+If this code block is not supposed to be parsed as a Typst source, please explicitely specify another language.
+    ┌─ README.md:164:75
+    │
+164 │ #let incomplete-sym(fill: white, stroke: rgb("#616161"), radius: .1em) = { .. }
+    │                                                                            ^^
+
+warning[readme/syntax]: Syntax error in README.
+
+  unexpected dots
+
+If this code block is not supposed to be parsed as a Typst source, please explicitely specify another language.
+    ┌─ README.md:177:73
+    │
+177 │ #let canceled-sym(fill: white, stroke: rgb("#616161"), radius: .1em) = { .. }
+    │                                                                          ^^
+
+warning[import/relative]: This import should use the package specification, not a relative path.
+  ┌─ examples/custom-styles.typ:1:1
+  │
+1 │ #import "../lib.typ": checklist
+  │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning[import/relative]: This import should use the package specification, not a relative path.
+  ┌─ examples/example.typ:1:1
+  │
+1 │ #import "../lib.typ": checklist
+  │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+

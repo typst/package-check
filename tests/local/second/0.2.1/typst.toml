@@ -1,0 +1,9 @@
+[package]
+name = "second"
+license = "MIT"
+version = "0.2.1"
+entrypoint = "lib.typ"
+compiler = -inf
+exclude = ["LICENSE", "README.md"]
+authors = [2024-01-01]
+description = "Hi"
