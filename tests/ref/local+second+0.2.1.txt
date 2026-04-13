@@ -26,5 +26,5 @@ error[manifest/package/authors/type]: The `authors` field should be an array of 
   ┌─ typst.toml:1:0
   │
 1 │ [package]
-  │ ^
+  │ ^^^^^^^^^
 
