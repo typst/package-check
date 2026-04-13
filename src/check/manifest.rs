@@ -35,9 +35,7 @@ pub async fn check(
         Diagnostic::error()
             .with_code("manifest/io")
             .with_message(format!(
-                "Failed to read manifest contents ({}). {}",
-                manifest_path.display(),
-                e
+                "Failed to read manifest contents (typst.toml). {e}"
             ))
     })?;
     let manifest = toml_edit::Document::parse(&manifest_contents)
