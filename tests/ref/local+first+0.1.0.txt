@@ -1,0 +1,32 @@
+error[manifest/package/license/type]: The `license` field should be a string
+  ┌─ typst.toml:1:0
+  │
+1 │ [package]
+  │ ^
+
+error[manifest/package/description/type]: The `description` field should be a string
+  ┌─ typst.toml:1:0
+  │
+1 │ [package]
+  │ ^
+
+error[manifest/package/authors/type]: The `authors` field should be an array of strings
+  ┌─ typst.toml:1:0
+  │
+1 │ [package]
+  │ ^
+
+error[manifest/template/thumbnail/not-found]: This file does not exist.
+  ┌─ typst.toml:7:12
+  │
+7 │ thumbnail = "missing.png"
+  │             ^^^^^^^^^^^^^
+
+error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
+  ┌─ template/main.typ:1:8
+  │
+1 │ #import "@preview/first:0.1.0": add as add
+  │         ^^^^^^^^^^^^^^^^^^^^^^
+
+error[io/readme]: Failed to read README.md
+

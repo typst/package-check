@@ -1,0 +1,9 @@
+[package]
+name = "first"
+version = "0.1.0"
+entrypoint = "lib.typ"
+
+[template]
+thumbnail = "missing.png"
+path = "template"
+entrypoint = "main.typ"
