@@ -11,6 +11,7 @@ use typst::syntax::{
     package::{PackageSpec, PackageVersion},
 };
 
+use crate::check::files;
 use crate::check::path::{self, PackagePath};
 use crate::{
     check::{Diagnostics, Result, TryExt},
@@ -26,14 +27,8 @@ pub struct Worlds {
 #[derive(Debug, Clone)]
 pub struct Manifest {
     pub package: Spanned<Package>,
+    #[allow(unused)]
     pub template: Option<Spanned<Template>>,
-}
-
-impl Manifest {
-    pub fn thumbnail(&self) -> Option<Spanned<PackagePath<&Path>>> {
-        let thumbnail = self.template.as_ref()?.thumbnail.as_ref()?;
-        Some(thumbnail.as_ref().map(PackagePath::as_path))
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -41,7 +36,7 @@ pub struct Package {
     pub entrypoint: Spanned<PackagePath>,
     pub name: Option<Spanned<String>>,
     pub version: Option<Spanned<PackageVersion>>,
-    pub exclude: Spanned<Override>,
+    pub exclude: Spanned<Exclude>,
 }
 
 #[derive(Debug, Clone)]
@@ -88,7 +83,8 @@ pub async fn check(
     let entrypoint = entrypoint.map(|e| PackagePath::from_relative(package_dir, e));
     let name = check_name(diags, package, package_spec);
     let version = check_version(diags, package, package_spec);
-    let exclude = check_exclude(diags, package, package_dir)?;
+    let template = check_template(diags, &manifest, package_dir);
+    let exclude = check_exclude(diags, package_dir, package, &template)?;
 
     check_compiler_version(diags, package);
     check_universe_fields(diags, package);
@@ -107,9 +103,8 @@ pub async fn check(
         exclude,
     });
 
-    let template = check_template(diags, &manifest, package_dir);
     if let Some(template) = &template {
-        check_thumbnail(diags, &package.exclude, template);
+        check_thumbnail(diags, template);
         dont_exclude_template_files(diags, package_dir, &package.exclude, template);
     }
 
@@ -284,10 +279,10 @@ fn check_compiler_version(diags: &mut Diagnostics, package: Spanned<&Table>) -> 
     Some(())
 }
 
-fn dont_over_exclude(diags: &mut Diagnostics, exclude: &Spanned<Override>) -> Result<()> {
+fn dont_over_exclude(diags: &mut Diagnostics, exclude: &Spanned<Exclude>) -> Result<()> {
     let warning = Diagnostic::warning().with_label(Label::primary(manifest_id(), exclude.span()));
 
-    if exclude.matched("LICENSE", false).is_ignore() {
+    if exclude.matches_relative_file("LICENSE") {
         diags.emit(
             warning
                 .clone()
@@ -296,7 +291,7 @@ fn dont_over_exclude(diags: &mut Diagnostics, exclude: &Spanned<Override>) -> Re
         );
     }
 
-    if exclude.matched("README.md", false).is_ignore() {
+    if exclude.matches_relative_file("README.md") {
         diags.emit(
             warning
                 .with_code("exclude/readme")
@@ -500,11 +495,12 @@ async fn check_repo(diags: &mut Diagnostics, package: Spanned<&Table>) {
 /// a lot of false positives in other diagnostics.
 fn check_exclude(
     diags: &mut Diagnostics,
-    package: Spanned<&Table>,
     package_dir: &Path,
-) -> Result<Spanned<Override>> {
+    package: Spanned<&Table>,
+    template: &Option<Spanned<Template>>,
+) -> Result<Spanned<Exclude>> {
     let Some(exclude) = package.get_spanned("exclude") else {
-        return Ok(Spanned::new(Override::empty(), package.span()));
+        return Ok(Spanned::new(Exclude::empty(), package.span()));
     };
 
     let exclude = exclude.try_map(Item::as_array).error(
@@ -537,10 +533,74 @@ fn check_exclude(
         exclude_globs.add(&format!("!{exclusion_str}")).ok();
     }
 
+    let thumbnail_path = template.as_ref().and_then(|t| t.thumbnail.as_ref());
+    if let Some(thumbnail_path) = thumbnail_path {
+        // Check if the thumbnail is directly excluded, it's fine if a parent
+        // directory is excluded.
+        if let Ok(exclude) = exclude_globs.build()
+            && exclude.matched(thumbnail_path.full(), false).is_ignore()
+        {
+            diags.emit(
+                Diagnostic::error()
+                    .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
+                    .with_code("manifest/template/thumbnail/exclude")
+                    .with_message("The template thumbnail is automatically excluded"),
+            );
+        }
+
+        exclude_globs
+            .add(&format!("!{}", thumbnail_path.relative().display()))
+            .ok();
+    }
+
     let exclude_globs = exclude_globs
         .build()
         .error("manifest/package/exclude/invalid", "Invalid exclude globs")?;
-    Ok(exclude.map(|_| exclude_globs))
+    Ok(exclude.map(|_| Exclude::new(exclude_globs)))
+}
+
+#[derive(Debug, Clone)]
+pub struct Exclude {
+    globs: Override,
+}
+
+impl Exclude {
+    pub fn empty() -> Self {
+        Self {
+            globs: Override::empty(),
+        }
+    }
+
+    pub fn new(globs: Override) -> Self {
+        Self { globs }
+    }
+
+    /// Whether the package file path is excluded.
+    pub fn matches_file<T: AsRef<Path>>(&self, path: &PackagePath<T>) -> bool {
+        self.matches_relative_file(path.relative())
+    }
+
+    /// Whether the package relative file path is excluded.
+    pub fn matches_relative_file(&self, relative_path: impl AsRef<Path>) -> bool {
+        let relative_path = relative_path.as_ref();
+        if self.globs.matched(relative_path, false).is_ignore() {
+            return true;
+        }
+
+        // Manually check if any of the parent directories is excluded.
+        // This has to be done to mimic the behavior of [`ignore::Walk`], which
+        // won't enter a directory if it is ignored. [`Override::matched]
+        // function doesn't check if a parent directory is excluded.
+        let mut parent = relative_path.parent();
+        while let Some(dir) = parent {
+            if self.globs.matched(dir, true).is_ignore() {
+                return true;
+            }
+            parent = dir.parent();
+        }
+
+        false
+    }
 }
 
 fn check_template(
@@ -569,7 +629,7 @@ fn check_template(
         let template_dir = path.as_ref()?;
         Some(
             entrypoint
-                .map(|entrypoint| path::relative_to(template_dir.full(), entrypoint))
+                .map(|entrypoint| path::join_to(template_dir.full(), entrypoint))
                 .map(|path| PackagePath::from_full(package_dir, path)),
         )
     });
@@ -618,14 +678,14 @@ fn world_for_template(
 fn dont_exclude_template_files(
     diags: &mut Diagnostics,
     package_dir: &Path,
-    exclude: &Override,
+    exclude: &Exclude,
     template: &Spanned<Template>,
 ) {
     let Some(template_path) = &template.path else {
         return;
     };
 
-    for entry in ignore::Walk::new(template_path.full()).flatten() {
+    for entry in files::walk(template_path.full()).flatten() {
         let entry_path = PackagePath::from_full(package_dir, entry.path());
 
         // For build artifacts, ask the package author to delete them.
@@ -646,10 +706,7 @@ fn dont_exclude_template_files(
         }
 
         // For other files, check that they are indeed not excluded.
-        if exclude
-            .matched(entry.path(), entry.metadata().is_ok_and(|m| m.is_dir()))
-            .is_ignore()
-        {
+        if entry.metadata().is_ok_and(|m| m.is_file()) && exclude.matches_file(&entry_path) {
             diags.emit(
                 Diagnostic::error()
                     .with_code("exclude/template")
@@ -660,7 +717,7 @@ fn dont_exclude_template_files(
     }
 }
 
-fn check_thumbnail(diags: &mut Diagnostics, exclude: &Override, template: &Spanned<Template>) {
+fn check_thumbnail(diags: &mut Diagnostics, template: &Spanned<Template>) {
     let Some(thumbnail_path) = &template.thumbnail else {
         return;
     };
@@ -684,15 +741,6 @@ fn check_thumbnail(diags: &mut Diagnostics, exclude: &Override, template: &Spann
                 .with_code("manifest/template/thumbnail/format")
                 .with_message("Thumbnails should be PNG or WebP files."),
         )
-    }
-
-    if exclude.matched(thumbnail_path.full(), false).is_ignore() {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
-                .with_code("manifest/template/thumbnail/exclude")
-                .with_message("The template thumbnail is automatically excluded"),
-        );
     }
 
     if let Some(template_path) = &template.path

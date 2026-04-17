@@ -2,10 +2,10 @@ use std::path::PathBuf;
 use std::process::exit;
 
 use codespan_reporting::{diagnostic::Diagnostic, term};
-use ignore::overrides::Override;
 use tracing::error;
 use typst::syntax::{FileId, Source, package::PackageSpec};
 
+use crate::check::Exclude;
 use crate::{check::all_checks, package::PackageExt, world::SystemWorld};
 
 pub async fn main(spec_or_path: String, json_output: bool) {
@@ -59,7 +59,7 @@ pub fn print_diagnostics(
     // We should be able to print diagnostics even on excluded files. If we
     // don't remove the exclusion, it will fail to read and display the file
     // contents.
-    world.exclude(Override::empty());
+    world.exclude(Exclude::empty());
 
     for diagnostic in errors.iter().chain(warnings).rev() {
         if json {
