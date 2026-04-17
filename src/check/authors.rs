@@ -1,5 +1,5 @@
 use codespan_reporting::diagnostic::{Diagnostic, Label};
-use typst::syntax::{package::PackageSpec, FileId, VirtualPath};
+use typst::syntax::{FileId, VirtualPath, package::PackageSpec};
 
 use crate::{github::git, package::PackageExt};
 

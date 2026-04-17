@@ -3,10 +3,10 @@ use std::path::Path;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 
+use crate::check::Diagnostics;
 use crate::check::manifest::Manifest;
 use crate::check::path::PackagePath;
 use crate::check::readme::Readme;
-use crate::check::Diagnostics;
 
 pub fn check(
     diags: &mut Diagnostics,
@@ -218,13 +218,15 @@ fn link_manuals(
         let note = (!excluded)
             .then(|| "It should also be added to `exclude` in your `typst.toml`.".into());
 
-        diags.emit(Diagnostic::warning()
-            .with_label(Label::primary(path.file_id(), 0..0))
-            .with_code("files/manual/unlinked")
-            .with_message(
-                "This file seems to be a manual/documentation, but isn't linked in the readme. \
+        diags.emit(
+            Diagnostic::warning()
+                .with_label(Label::primary(path.file_id(), 0..0))
+                .with_code("files/manual/unlinked")
+                .with_message(
+                    "This file seems to be a manual/documentation, but isn't linked in the readme. \
                  It will be inacessible on Typst Universe.",
-            )
-            .with_notes_iter(note));
+                )
+                .with_notes_iter(note),
+        );
     }
 }

@@ -7,15 +7,15 @@ use comrak::nodes::{LineColumn, NodeList, NodeValue as MdNode, Sourcepos};
 use html5ever::tendril::TendrilSink;
 use regex::Regex;
 use typst::{
+    World,
     foundations::Bytes,
     syntax::{FileId, VirtualPath},
-    World,
 };
 use url::Url;
 
 use crate::check::path::PackagePath;
 use crate::{
-    check::{imports, kebab_case, label, Diagnostics, TryExt},
+    check::{Diagnostics, TryExt, imports, kebab_case, label},
     world::SystemWorld,
 };
 

@@ -5,16 +5,16 @@ use std::{
 
 use codespan_reporting::diagnostic::Diagnostic;
 use typst::{
+    World,
     syntax::{
         ast::{self, AstNode, ModuleImport},
         package::{PackageSpec, PackageVersion, VersionlessPackageSpec},
     },
-    World,
 };
 use walkdir::WalkDir;
 
 use crate::check::path::PackagePath;
-use crate::check::{label, Diagnostics, Result, TryExt};
+use crate::check::{Diagnostics, Result, TryExt, label};
 use crate::world::SystemWorld;
 
 pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -> Result<()> {
@@ -85,23 +85,18 @@ pub fn check_ast(
             )
         }
 
-        if let Some(all_packages) = all_packages {
-            if let Ok(import_spec) = PackageSpec::from_str(source_str.get().as_str()) {
-                if let Some(latest_version) =
-                    latest_package_version(all_packages, import_spec.versionless())
-                {
-                    if latest_version != import_spec.version {
-                        diags.emit(
-                            Diagnostic::warning()
-                                .with_labels(label(world, import.span()).into_iter().collect())
-                                .with_code("import/outdated")
-                                .with_message(
-                                    "This import seems to use an older version of the package.",
-                                ),
-                        )
-                    }
-                }
-            }
+        if let Some(all_packages) = all_packages
+            && let Ok(import_spec) = PackageSpec::from_str(source_str.get().as_str())
+            && let Some(latest_version) =
+                latest_package_version(all_packages, import_spec.versionless())
+            && latest_version != import_spec.version
+        {
+            diags.emit(
+                Diagnostic::warning()
+                    .with_labels(label(world, import.span()).into_iter().collect())
+                    .with_code("import/outdated")
+                    .with_message("This import seems to use an older version of the package."),
+            )
         }
     }
 }

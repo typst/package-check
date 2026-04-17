@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use codespan_reporting::diagnostic::Label;
 use typst::{
-    syntax::{package::PackageSpec, FileId, Span},
     WorldExt,
+    syntax::{FileId, Span, package::PackageSpec},
 };
 
 use crate::world::SystemWorld;

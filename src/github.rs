@@ -10,7 +10,7 @@ use codespan_reporting::{
 use jwt_simple::prelude::*;
 use pr::{PullRequest, PullRequestUpdate};
 use tracing::{debug, warn};
-use typst::syntax::{package::PackageSpec, FileId};
+use typst::syntax::{FileId, package::PackageSpec};
 
 use crate::{
     check::{self, Result, TryExt},
@@ -158,22 +158,22 @@ pub async fn run_github_check(
             expected_pr_title, labels
         );
         // Actually update the PR, if needed
-        if let Some(expected_pr_title) = expected_pr_title {
-            if pr.title != expected_pr_title || !labels.is_empty() || body.is_some() {
-                api_client
-                    .update_pull_request(
-                        repository.owner(),
-                        repository.name(),
-                        pr.number,
-                        PullRequestUpdate {
-                            title: expected_pr_title,
-                            labels,
-                            body,
-                        },
-                    )
-                    .await
-                    .error("github/api/pull/update", "Failed to update pull request")?;
-            }
+        if let Some(expected_pr_title) = expected_pr_title
+            && (pr.title != expected_pr_title || !labels.is_empty() || body.is_some())
+        {
+            api_client
+                .update_pull_request(
+                    repository.owner(),
+                    repository.name(),
+                    pr.number,
+                    PullRequestUpdate {
+                        title: expected_pr_title,
+                        labels,
+                        body,
+                    },
+                )
+                .await
+                .error("github/api/pull/update", "Failed to update pull request")?;
         }
     }
 
@@ -238,7 +238,7 @@ pub async fn run_github_check(
                         previous_pr.number, previous_pr.user.login
                     );
                     if previous_pr.user.login != current_pr.user.login {
-                        if let Err(e) = api_client
+                        let res = api_client
                             .post_pr_comment(
                                 repository.owner(),
                                 repository.name(),
@@ -252,15 +252,19 @@ pub async fn run_github_check(
                                     will not be merged.",
                                     previous_pr.user.login,
                                     package.name,
-                                    package.previous_version()
-                                        .expect("If there is no previous version, this branch should not be reached")
+                                    package
+                                        .previous_version()
+                                        .expect(
+                                            "If there is no previous version, \
+                                            this branch should not be reached"
+                                        )
                                         .version
                                 ),
                             )
-                            .await
-                            {
-                                warn!("Error while posting PR comment: {:?}", e)
-                            }
+                            .await;
+                        if let Err(e) = res {
+                            warn!("Error while posting PR comment: {:?}", e)
+                        }
                     }
                 }
             }
@@ -405,11 +409,7 @@ fn update_description_checks(
         })
         .unwrap_or_default();
 
-    if body_changed {
-        Some(new_body)
-    } else {
-        None
-    }
+    body_changed.then_some(new_body)
 }
 
 fn diagnostic_to_annotation(

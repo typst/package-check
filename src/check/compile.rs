@@ -7,7 +7,7 @@ use typst::{
 
 use crate::world::SystemWorld;
 
-use super::{label, Diagnostics};
+use super::{Diagnostics, label};
 
 pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<PagedDocument> {
     let result = typst::compile(world);
