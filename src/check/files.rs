@@ -1,12 +1,30 @@
 use std::collections::HashSet;
+use std::ffi::OsStr;
 use std::path::Path;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
+use walkdir::WalkDir;
 
 use crate::check::Diagnostics;
 use crate::check::manifest::Manifest;
 use crate::check::path::PackagePath;
 use crate::check::readme::Readme;
+
+/// Creates a directory iterator with the same settings as the package bundler.
+pub fn walk(dir: &Path) -> ignore::Walk {
+    ignore::WalkBuilder::new(dir)
+        .sort_by_file_name(|a, b| a.cmp(b))
+        // Disable non-local ignore features
+        .parents(false)
+        .require_git(false)
+        .git_global(false)
+        .git_exclude(false)
+        // Keep local ignore features for now.
+        .git_ignore(true)
+        .ignore(true)
+        .hidden(true)
+        .build()
+}
 
 pub fn check(
     diags: &mut Diagnostics,
@@ -15,52 +33,23 @@ pub fn check(
     readme: &Option<Readme>,
 ) {
     let exclude = &manifest.package.exclude;
-    let thumbnail_path = manifest.thumbnail();
 
-    // Manually keep track of excluded directories, to figure out if nested
-    // files are ignored. This is done, so we can generate diagnostics for
-    // excluded files.
-    let mut excluded_dirs = HashSet::new();
-
-    for ch in ignore::WalkBuilder::new(package_dir).hidden(false).build() {
-        let Ok(ch) = ch else { continue };
+    for ch in WalkDir::new(package_dir).into_iter().flatten() {
         let Ok(metadata) = ch.metadata() else {
             continue;
         };
-
-        let file_path = PackagePath::from_full(package_dir, ch.path());
-
-        if metadata.is_dir() {
-            // If the parent directory is ignored, all children are ignored too.
-            if parent_is_excluded(&excluded_dirs, file_path)
-                || exclude.matched(file_path.relative(), true).is_ignore()
-            {
-                excluded_dirs.insert(ch.into_path());
-            }
+        if !metadata.is_file() {
             continue;
         }
 
-        // The thumbnail is always excluded.
-        let is_thumbnail = thumbnail_path.is_some_and(|t| t.val == file_path);
-        let excluded = is_thumbnail
-            || parent_is_excluded(&excluded_dirs, file_path)
-            || exclude.matched(file_path.relative(), false).is_ignore();
+        let file_path = PackagePath::from_full(package_dir, ch.path());
+        let excluded = exclude.matches_file(&file_path);
 
         forbid_font_files(diags, file_path);
         exclude_large_files(diags, file_path, excluded, metadata.len());
         exclude_examples_and_tests(diags, file_path, excluded);
         link_manuals(diags, readme, file_path, excluded);
     }
-}
-
-fn parent_is_excluded(
-    excluded_dirs: &HashSet<std::path::PathBuf>,
-    file_path: PackagePath<&Path>,
-) -> bool {
-    file_path
-        .full()
-        .parent()
-        .is_some_and(|parent| excluded_dirs.contains(parent))
 }
 
 fn exclude_large_files(

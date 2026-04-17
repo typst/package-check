@@ -15,16 +15,9 @@ impl PackagePath<PathBuf> {
     /// Create a new package path from the package directory and a relative path
     /// within the directory.
     pub fn from_relative<T: AsRef<Path>>(package_dir: &Path, relative_path: T) -> Self {
-        let full_path = relative_to(package_dir, relative_path.as_ref());
+        let full_path = join_to(package_dir, relative_path.as_ref());
         let offset = package_dir.components().count();
         Self { offset, full_path }
-    }
-
-    pub fn as_path(&self) -> PackagePath<&Path> {
-        PackagePath {
-            offset: self.offset,
-            full_path: self.full_path.as_path(),
-        }
     }
 }
 
@@ -76,7 +69,7 @@ impl<T: AsRef<Path>> PackagePath<T> {
 /// Strips any any leading root components (`/` or `\`) of the `path` before
 /// joining it to the `root` path. Absolute paths would otherwise replace the
 /// complete path when `join`ed with a parent path.
-pub fn relative_to(root: &Path, path: impl AsRef<Path>) -> PathBuf {
+pub fn join_to(root: &Path, path: impl AsRef<Path>) -> PathBuf {
     let components = path
         .as_ref()
         .components()

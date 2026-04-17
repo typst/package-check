@@ -10,7 +10,6 @@ use std::{
 
 use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
 use fontdb::Database;
-use ignore::overrides::Override;
 use parking_lot::Mutex;
 use tracing::{Level, debug, span};
 use typst::{
@@ -22,6 +21,7 @@ use typst::{
     utils::LazyHash,
 };
 
+use crate::check::Exclude;
 use crate::package::PackageExt;
 
 /// A world that provides access to the operating system.
@@ -45,7 +45,7 @@ pub struct SystemWorld {
     /// Override for package resolution
     package_override: Option<(PackageSpec, PathBuf)>,
     /// Files that are considered excluded and should not be read from.
-    excluded: Override,
+    exclude: Exclude,
 }
 
 impl SystemWorld {
@@ -70,7 +70,7 @@ impl SystemWorld {
             slots: Mutex::new(HashMap::new()),
             now: OnceLock::new(),
             package_override: None,
-            excluded: Override::empty(),
+            exclude: Exclude::empty(),
         })
     }
 
@@ -90,8 +90,8 @@ impl SystemWorld {
         self.source(id)
     }
 
-    pub fn exclude(&mut self, globs: Override) {
-        self.excluded = globs;
+    pub fn exclude(&mut self, exclude: Exclude) {
+        self.exclude = exclude;
     }
 
     pub fn virtual_source(&self, id: FileId, src: Bytes, line_shift: usize) -> FileResult<Source> {
@@ -118,13 +118,13 @@ impl World for SystemWorld {
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         self.slot(id, |slot| {
-            slot.source(&self.root, &self.package_override, &self.excluded)
+            slot.source(&self.root, &self.package_override, &self.exclude)
         })
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         self.slot(id, |slot| {
-            slot.file(&self.root, &self.package_override, &self.excluded)
+            slot.file(&self.root, &self.package_override, &self.exclude)
         })
     }
 
@@ -192,10 +192,10 @@ impl FileSlot {
         &mut self,
         project_root: &Path,
         package_override: &Option<(PackageSpec, PathBuf)>,
-        excluded: &Override,
+        exclude: &Exclude,
     ) -> FileResult<Source> {
         self.source.get_or_init(
-            || read(self.id, project_root, package_override, excluded),
+            || read(self.id, project_root, package_override, exclude),
             |data, prev| {
                 let text = decode_utf8(&data)?;
                 if let Some(mut prev) = prev {
@@ -229,10 +229,10 @@ impl FileSlot {
         &mut self,
         project_root: &Path,
         package_override: &Option<(PackageSpec, PathBuf)>,
-        excluded: &Override,
+        exclude: &Exclude,
     ) -> FileResult<Bytes> {
         self.file.get_or_init(
-            || read(self.id, project_root, package_override, excluded),
+            || read(self.id, project_root, package_override, exclude),
             |data, _| Ok(Bytes::new(data)),
         )
     }
@@ -295,26 +295,23 @@ impl<T: Clone> SlotCell<T> {
 fn system_path(
     package_override: &Option<(PackageSpec, PathBuf)>,
     project_root: &Path,
-    excluded: &Override,
+    exclude: &Exclude,
     id: FileId,
 ) -> FileResult<PathBuf> {
     let _ = span!(Level::DEBUG, "Path resolution").enter();
     debug!("File ID = {:?}", id);
-    let exclude = |file: FileResult<PathBuf>| match file {
-        Ok(f) => {
-            if let Ok(canonical_path) = f.canonicalize()
-                && excluded.matched(canonical_path, false).is_ignore()
-            {
-                debug!("This file is excluded");
-                return Err(FileError::Other(Some(
-                    "This file exists but is excluded from your package.".into(),
-                )));
-            }
+    let exclude = |id: FileId, root: &Path| {
+        let file = id.vpath().resolve(root).ok_or(FileError::AccessDenied)?;
 
-            debug!("Resolved to {}", f.display());
-            Ok(f)
+        if exclude.matches_relative_file(id.vpath().as_rootless_path()) {
+            debug!("This file is excluded");
+            return Err(FileError::Other(Some(
+                "This file exists but is excluded from your package.".into(),
+            )));
         }
-        err => err,
+
+        debug!("Resolved to {}", file.display());
+        Ok(file)
     };
 
     // Determine the root path relative to which the file path
@@ -323,11 +320,7 @@ fn system_path(
         if let Some(package_override) = package_override
             && *spec == package_override.0
         {
-            return exclude(
-                id.vpath()
-                    .resolve(&package_override.1)
-                    .ok_or(FileError::AccessDenied),
-            );
+            return exclude(id, &package_override.1);
         }
 
         expect_parents(
@@ -345,7 +338,7 @@ fn system_path(
     } else {
         project_root.to_owned()
     };
-    exclude(id.vpath().resolve(&root).ok_or(FileError::AccessDenied))
+    exclude(id, &root)
 }
 
 // Goes up in a file system hierarchy while the parent folder matches the expected name
@@ -377,9 +370,9 @@ fn read(
     id: FileId,
     project_root: &Path,
     package_override: &Option<(PackageSpec, PathBuf)>,
-    excluded: &Override,
+    exclude: &Exclude,
 ) -> FileResult<Vec<u8>> {
-    read_from_disk(&system_path(package_override, project_root, excluded, id)?)
+    read_from_disk(&system_path(package_override, project_root, exclude, id)?)
 }
 
 /// Read a file from disk.

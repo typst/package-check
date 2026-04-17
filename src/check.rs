@@ -19,6 +19,7 @@ mod path;
 mod readme;
 
 pub use diagnostics::{Diagnostics, Result, TryExt};
+pub use manifest::Exclude;
 
 pub async fn all_checks(
     package_spec: Option<&PackageSpec>,
