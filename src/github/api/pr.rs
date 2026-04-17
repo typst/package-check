@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{user::User, ApiError, AuthInstallation, GitHub, JsonExt, OwnerId, RepoId};
+use super::{ApiError, AuthInstallation, GitHub, JsonExt, OwnerId, RepoId, user::User};
 
 #[derive(Deserialize)]
 pub struct PullRequestEvent {

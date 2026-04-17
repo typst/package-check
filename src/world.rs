@@ -12,14 +12,14 @@ use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
 use fontdb::Database;
 use ignore::overrides::Override;
 use parking_lot::Mutex;
-use tracing::{debug, span, Level};
+use tracing::{Level, debug, span};
 use typst::{
+    Library, LibraryExt, World,
     diag::{FileError, FileResult, PackageError, PackageResult},
     foundations::{Bytes, Datetime},
-    syntax::{package::PackageSpec, FileId, Source, VirtualPath},
+    syntax::{FileId, Source, VirtualPath, package::PackageSpec},
     text::{Font, FontBook, FontInfo},
     utils::LazyHash,
-    Library, LibraryExt, World,
 };
 
 use crate::package::PackageExt;
@@ -265,10 +265,10 @@ impl<T: Clone> SlotCell<T> {
         f: impl FnOnce(Vec<u8>, Option<T>) -> FileResult<T>,
     ) -> FileResult<T> {
         // If we accessed the file already in this compilation, retrieve it.
-        if std::mem::replace(&mut self.accessed, true) {
-            if let Some(data) = &self.data {
-                return data.clone();
-            }
+        if std::mem::replace(&mut self.accessed, true)
+            && let Some(data) = &self.data
+        {
+            return data.clone();
         }
 
         // Read and hash the file.
@@ -276,10 +276,10 @@ impl<T: Clone> SlotCell<T> {
         let fingerprint = typst::utils::hash128(&result);
 
         // If the file contents didn't change, yield the old processed data.
-        if std::mem::replace(&mut self.fingerprint, fingerprint) == fingerprint {
-            if let Some(data) = &self.data {
-                return data.clone();
-            }
+        if std::mem::replace(&mut self.fingerprint, fingerprint) == fingerprint
+            && let Some(data) = &self.data
+        {
+            return data.clone();
         }
 
         let prev = self.data.take().and_then(Result::ok);
@@ -302,13 +302,13 @@ fn system_path(
     debug!("File ID = {:?}", id);
     let exclude = |file: FileResult<PathBuf>| match file {
         Ok(f) => {
-            if let Ok(canonical_path) = f.canonicalize() {
-                if excluded.matched(canonical_path, false).is_ignore() {
-                    debug!("This file is excluded");
-                    return Err(FileError::Other(Some(
-                        "This file exists but is excluded from your package.".into(),
-                    )));
-                }
+            if let Ok(canonical_path) = f.canonicalize()
+                && excluded.matched(canonical_path, false).is_ignore()
+            {
+                debug!("This file is excluded");
+                return Err(FileError::Other(Some(
+                    "This file exists but is excluded from your package.".into(),
+                )));
             }
 
             debug!("Resolved to {}", f.display());
@@ -320,14 +320,14 @@ fn system_path(
     // Determine the root path relative to which the file path
     // will be resolved.
     let root = if let Some(spec) = id.package() {
-        if let Some(package_override) = package_override {
-            if *spec == package_override.0 {
-                return exclude(
-                    id.vpath()
-                        .resolve(&package_override.1)
-                        .ok_or(FileError::AccessDenied),
-                );
-            }
+        if let Some(package_override) = package_override
+            && *spec == package_override.0
+        {
+            return exclude(
+                id.vpath()
+                    .resolve(&package_override.1)
+                    .ok_or(FileError::AccessDenied),
+            );
         }
 
         expect_parents(

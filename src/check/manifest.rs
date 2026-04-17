@@ -7,8 +7,8 @@ use reqwest::StatusCode;
 use toml_edit::{Array, Item, Table};
 use tracing::{debug, warn};
 use typst::syntax::{
-    package::{PackageSpec, PackageVersion},
     FileId, VirtualPath,
+    package::{PackageSpec, PackageVersion},
 };
 
 use crate::check::path::{self, PackagePath};
@@ -177,20 +177,20 @@ fn check_name(
         );
     }
 
-    if let Some(package_spec) = package_spec {
-        if name.val != package_spec.name {
-            diags.emit(
-                error
-                    .with_code("manifest/package/name/mismatch")
-                    .with_message(format!(
-                        "Unexpected package name. `{name}` was expected. \
-                        If you want to publish a new package, create a new \
-                        directory in `packages/{namespace}/`.",
-                        name = package_spec.name,
-                        namespace = package_spec.namespace,
-                    )),
-            )
-        }
+    if let Some(package_spec) = package_spec
+        && name.val != package_spec.name
+    {
+        diags.emit(
+            error
+                .with_code("manifest/package/name/mismatch")
+                .with_message(format!(
+                    "Unexpected package name. `{name}` was expected. \
+                     If you want to publish a new package, create a new \
+                     directory in `packages/{namespace}/`.",
+                    name = package_spec.name,
+                    namespace = package_spec.namespace,
+                )),
+        )
     }
 
     Some(name.to_owned())
@@ -232,27 +232,27 @@ fn check_version(
                 .with_code("manifest/package/version/invalid")
                 .with_message(
                     "`version` must be a valid semantic version \
-                (i.e follow the `MAJOR.MINOR.PATCH` format).",
+                     (i.e follow the `MAJOR.MINOR.PATCH` format).",
                 ),
         );
         return None;
     };
 
-    if let Some(package_spec) = package_spec {
-        if version.val != package_spec.version {
-            diags.emit(
-                error
-                    .with_code("manifest/package/version/mismatch")
-                    .with_message(format!(
-                        "Unexpected version number. `{version}` was expected. \
-                        If you want to publish a new version, create a new \
-                        directory in `packages/{namespace}/{name}`.",
-                        version = package_spec.version,
-                        name = package_spec.name,
-                        namespace = package_spec.namespace,
-                    )),
-            )
-        }
+    if let Some(package_spec) = package_spec
+        && version.val != package_spec.version
+    {
+        diags.emit(
+            error
+                .with_code("manifest/package/version/mismatch")
+                .with_message(format!(
+                    "Unexpected version number. `{version}` was expected. \
+                     If you want to publish a new version, create a new \
+                     directory in `packages/{namespace}/{name}`.",
+                    version = package_spec.version,
+                    name = package_spec.name,
+                    namespace = package_spec.namespace,
+                )),
+        )
     }
 
     Some(version)
@@ -489,7 +489,7 @@ async fn check_repo(diags: &mut Diagnostics, package: Spanned<&Table>) {
                     .with_code("manifest/package/homepage/redundant")
                     .with_message(
                         "Use the homepage field only if there is a dedicated website. \
-                        Otherwise, prefer the `repository` field.",
+                         Otherwise, prefer the `repository` field.",
                     ),
             )
         }
@@ -695,20 +695,20 @@ fn check_thumbnail(diags: &mut Diagnostics, exclude: &Override, template: &Spann
         );
     }
 
-    if let Some(template_path) = &template.path {
-        if thumbnail_path.full().starts_with(template_path.full()) {
-            diags.emit(
-                Diagnostic::error()
-                    .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
-                    .with_code("manifest/template/thumbnail/location")
-                    .with_message(
-                        "The thumbnail file should be outside of the template directory.\n\n\
-                        When your template will be used as a base for users's projects, \
-                        the template directory will be copied as is, and the thumbnail file
-                        is generally not displayed in documents based on your template.",
-                    ),
-            );
-        }
+    if let Some(template_path) = &template.path
+        && thumbnail_path.full().starts_with(template_path.full())
+    {
+        diags.emit(
+            Diagnostic::error()
+                .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
+                .with_code("manifest/template/thumbnail/location")
+                .with_message(
+                    "The thumbnail file should be outside of the template directory.\n\n\
+                     When your template will be used as a base for users's projects, \
+                     the template directory will be copied as is, and the thumbnail file
+                     is generally not displayed in documents based on your template.",
+                ),
+        );
     }
 }
 

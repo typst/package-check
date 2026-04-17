@@ -1,8 +1,9 @@
 use crate::{
     check::TryExt,
     github::{
-        api::{pr::PullRequestEvent, GitHubAuth, Installation, Repository},
-        run_github_check, AppState,
+        AppState,
+        api::{GitHubAuth, Installation, Repository, pr::PullRequestEvent},
+        run_github_check,
     },
 };
 

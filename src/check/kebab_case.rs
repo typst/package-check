@@ -3,17 +3,17 @@ use std::collections::HashSet;
 use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use comemo::Track;
 use typst::{
+    ROUTINES, World,
     engine::{Route, Sink, Traced},
     syntax::{
-        ast::{self, AstNode},
         FileId, Source, SyntaxNode,
+        ast::{self, AstNode},
     },
-    World, ROUTINES,
 };
 
 use crate::world::SystemWorld;
 
-use super::{label, Diagnostics};
+use super::{Diagnostics, label};
 
 // Check that all public identifiers are in kebab-case
 pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
