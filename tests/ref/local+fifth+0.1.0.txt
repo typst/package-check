@@ -1,1 +1,1 @@
-Fatal error: Packages must specify an `entrypoint` in their manifest
+Fatal error: All `typst.toml` must contain a [package] section. See the README.md file of this repository for details about the manifest format.

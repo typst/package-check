@@ -6,10 +6,7 @@ use typst::{
     WorldExt,
 };
 
-use crate::{
-    check::{files::forbid_font_files, readme::check_readme},
-    world::SystemWorld,
-};
+use crate::world::SystemWorld;
 
 pub mod authors;
 mod compile;
@@ -18,6 +15,7 @@ mod files;
 mod imports;
 mod kebab_case;
 mod manifest;
+mod path;
 mod readme;
 
 pub use diagnostics::{Diagnostics, Result, TryExt};
@@ -29,7 +27,8 @@ pub async fn all_checks(
 ) -> Result<(SystemWorld, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
-    let worlds = manifest::check(&package_dir, &mut diags, package_spec).await?;
+    let (manifest, worlds) = manifest::check(&package_dir, &mut diags, package_spec).await?;
+
     compile::check(&mut diags, &worlds.package);
     if let Some(template_world) = worlds.template {
         let mut template_diags = Diagnostics::default();
@@ -41,11 +40,10 @@ pub async fn all_checks(
         diags.extend(template_diags, template_dir);
     }
 
-    let res = forbid_font_files(&package_dir, &mut diags);
-    diags.maybe_emit(res);
+    let res = readme::check(&worlds.package, &mut diags).await;
+    let readme = diags.maybe_emit(res);
 
-    let res = check_readme(&worlds.package, &mut diags).await;
-    diags.maybe_emit(res);
+    files::check(&mut diags, &package_dir, &manifest, &readme);
 
     kebab_case::check(&mut diags, &worlds.package);
 

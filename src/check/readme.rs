@@ -1,5 +1,4 @@
 use std::io::Cursor;
-use std::path::Path;
 use std::sync::LazyLock;
 use std::{collections::HashSet, ops::Range};
 
@@ -14,26 +13,29 @@ use typst::{
 };
 use url::Url;
 
-use crate::check::files;
+use crate::check::path::PackagePath;
 use crate::{
     check::{imports, kebab_case, label, Diagnostics, TryExt},
     world::SystemWorld,
 };
 
-pub async fn check_readme(
-    world: &SystemWorld,
-    diags: &mut Diagnostics,
-) -> crate::check::Result<()> {
+#[derive(Default)]
+pub struct Readme {
+    pub text: String,
+    pub linked_files: Vec<PackagePath>,
+}
+
+pub async fn check(world: &SystemWorld, diags: &mut Diagnostics) -> crate::check::Result<Readme> {
     // check syntax, versions and kebab-case
     // warn on unsupported gfm features
-    let readme = tokio::fs::read_to_string(world.root().join("README.md"))
+    let text = tokio::fs::read_to_string(world.root().join("README.md"))
         .await
         .error("io/readme", "Failed to read README.md")?;
 
     let arena = comrak::Arena::new();
     let md_ast = comrak::parse_document(
         &arena,
-        &readme,
+        &text,
         &comrak::Options {
             // Try to be faithful to the Universe parser
             extension: comrak::options::Extension {
@@ -52,6 +54,11 @@ pub async fn check_readme(
             ..Default::default()
         },
     );
+
+    let mut readme = Readme {
+        text,
+        linked_files: Vec::new(),
+    };
 
     for node in md_ast.descendants() {
         let md_node = &*node.data.borrow();
@@ -88,7 +95,7 @@ pub async fn check_readme(
             }
             // Check if all links are valid.
             MdNode::Link(link) => {
-                check_readme_link_url(world, diags, &readme, md_node.sourcepos, &link.url);
+                check_readme_link_url(world, diags, &mut readme, md_node.sourcepos, &link.url);
             }
             // Check all image URLs are valid and alt text is specified.
             MdNode::Image(link) => {
@@ -101,19 +108,19 @@ pub async fn check_readme(
                 }
                 check_image_alternative_description(diags, &readme, md_node.sourcepos, &alt);
 
-                check_readme_link_url(world, diags, &readme, md_node.sourcepos, &link.url);
+                check_readme_link_url(world, diags, &mut readme, md_node.sourcepos, &link.url);
             }
             MdNode::HtmlBlock(html) => {
-                check_readme_html(world, diags, &readme, md_node.sourcepos, &html.literal);
+                check_readme_html(world, diags, &mut readme, md_node.sourcepos, &html.literal);
             }
             MdNode::HtmlInline(html) => {
-                check_readme_html(world, diags, &readme, md_node.sourcepos, html);
+                check_readme_html(world, diags, &mut readme, md_node.sourcepos, html);
             }
             _ => (),
         }
     }
 
-    Ok(())
+    Ok(readme)
 }
 
 fn check_readme_code_block(
@@ -177,7 +184,7 @@ fn check_readme_code_block(
 fn check_readme_html(
     world: &SystemWorld,
     diags: &mut Diagnostics,
-    readme: &str,
+    readme: &mut Readme,
     sourcepos: Sourcepos,
     html: &str,
 ) {
@@ -204,7 +211,7 @@ fn check_readme_html(
 fn check_html_elems(
     world: &SystemWorld,
     diags: &mut Diagnostics,
-    readme: &str,
+    readme: &mut Readme,
     sourcepos: Sourcepos,
     node: &markup5ever_rcdom::Node,
 ) {
@@ -244,7 +251,7 @@ fn check_html_elems(
 fn check_readme_link_url(
     world: &SystemWorld,
     diags: &mut Diagnostics,
-    readme: &str,
+    readme: &mut Readme,
     sourcepos: Sourcepos,
     url_text: &str,
 ) {
@@ -294,7 +301,8 @@ fn check_readme_link_url(
     }
 
     // Check if the local file exists.
-    if !files::path_relative_to(world.root(), Path::new(absolute_path)).exists() {
+    let path = PackagePath::from_relative(world.root(), absolute_path);
+    if !path.full().exists() {
         diags.emit(
             Diagnostic::error()
                 .with_code("readme/link/file-not-found")
@@ -310,11 +318,13 @@ fn check_readme_link_url(
                 )]),
         );
     }
+
+    readme.linked_files.push(path);
 }
 
 const DEFAULT_BRANCHES: [&str; 2] = ["main", "master"];
 
-fn check_repo_file_url(diags: &mut Diagnostics, readme: &str, sourcepos: Sourcepos, url: &str) {
+fn check_repo_file_url(diags: &mut Diagnostics, readme: &Readme, sourcepos: Sourcepos, url: &str) {
     static GITHUB_URL: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(r"https://github.com/([^/]+)/([^/]+)/(?:blob|tree)/([^/]+)/(.+)").unwrap()
     });
@@ -390,7 +400,7 @@ fn check_repo_file_url(diags: &mut Diagnostics, readme: &str, sourcepos: Sourcep
 
 fn check_image_alternative_description(
     diags: &mut Diagnostics,
-    readme: &str,
+    readme: &Readme,
     sourcepos: Sourcepos,
     alt: &str,
 ) {
@@ -430,7 +440,7 @@ fn check_image_alternative_description(
     }
 }
 
-fn sourcepos_to_range(s: &str, pos: Sourcepos) -> Range<usize> {
+fn sourcepos_to_range(readme: &Readme, pos: Sourcepos) -> Range<usize> {
     fn byte_offset(s: &str, pos: LineColumn) -> usize {
         // `LineColumn` uses 1-indexed line numbers.
         let line_offset = s
@@ -443,9 +453,9 @@ fn sourcepos_to_range(s: &str, pos: Sourcepos) -> Range<usize> {
     }
 
     // `LineColumn::column` is 1-indexed.
-    let start = byte_offset(s, pos.start) - 1;
+    let start = byte_offset(&readme.text, pos.start) - 1;
     // `Sourcepos::end` is end-inclusive (byte-wise), and thus `offset + 1 - 1`.
-    let end = byte_offset(s, pos.end);
+    let end = byte_offset(&readme.text, pos.end);
 
     start..end
 }

@@ -2,19 +2,19 @@ error[manifest/package/license/type]: The `license` field should be a string
   ┌─ typst.toml:1:0
   │
 1 │ [package]
-  │ ^
+  │ ^^^^^^^^^
 
 error[manifest/package/description/type]: The `description` field should be a string
   ┌─ typst.toml:1:0
   │
 1 │ [package]
-  │ ^
+  │ ^^^^^^^^^
 
 error[manifest/package/authors/type]: The `authors` field should be an array of strings
   ┌─ typst.toml:1:0
   │
 1 │ [package]
-  │ ^
+  │ ^^^^^^^^^
 
 error[manifest/template/thumbnail/not-found]: This file does not exist.
   ┌─ typst.toml:7:12

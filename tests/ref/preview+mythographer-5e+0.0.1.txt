@@ -1,15 +1,3 @@
-warning[size/large]: This file is quite large (1MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.
-  ┌─ assets/paper/default.jpg:1:0
-  │
-1 │ 
-  │ ^
-
-warning[size/large]: This file is quite large (1MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.
-  ┌─ assets/paper/toa.jpg:1:0
-  │
-1 │ 
-  │ ^
-
 warning[readme/link/repository-url-permalink]: GitHub URL links to default branch: `https://github.com/sa1g/dnd-typst-template/tree/master/fonts`.
 
 Consider using a link to a specific tag/release or a permalink to a commit instead. This will ensure that the linked resource always matches this version of the package.
@@ -21,6 +9,18 @@ Alternatively you can also link to a local file. This is preferred if the linked
    │
 38 │ They can be found in [/fonts](https://github.com/sa1g/dnd-typst-template/tree/master/fonts) folder of the repository.
    │                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning[size/large]: This file is quite large (1MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.
+  ┌─ assets/paper/default.jpg:1:0
+  │
+1 │ 
+  │ ^
+
+warning[size/large]: This file is quite large (1MB). If it is not required to use the package (i.e. it is a documentation file, or part of an example), it should be added to `exclude` in your `typst.toml`.
+  ┌─ assets/paper/toa.jpg:1:0
+  │
+1 │ 
+  │ ^
 
 error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ lib/config.typ:3:8
