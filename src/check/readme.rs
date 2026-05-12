@@ -303,7 +303,7 @@ fn check_readme_link_url(
                      Make sure to commit all linked files and possibly add them to the `exclude` list.\n\n\
                      More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
                 ))
-                .with_note(format_args!("This link was assumed to be a local file because it's couldn't be parsed as an URL: `{url_text}`\n{url_error}"))
+                .with_note(format_args!("This link was assumed to be a local file because it couldn't be parsed as an URL: `{url_text}`\n{url_error}"))
                 .with_labels(vec![Label::primary(
                     readme_file_id(),
                     sourcepos_to_range(readme, sourcepos),
