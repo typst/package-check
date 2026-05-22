@@ -4,6 +4,14 @@ warning[size/wasm]: This file could be 228kB smaller with `wasm-opt -Os`.
 1 │ 
   │ ^
 
+warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+
+More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
+   ┌─ typst.toml:11:14
+   │
+11 │ description = "Use multiple bibliographies in a single Typst document "
+   │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 error[readme/image/missing-alt]: Missing alternative description for image. Please add a short description to make this image more accessible.
    ┌─ README.md:25:0
    │  

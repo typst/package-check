@@ -1,3 +1,11 @@
+warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+
+More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
+  ┌─ typst.toml:7:14
+  │
+7 │ description = "Render tetris fumen in typst."
+  │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ mino.typ:1:8
   │
