@@ -406,7 +406,19 @@ fn check_universe_fields(diags: &mut Diagnostics, package: Spanned<&Table>) {
         );
     }
 
-    if package.get_str("description").is_none() {
+    if let Some(description) = package.get_str("description") {
+        if description.to_ascii_lowercase().contains("typst") {
+            diags.emit(
+                Diagnostic::warning()
+                    .with_code("manifest/package/description/typst")
+                    .with_message(
+                        "The `description` field should generally not contain the word `Typst`\n\n\
+                         More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description",
+                    )
+                    .with_label(Label::primary(manifest_id(), description.span())),
+            );
+        }
+    } else {
         diags.emit(
             Diagnostic::error()
                 .with_code("manifest/package/description/type")
