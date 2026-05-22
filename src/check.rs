@@ -54,6 +54,8 @@ pub async fn all_checks(
         authors::check(&mut diags, spec).await;
     }
 
+    diags.sort();
+
     Ok((worlds.package, diags))
 }
 

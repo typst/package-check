@@ -1,8 +1,8 @@
-warning[exclude/license]: Your LICENSE file should not be excluded.
-  ┌─ typst.toml:7:10
+warning[kebab-case/value]: This value seems to be public. It is recommended to use kebab-case names.
+  ┌─ lib.typ:1:5
   │
-7 │ exclude = ["LICENSE", "README.md"]
-  │           ^^^^^^^^^^^^^^^^^^^^^^^^
+1 │ #let Tick(t) = calc.rem(t + 1, 60)
+  │      ^^^^
 
 warning[exclude/readme]: Your README.md file should not be excluded.
   ┌─ typst.toml:7:10
@@ -10,11 +10,11 @@ warning[exclude/readme]: Your README.md file should not be excluded.
 7 │ exclude = ["LICENSE", "README.md"]
   │           ^^^^^^^^^^^^^^^^^^^^^^^^
 
-warning[kebab-case/value]: This value seems to be public. It is recommended to use kebab-case names.
-  ┌─ lib.typ:1:5
+warning[exclude/license]: Your LICENSE file should not be excluded.
+  ┌─ typst.toml:7:10
   │
-1 │ #let Tick(t) = calc.rem(t + 1, 60)
-  │      ^^^^
+7 │ exclude = ["LICENSE", "README.md"]
+  │           ^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[manifest/package/compiler/type]: Compiler version should be a string
   ┌─ typst.toml:6:11
