@@ -80,11 +80,42 @@ impl Diagnostics {
         self.warnings.extend(other.warnings);
     }
 
+    /// Sort diagnostics by file path and position.
+    pub fn sort(&mut self) {
+        let diag_pos = |diag: &Diagnostic<FileId>| {
+            let label = diag.labels.first()?;
+            let file = PrioritzedFile::from(label.file_id);
+            Some((file, label.range.start))
+        };
+        self.errors.sort_by_key(diag_pos);
+        self.warnings.sort_by_key(diag_pos);
+    }
+
     pub fn errors(&self) -> &[Diagnostic<FileId>] {
         &self.errors
     }
 
     pub fn warnings(&self) -> &[Diagnostic<FileId>] {
         &self.warnings
+    }
+}
+
+/// Prioritize diagnostics regarding the manifest and readme.
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+enum PrioritzedFile {
+    Manifest,
+    Readme,
+    Other(&'static VirtualPath),
+}
+
+impl From<FileId> for PrioritzedFile {
+    fn from(id: FileId) -> Self {
+        let vpath = id.vpath();
+        let path = vpath.as_rootless_path();
+        match path {
+            _ if path == "typst.toml" => Self::Manifest,
+            _ if path == "README.md" => Self::Readme,
+            _ => Self::Other(vpath),
+        }
     }
 }

@@ -61,7 +61,7 @@ pub fn print_diagnostics(
     // contents.
     world.exclude(Override::empty());
 
-    for diagnostic in warnings.iter().chain(errors) {
+    for diagnostic in errors.iter().chain(warnings).rev() {
         if json {
             json::emit(&mut std::io::stdout(), world, diagnostic)?;
         } else {

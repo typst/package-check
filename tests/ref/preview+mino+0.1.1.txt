@@ -1,9 +1,3 @@
-error[manifest/package/homepage/redundant]: Use the homepage field only if there is a dedicated website. Otherwise, prefer the `repository` field.
-  ┌─ typst.toml:9:11
-  │
-9 │ homepage = "https://github.com/Enter-tainer/mino"
-  │            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ mino.typ:1:8
   │
@@ -15,4 +9,10 @@ error[readme/image/missing-alt]: Missing alternative description for image. Plea
   │
 5 │ ![](mino.svg)
   │ ^^^^^^^^^^^^^
+
+error[manifest/package/homepage/redundant]: Use the homepage field only if there is a dedicated website. Otherwise, prefer the `repository` field.
+  ┌─ typst.toml:9:11
+  │
+9 │ homepage = "https://github.com/Enter-tainer/mino"
+  │            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
