@@ -34,6 +34,17 @@ pub fn check(
 ) {
     let exclude = &manifest.package.exclude;
 
+    // The bundler enables some local ignore features, which can be confusing.
+    // Collect the list of files the bundler would consider bundling, without
+    // the exclude globs. Use it to determine if a file is ignored.
+    let without_ignored = walk(package_dir)
+        .flatten()
+        .filter_map(|ch| {
+            let metadata = ch.metadata().ok()?;
+            metadata.is_file().then_some(ch.into_path())
+        })
+        .collect::<HashSet<_>>();
+
     for ch in WalkDir::new(package_dir).into_iter().flatten() {
         let Ok(metadata) = ch.metadata() else {
             continue;
@@ -44,12 +55,63 @@ pub fn check(
 
         let file_path = PackagePath::from_full(package_dir, ch.path());
         let excluded = exclude.matches_file(&file_path);
+        let ignored = !without_ignored.contains(file_path.full());
 
+        warn_ignored_files(diags, file_path, excluded, ignored);
         forbid_font_files(diags, file_path);
         exclude_large_files(diags, file_path, excluded, metadata.len());
         exclude_examples_and_tests(diags, file_path, excluded);
         link_manuals(diags, readme, file_path, excluded);
     }
+}
+
+fn warn_ignored_files(
+    diags: &mut Diagnostics,
+    file_path: PackagePath<&Path>,
+    excluded: bool,
+    ignored: bool,
+) {
+    if excluded || !ignored {
+        return;
+    }
+
+    // Don't emit noisy warnings for common hidden files that won't be a problem
+    // when missing from the bundle.
+    const COMMON: [&str; 5] = [
+        ".gitattributes",
+        ".gitignore",
+        ".gitkeep",
+        ".ignore",
+        ".keep",
+    ];
+    if COMMON.map(OsStr::new).contains(&file_path.file_name()) {
+        return;
+    }
+
+    let (reason, hint) = if file_path.file_name().as_encoded_bytes().starts_with(b".") {
+        (
+            ".\nIt's ignored, because it is hidden: the file name starts with a `.`.",
+            "If not, consider removing the file.",
+        )
+    } else {
+        (
+            " because of an ignore file, such as `.gitignore` or `.ignore`.",
+            "If not, consider removing it or updating the ignore file.",
+        )
+    };
+
+    diags.emit(
+        Diagnostic::warning()
+            .with_code("files/ignored")
+            .with_label(Label::primary(file_path.file_id(), 0..0))
+            .with_message(format_args!(
+                "This file won't be present in the bundled package{reason}\n\n\
+                 If this is intentional and the file is used for documentation and linked in the readme, \
+                 consider explicitly adding it to the `exclude` list.\n\
+                 {hint}\n\n\
+                 More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
+            )),
+    );
 }
 
 fn exclude_large_files(
