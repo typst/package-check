@@ -1,0 +1,8 @@
+warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+
+More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
+   ┌─ typst.toml:11:14
+   │
+11 │ description = "Manage acronyms and their definitions in Typst."
+   │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+

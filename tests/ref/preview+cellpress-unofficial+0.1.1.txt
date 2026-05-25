@@ -1,0 +1,25 @@
+warning[files/ignored]: This file won't be present in the bundled package because of an ignore file, such as `.gitignore` or `.ignore`.
+
+If this is intentional and the file is used for documentation and linked in the readme, consider explicitly adding it to the `exclude` list.
+If not, consider removing it or updating the ignore file.
+
+More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
+  ┌─ inc/cell_press_logo.pdf:1:0
+  │
+1 │ 
+  │ ^
+
+warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+
+More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
+  ┌─ typst.toml:7:14
+  │
+7 │ description = "Unofficial Cell Press template for Typst."
+  │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[manifest/template/thumbnail/exclude]: The template thumbnail is automatically excluded
+   ┌─ typst.toml:17:12
+   │
+17 │ thumbnail = "inc/thumbnail.png"
+   │             ^^^^^^^^^^^^^^^^^^^
+
