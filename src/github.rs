@@ -124,7 +124,17 @@ pub async fn run_github_check(
                 has_new_packages = true;
             }
         }
-        let mut labels = Vec::new();
+        let mut labels = pr
+            .labels
+            .iter()
+            .filter_map(|l| {
+                if l.name != "new" && l.name != "updated" {
+                    Some(l.name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
         if has_new_packages {
             labels.push("new".to_owned())
         }
@@ -237,7 +247,25 @@ pub async fn run_github_check(
                         "Found previous PR: #{} (author: {})",
                         previous_pr.number, previous_pr.user.login
                     );
-                    if previous_pr.user.login != current_pr.user.login {
+
+                    let previous_comments = match api_client
+                        .list_pr_comments(repository.owner(), repository.name(), current_pr.number)
+                        .await
+                    {
+                        Ok(c) => c,
+                        Err(e) => {
+                            warn!(
+                                "Failed to fetch comments for #{}: {:?}",
+                                previous_pr.number, e
+                            );
+                            Vec::new()
+                        }
+                    };
+                    let already_posted = previous_comments
+                        .iter()
+                        .any(|c| c.user.login == "typst-package-check[bot]");
+
+                    if previous_pr.user.login != current_pr.user.login && !already_posted {
                         let res = api_client
                             .post_pr_comment(
                                 repository.owner(),

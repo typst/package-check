@@ -14,11 +14,17 @@ pub struct PullRequest {
     pub body: Option<String>,
     pub user: User,
     pub head: Commit,
+    pub labels: Vec<Label>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Commit {
     pub sha: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Label {
+    pub name: String,
 }
 
 #[derive(Serialize)]
@@ -27,6 +33,11 @@ pub struct PullRequestUpdate {
     pub labels: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct Comment {
+    pub user: User,
 }
 
 impl GitHub<AuthInstallation> {
@@ -77,5 +88,18 @@ impl GitHub<AuthInstallation> {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn list_pr_comments(
+        &self,
+        owner: OwnerId,
+        repo: RepoId,
+        pr: usize,
+    ) -> Result<Vec<Comment>, ApiError> {
+        self.get(format!("/repos/{owner}/{repo}/issues/{pr}/comments"))
+            .send()
+            .await?
+            .parse_json()
+            .await
     }
 }
