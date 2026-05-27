@@ -124,15 +124,11 @@ pub async fn run_github_check(
                 has_new_packages = true;
             }
         }
-        let mut labels = pr
-            .labels
-            .iter()
+        const REMOVE_LABELS: [&str; 3] = ["new", "updated", "waiting-on-author"];
+        let mut labels = (pr.labels.iter())
             .filter_map(|l| {
-                if l.name != "new" && l.name != "updated" {
-                    Some(l.name.clone())
-                } else {
-                    None
-                }
+                let remove = REMOVE_LABELS.contains(&l.name.as_str());
+                (!remove).then(|| l.name.clone())
             })
             .collect::<Vec<_>>();
         if has_new_packages {
