@@ -124,7 +124,17 @@ pub async fn run_github_check(
                 has_new_packages = true;
             }
         }
-        let mut labels = Vec::new();
+        let mut labels = pr
+            .labels
+            .iter()
+            .filter_map(|l| {
+                if l.name != "new" && l.name != "updated" {
+                    Some(l.name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
         if has_new_packages {
             labels.push("new".to_owned())
         }

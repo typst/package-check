@@ -14,11 +14,17 @@ pub struct PullRequest {
     pub body: Option<String>,
     pub user: User,
     pub head: Commit,
+    pub labels: Vec<Label>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Commit {
     pub sha: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Label {
+    pub name: String,
 }
 
 #[derive(Serialize)]
