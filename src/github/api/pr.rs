@@ -29,6 +29,11 @@ pub struct PullRequestUpdate {
     pub body: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct Comment {
+    pub user: User,
+}
+
 impl GitHub<AuthInstallation> {
     pub async fn update_pull_request(
         &self,
@@ -77,5 +82,18 @@ impl GitHub<AuthInstallation> {
             .await?;
 
         Ok(())
+    }
+
+    pub async fn list_pr_comments(
+        &self,
+        owner: OwnerId,
+        repo: RepoId,
+        pr: usize,
+    ) -> Result<Vec<Comment>, ApiError> {
+        self.get(format!("/repos/{owner}/{repo}/issues/{pr}/comments"))
+            .send()
+            .await?
+            .parse_json()
+            .await
     }
 }
