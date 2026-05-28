@@ -129,7 +129,6 @@ fn exclude_large_files(
     }
 
     if path.extension().is_some_and(|ext| ext == "wasm") {
-        check_wasm_file_size(diags, path, size);
         // Don't suggest to exclude WASM files, they are generally necessary
         // for the package to work.
         return;
@@ -165,48 +164,6 @@ fn exclude_large_files(
             .with_label(Label::primary(path.file_id(), 0..0))
             .with_message(message),
     )
-}
-
-fn check_wasm_file_size(diags: &mut Diagnostics, path: PackagePath<&Path>, original_size: u64) {
-    let out = std::env::temp_dir().join(path.file_name());
-
-    let wasm_opt_result = wasm_opt::OptimizationOptions::new_optimize_for_size()
-        // Explicitely enable and disable features to best match what wasmi supports
-        // https://github.com/wasmi-labs/wasmi?tab=readme-ov-file#webassembly-proposals
-        .enable_feature(wasm_opt::Feature::MutableGlobals)
-        .enable_feature(wasm_opt::Feature::TruncSat)
-        .enable_feature(wasm_opt::Feature::SignExt)
-        .enable_feature(wasm_opt::Feature::Multivalue)
-        .enable_feature(wasm_opt::Feature::BulkMemory)
-        .enable_feature(wasm_opt::Feature::ReferenceTypes)
-        .enable_feature(wasm_opt::Feature::TailCall)
-        .enable_feature(wasm_opt::Feature::ExtendedConst)
-        .enable_feature(wasm_opt::Feature::MultiMemory)
-        .enable_feature(wasm_opt::Feature::Simd)
-        .disable_feature(wasm_opt::Feature::RelaxedSimd)
-        .disable_feature(wasm_opt::Feature::Gc)
-        .disable_feature(wasm_opt::Feature::ExceptionHandling)
-        .run(path.full(), &out);
-
-    if wasm_opt_result.is_ok() {
-        if let Ok(new_size) = std::fs::metadata(&out).map(|m| m.len()) {
-            let diff = (original_size - new_size) / 1024;
-
-            if diff > 20 {
-                diags.emit(
-                    Diagnostic::warning()
-                        .with_label(Label::primary(path.file_id(), 0..0))
-                        .with_code("size/wasm")
-                        .with_message(format!(
-                            "This file could be {diff}kB smaller with `wasm-opt -Os`."
-                        )),
-                );
-            }
-        }
-
-        // TODO: ideally this should be async
-        std::fs::remove_file(out).ok();
-    }
 }
 
 fn exclude_examples_and_tests(diags: &mut Diagnostics, path: PackagePath<&Path>, excluded: bool) {
