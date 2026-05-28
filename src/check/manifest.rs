@@ -52,6 +52,7 @@ pub async fn check(
     package_dir: &Path,
     diags: &mut Diagnostics,
     package_spec: Option<&PackageSpec>,
+    offline: bool,
 ) -> Result<(Manifest, Worlds)> {
     let manifest_path = package_dir.join("typst.toml");
     debug!("Reading manifest at {}", &manifest_path.display());
@@ -88,7 +89,7 @@ pub async fn check(
 
     check_compiler_version(diags, package);
     check_universe_fields(diags, package);
-    check_repo(diags, package).await;
+    check_repo(diags, package, offline).await;
 
     let res = check_file_names(diags, package_dir);
     diags.maybe_emit(res);
@@ -440,7 +441,12 @@ async fn check_url(
     diags: &mut Diagnostics,
     field: Spanned<&str>,
     name: &'static str,
+    offline: bool,
 ) -> Option<()> {
+    if offline {
+        return Some(());
+    }
+
     if let Err(e) = reqwest::get(field.val)
         .await
         .and_then(|res| res.error_for_status())
@@ -468,14 +474,14 @@ async fn check_url(
     Some(())
 }
 
-async fn check_repo(diags: &mut Diagnostics, package: Spanned<&Table>) {
+async fn check_repo(diags: &mut Diagnostics, package: Spanned<&Table>, offline: bool) {
     let repo = package.get_str("repository");
     if let Some(repo) = repo {
-        check_url(diags, repo, "repository").await;
+        check_url(diags, repo, "repository", offline).await;
     }
 
     if let Some(homepage) = package.get_str("homepage") {
-        check_url(diags, homepage, "homepage").await;
+        check_url(diags, homepage, "homepage", offline).await;
 
         if repo.is_some_and(|repo| repo.val == homepage.val) {
             diags.emit(

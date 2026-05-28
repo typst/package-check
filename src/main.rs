@@ -30,6 +30,10 @@ enum Commands {
         /// Whether to output diagnostics in JSON.
         #[clap(long, default_value_t = false)]
         json: bool,
+
+        /// Skip lints that require network access.
+        #[clap(long, default_value_t = false)]
+        offline: bool,
     },
     /// Output the version of Typst bundled with this application.
     TypstVersion,
@@ -63,13 +67,17 @@ async fn main() {
 
     let args = Cli::parse();
     match args.command {
-        Commands::Check { packages, json } => {
+        Commands::Check {
+            packages,
+            json,
+            offline,
+        } => {
             if packages.is_empty() {
-                cli::main(".".into(), json).await
+                cli::main(".".into(), json, offline).await
             }
 
             for package in packages {
-                cli::main(package, json).await
+                cli::main(package, json, offline).await
             }
         }
         Commands::TypstVersion => {

@@ -8,7 +8,7 @@ use typst::syntax::{FileId, Source, package::PackageSpec};
 use crate::check::Exclude;
 use crate::{check::all_checks, package::PackageExt, world::SystemWorld};
 
-pub async fn main(spec_or_path: String, json_output: bool) {
+pub async fn main(spec_or_path: String, json_output: bool, offline: bool) {
     let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
     let package_dir = if let Some(ref package_spec) = package_spec {
         package_spec.directory()
@@ -16,7 +16,7 @@ pub async fn main(spec_or_path: String, json_output: bool) {
         PathBuf::from(spec_or_path)
     };
 
-    match all_checks(package_spec.as_ref(), package_dir, true).await {
+    match all_checks(package_spec.as_ref(), package_dir, true, offline).await {
         Ok((mut world, diags)) => {
             if let Err(err) =
                 print_diagnostics(&mut world, diags.errors(), diags.warnings(), json_output)

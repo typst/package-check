@@ -302,6 +302,7 @@ pub async fn run_github_check(
                 .join(package.name.as_str())
                 .join(package.version.to_string()),
             false,
+            false,
         )
         .await
         {

@@ -25,10 +25,12 @@ pub async fn all_checks(
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
     check_authors: bool,
+    offline: bool,
 ) -> Result<(SystemWorld, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
-    let (manifest, worlds) = manifest::check(&package_dir, &mut diags, package_spec).await?;
+    let (manifest, worlds) =
+        manifest::check(&package_dir, &mut diags, package_spec, offline).await?;
 
     compile::check(&mut diags, &worlds.package);
     if let Some(template_world) = worlds.template {
