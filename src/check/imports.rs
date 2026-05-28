@@ -89,7 +89,7 @@ pub fn check_ast(
             && let Ok(import_spec) = PackageSpec::from_str(source_str.get().as_str())
             && let Some(latest_version) =
                 latest_package_version(all_packages, import_spec.versionless())
-            && latest_version != import_spec.version
+            && latest_version > import_spec.version
         {
             diags.emit(
                 Diagnostic::warning()
