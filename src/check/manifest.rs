@@ -6,6 +6,7 @@ use ignore::overrides::{Override, OverrideBuilder};
 use reqwest::StatusCode;
 use toml_edit::{Array, Item, Table};
 use tracing::{debug, warn};
+use typst::syntax::RootedPath;
 use typst::syntax::{
     FileId, VirtualPath,
     package::{PackageSpec, PackageVersion},
@@ -305,8 +306,11 @@ fn dont_over_exclude(diags: &mut Diagnostics, exclude: &Spanned<Exclude>) -> Res
 
 fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) -> Result<()> {
     for ch in std::fs::read_dir(package_dir).error("io", "Failed to read package directory")? {
-        let mut error_for_file = |path, message| {
-            let file_id = FileId::new(None, VirtualPath::new(path));
+        let mut error_for_file = |path: &Path, message| {
+            let file_id = FileId::new(RootedPath::new(
+                typst::syntax::VirtualRoot::Project,
+                VirtualPath::new(path.to_str().unwrap()).unwrap(),
+            ));
             diags.emit(
                 Diagnostic::error()
                     .with_label(Label::primary(file_id, 0..0))
@@ -767,7 +771,10 @@ fn check_thumbnail(diags: &mut Diagnostics, template: &Spanned<Template>) {
 }
 
 fn manifest_id() -> FileId {
-    FileId::new(None, VirtualPath::new("typst.toml"))
+    FileId::new(RootedPath::new(
+        typst::syntax::VirtualRoot::Project,
+        VirtualPath::new("typst.toml").unwrap(),
+    ))
 }
 
 #[derive(Debug, Copy, Clone)]

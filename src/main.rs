@@ -81,8 +81,13 @@ async fn main() {
             }
         }
         Commands::TypstVersion => {
-            // TODO: use `typst_utils::version` when updating to Typst `0.15`.
-            println!("0.14.2")
+            let version = typst_utils::version();
+            println!(
+                "{}.{}.{}",
+                version.major(),
+                version.minor(),
+                version.patch()
+            )
         }
         Commands::Version => {
             println!("{}", option_env!("CARGO_PKG_VERSION").unwrap_or("n/a"))

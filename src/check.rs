@@ -1,9 +1,10 @@
 use std::path::PathBuf;
 
 use codespan_reporting::diagnostic::Label;
+use typst::syntax::DiagSpan;
 use typst::{
     WorldExt,
-    syntax::{FileId, Span, package::PackageSpec},
+    syntax::{FileId, package::PackageSpec},
 };
 
 use crate::world::SystemWorld;
@@ -63,6 +64,7 @@ pub async fn all_checks(
 }
 
 /// Create a label for a span.
-fn label(world: &SystemWorld, span: Span) -> Option<Label<FileId>> {
+fn label(world: &SystemWorld, span: impl Into<DiagSpan>) -> Option<Label<FileId>> {
+    let span = span.into();
     Some(Label::primary(span.id()?, world.range(span)?))
 }

@@ -3,6 +3,7 @@ use std::process::exit;
 
 use codespan_reporting::{diagnostic::Diagnostic, term};
 use tracing::error;
+use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, Source, package::PackageSpec};
 
 use crate::check::Exclude;
@@ -87,10 +88,10 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
 
     fn name(&'a self, id: FileId) -> CodespanResult<Self::Name> {
         let vpath = id.vpath();
-        Ok(if let Some(package) = id.package() {
-            format!("{package}{}", vpath.as_rooted_path().display())
+        Ok(if let VirtualRoot::Package(package) = id.root() {
+            format!("{package}{}", vpath.get_with_slash())
         } else {
-            vpath.as_rootless_path().to_string_lossy().into()
+            vpath.get_without_slash().into()
         })
     }
 

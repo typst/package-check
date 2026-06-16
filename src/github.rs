@@ -10,6 +10,7 @@ use codespan_reporting::{
 use jwt_simple::prelude::*;
 use pr::{PullRequest, PullRequestUpdate};
 use tracing::{debug, warn};
+use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, package::PackageSpec};
 
 use crate::{
@@ -456,13 +457,16 @@ fn diagnostic_to_annotation(
     } else {
         (None, None)
     };
-    let package = label.file_id.package().unwrap_or(package);
+    let package = match label.file_id.root() {
+        VirtualRoot::Package(p) => p,
+        VirtualRoot::Project => package,
+    };
     Some(Annotation {
         path: Path::new("packages")
             .join(package.namespace.to_string())
             .join(package.name.to_string())
             .join(package.version.to_string())
-            .join(label.file_id.vpath().as_rootless_path())
+            .join(label.file_id.vpath().get_without_slash())
             .to_str()?
             .to_owned(),
         // Lines are 1-indexed on GitHub but not for codespan

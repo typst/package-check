@@ -2,8 +2,9 @@ use std::collections::HashSet;
 
 use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use comemo::Track;
+use typst::syntax::{RootedPath, VirtualRoot};
 use typst::{
-    ROUTINES, World,
+    World,
     engine::{Route, Sink, Traced},
     syntax::{
         FileId, Source, SyntaxNode,
@@ -24,8 +25,8 @@ pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
 
         let mut sink = Sink::new();
         let module = typst_eval::eval(
-            &ROUTINES,
             world,
+            world.library(),
             Traced::default().track(),
             sink.track_mut(),
             Route::default().track(),
@@ -71,10 +72,16 @@ fn check_source(
         .filter_map(|c| c.cast::<ast::ModuleImport>())
     {
         let file_path = match import.source() {
-            ast::Expr::Str(s) => src.id().vpath().join(s.get().as_str()),
+            ast::Expr::Str(s) => {
+                if let Ok(path) = src.id().vpath().join(s.get().as_str()) {
+                    path
+                } else {
+                    continue;
+                }
+            }
             _ => continue,
         };
-        let fid = FileId::new(None, file_path);
+        let fid = FileId::new(RootedPath::new(VirtualRoot::Project, file_path));
         let Ok(source) = world.source(fid) else {
             continue;
         };

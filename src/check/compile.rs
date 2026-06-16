@@ -1,9 +1,9 @@
 use codespan_reporting::diagnostic::Diagnostic;
 use typst::{
     diag::{Severity, SourceDiagnostic},
-    layout::PagedDocument,
     syntax::FileId,
 };
+use typst_layout::PagedDocument;
 
 use crate::world::SystemWorld;
 

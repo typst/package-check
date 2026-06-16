@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use typst::syntax::{FileId, VirtualPath};
+use typst::syntax::{FileId, RootedPath, VirtualPath};
 
 /// A path inside a package that allows either retrieving the full or the
 /// package-relative path.
@@ -62,7 +62,10 @@ impl<T: AsRef<Path>> PackagePath<T> {
 
     /// The [`FileId`] of the package relative path.
     pub fn file_id(&self) -> FileId {
-        FileId::new(None, VirtualPath::new(self.relative()))
+        FileId::new(RootedPath::new(
+            typst::syntax::VirtualRoot::Project,
+            VirtualPath::new(self.relative().to_str().unwrap()).unwrap(),
+        ))
     }
 }
 

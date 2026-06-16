@@ -6,6 +6,7 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 use comrak::nodes::{LineColumn, NodeList, NodeValue as MdNode, Sourcepos};
 use html5ever::tendril::TendrilSink;
 use regex::Regex;
+use typst::syntax::RootedPath;
 use typst::{
     World,
     foundations::Bytes,
@@ -137,7 +138,10 @@ fn check_readme_code_block(
     // It is important to create a fake ID for each markdown code block. This
     // allows having multiple sources with the same file path, since the README
     // can contain multiple Typst example blocks.
-    let readme_code_block_id = FileId::new_fake(VirtualPath::new("README.md"));
+    let readme_code_block_id = FileId::unique(RootedPath::new(
+        typst::syntax::VirtualRoot::Project,
+        VirtualPath::new("README.md").unwrap(),
+    ));
     let source = world
         .virtual_source(
             readme_code_block_id,
@@ -145,7 +149,8 @@ fn check_readme_code_block(
             sourcepos.start.line,
         )
         .unwrap();
-    for err in source.root().errors() {
+    let (errors, warnings) = source.root().errors_and_warnings();
+    for err in errors.into_iter().chain(warnings.into_iter()) {
         diags.emit(
             Diagnostic::warning()
                 .with_code("readme/syntax")
@@ -163,7 +168,7 @@ fn check_readme_code_block(
 
     let main_path = world
         .root()
-        .join(world.main().vpath().as_rootless_path())
+        .join(world.main().vpath().get_without_slash())
         .canonicalize()
         .ok();
     let all_packages = world
@@ -461,5 +466,8 @@ fn sourcepos_to_range(readme: &Readme, pos: Sourcepos) -> Range<usize> {
 }
 
 fn readme_file_id() -> FileId {
-    FileId::new(None, VirtualPath::new("README.md"))
+    FileId::new(RootedPath::new(
+        typst::syntax::VirtualRoot::Project,
+        VirtualPath::new("README.md").unwrap(),
+    ))
 }

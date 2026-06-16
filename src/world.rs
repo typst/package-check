@@ -8,10 +8,11 @@ use std::{
     sync::OnceLock,
 };
 
-use chrono::{DateTime, Datelike, FixedOffset, Local, Utc};
 use fontdb::Database;
 use parking_lot::Mutex;
 use tracing::{Level, debug, span};
+use typst::foundations::Duration;
+use typst::syntax::{RootedPath, VirtualRoot};
 use typst::{
     Library, LibraryExt, World,
     diag::{FileError, FileResult, PackageError, PackageResult},
@@ -41,7 +42,7 @@ pub struct SystemWorld {
     /// The current datetime if requested. This is stored here to ensure it is
     /// always the same within one compilation.
     /// Reset between compilations if not [`Now::Fixed`].
-    now: OnceLock<DateTime<Utc>>,
+    now: typst_kit::datetime::Time,
     /// Override for package resolution
     package_override: Option<(PackageSpec, PathBuf)>,
     /// Files that are considered excluded and should not be read from.
@@ -53,8 +54,8 @@ impl SystemWorld {
     pub fn new(input: PathBuf, root: PathBuf) -> Result<Self, WorldCreationError> {
         // Resolve the virtual path of the main file within the project root.
         let main_path =
-            VirtualPath::within_root(&input, &root).ok_or(WorldCreationError::InputOutsideRoot)?;
-        let main = FileId::new(None, main_path);
+            VirtualPath::virtualize(&root, &input).or(Err(WorldCreationError::InputOutsideRoot))?;
+        let main = FileId::new(RootedPath::new(VirtualRoot::Project, main_path));
 
         let library = Library::default();
 
@@ -68,7 +69,7 @@ impl SystemWorld {
             book: LazyHash::new(searcher.book),
             fonts: searcher.fonts,
             slots: Mutex::new(HashMap::new()),
-            now: OnceLock::new(),
+            now: typst_kit::datetime::Time::system(),
             package_override: None,
             exclude: Exclude::empty(),
         })
@@ -132,23 +133,8 @@ impl World for SystemWorld {
         self.fonts[index].get()
     }
 
-    fn today(&self, offset: Option<i64>) -> Option<Datetime> {
-        let now = self.now.get_or_init(Utc::now);
-
-        // The time with the specified UTC offset, or within the local time zone.
-        let with_offset = match offset {
-            None => now.with_timezone(&Local).fixed_offset(),
-            Some(hours) => {
-                let seconds = i32::try_from(hours).ok()?.checked_mul(3600)?;
-                now.with_timezone(&FixedOffset::east_opt(seconds)?)
-            }
-        };
-
-        Datetime::from_ymd(
-            with_offset.year(),
-            with_offset.month().try_into().ok()?,
-            with_offset.day().try_into().ok()?,
-        )
+    fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
+        self.now.today(offset)
     }
 }
 
@@ -301,9 +287,9 @@ fn system_path(
     let _ = span!(Level::DEBUG, "Path resolution").enter();
     debug!("File ID = {:?}", id);
     let exclude = |id: FileId, root: &Path| {
-        let file = id.vpath().resolve(root).ok_or(FileError::AccessDenied)?;
+        let file = id.vpath().realize(root).or(Err(FileError::AccessDenied))?;
 
-        if exclude.matches_relative_file(id.vpath().as_rootless_path()) {
+        if exclude.matches_relative_file(id.vpath().get_without_slash()) {
             debug!("This file is excluded");
             return Err(FileError::Other(Some(
                 "This file exists but is excluded from your package.".into(),
@@ -316,7 +302,7 @@ fn system_path(
 
     // Determine the root path relative to which the file path
     // will be resolved.
-    let root = if let Some(spec) = id.package() {
+    let root = if let VirtualRoot::Package(spec) = id.root() {
         if let Some(package_override) = package_override
             && *spec == package_override.0
         {

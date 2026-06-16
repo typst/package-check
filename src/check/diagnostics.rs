@@ -1,7 +1,8 @@
 use std::{fmt::Display, path::Path};
 
 use codespan_reporting::diagnostic::{Diagnostic, Severity};
-use typst::syntax::{FileId, VirtualPath};
+use typst::ecow::EcoString;
+use typst::syntax::{FileId, RootedPath, VirtualPath, VirtualRoot};
 
 pub type Result<T> = std::result::Result<T, Diagnostic<FileId>>;
 
@@ -64,11 +65,16 @@ impl Diagnostics {
     pub fn extend(&mut self, mut other: Self, dir_prefix: &Path) {
         let fix_labels = |diag: &mut Diagnostic<FileId>| {
             for label in diag.labels.iter_mut() {
-                if label.file_id.package().is_none() {
-                    label.file_id = FileId::new(
-                        None,
-                        VirtualPath::new(dir_prefix.join(label.file_id.vpath().as_rootless_path())),
-                    )
+                let Some(path) = dir_prefix
+                    .to_str()
+                    .and_then(|dir_prefix| VirtualPath::new(dir_prefix).ok())
+                    .and_then(|dir| dir.join(label.file_id.vpath().get_without_slash()).ok())
+                else {
+                    continue;
+                };
+
+                if *label.file_id.root() == VirtualRoot::Project {
+                    label.file_id = FileId::new(RootedPath::new(VirtualRoot::Project, path))
                 }
             }
         };
@@ -101,21 +107,21 @@ impl Diagnostics {
 }
 
 /// Prioritize diagnostics regarding the manifest and readme.
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd)]
 enum PrioritzedFile {
     Manifest,
     Readme,
-    Other(&'static VirtualPath),
+    Other(EcoString),
 }
 
 impl From<FileId> for PrioritzedFile {
     fn from(id: FileId) -> Self {
         let vpath = id.vpath();
-        let path = vpath.as_rootless_path();
+        let path = vpath.get_without_slash();
         match path {
             _ if path == "typst.toml" => Self::Manifest,
             _ if path == "README.md" => Self::Readme,
-            _ => Self::Other(vpath),
+            _ => Self::Other(path.into()),
         }
     }
 }

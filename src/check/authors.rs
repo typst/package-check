@@ -1,5 +1,6 @@
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use typst::syntax::{FileId, VirtualPath, package::PackageSpec};
+use typst::syntax::{RootedPath, VirtualRoot};
 
 use crate::{github::git, package::PackageExt};
 
@@ -7,7 +8,10 @@ use super::Diagnostics;
 
 pub async fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
     if authors_are_differents(spec).await.unwrap_or(false) {
-        let manifest = FileId::new(None, VirtualPath::new("typst.toml"));
+        let manifest = FileId::new(RootedPath::new(
+            VirtualRoot::Project,
+            VirtualPath::new("typst.toml").ok()?,
+        ));
 
         diags.emit(
                 Diagnostic::warning()

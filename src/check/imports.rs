@@ -20,7 +20,7 @@ use crate::world::SystemWorld;
 pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -> Result<()> {
     let root_path = world.root();
     let main_path = root_path
-        .join(world.main().vpath().as_rootless_path())
+        .join(world.main().vpath().get_without_slash())
         .canonicalize()
         .ok();
     let all_packages = root_path
