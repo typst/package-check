@@ -1,9 +1,3 @@
-warning[size/wasm]: This file could be 228kB smaller with `wasm-opt -Os`.
-  ┌─ src/alexandria.wasm:1:0
-  │
-1 │ 
-  │ ^
-
 warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
 
 More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
