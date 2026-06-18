@@ -297,16 +297,21 @@ fn check_readme_link_url(
         return;
     };
 
+    // The percent encodng (if any) should be valid, since it the url has been
+    // parsed successfully.
+    let absolute_path = percent_encoding::percent_decode_str(url.path())
+        .decode_utf8()
+        .unwrap();
+
     // Don't allow URL with empty paths. If the path consists only of the root
     // component that we added above, the path was completely empty before.
-    let absolute_path = url.path();
     if absolute_path == "/" {
         diags.emit(invalid_url_error());
         return;
     }
 
     // Check if the local file exists.
-    let path = PackagePath::from_relative(world.root(), absolute_path);
+    let path = PackagePath::from_relative(world.root(), absolute_path.as_ref());
     if !path.full().exists() {
         diags.emit(
             Diagnostic::error()

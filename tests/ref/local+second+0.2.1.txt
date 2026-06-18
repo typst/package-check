@@ -7,14 +7,14 @@ warning[kebab-case/value]: This value seems to be public. It is recommended to u
 warning[exclude/readme]: Your README.md file should not be excluded.
   ┌─ typst.toml:7:10
   │
-7 │ exclude = ["LICENSE", "README.md"]
-  │           ^^^^^^^^^^^^^^^^^^^^^^^^
+7 │ exclude = ["LICENSE", "README.md", "ascii art.txt"]
+  │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning[exclude/license]: Your LICENSE file should not be excluded.
   ┌─ typst.toml:7:10
   │
-7 │ exclude = ["LICENSE", "README.md"]
-  │           ^^^^^^^^^^^^^^^^^^^^^^^^
+7 │ exclude = ["LICENSE", "README.md", "ascii art.txt"]
+  │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[manifest/package/compiler/type]: Compiler version should be a string
   ┌─ typst.toml:6:11
