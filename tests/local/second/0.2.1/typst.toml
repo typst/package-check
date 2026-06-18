@@ -4,6 +4,6 @@ license = "MIT"
 version = "0.2.1"
 entrypoint = "lib.typ"
 compiler = -inf
-exclude = ["LICENSE", "README.md"]
+exclude = ["LICENSE", "README.md", "ascii art.txt"]
 authors = [2024-01-01]
 description = "Hi"

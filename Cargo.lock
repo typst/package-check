@@ -4021,6 +4021,7 @@ dependencies = [
  "jwt-simple",
  "markup5ever_rcdom",
  "parking_lot",
+ "percent-encoding",
  "regex",
  "reqwest",
  "serde",
