@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
 };
 
-use codespan_reporting::diagnostic::Diagnostic;
+use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use typst::{
     World,
     syntax::{
@@ -91,8 +91,15 @@ pub fn check_ast(
                 latest_package_version(all_packages, import_spec.versionless())
             && latest_version > import_spec.version
         {
+            // Generate an error if an old version of the package is imported.
+            // For other packages this usually isn't an issue, so only notify
+            // package authors.
+            let severity = match world.package_spec() {
+                Some(spec) if import_spec.versionless() == spec.versionless() => Severity::Error,
+                _ => Severity::Note,
+            };
             diags.emit(
-                Diagnostic::warning()
+                Diagnostic::new(severity)
                     .with_labels(label(world, import.span()).into_iter().collect())
                     .with_code("import/outdated")
                     .with_message("This import seems to use an older version of the package."),

@@ -204,10 +204,10 @@ mod json {
         serde_json::to_writer(
             &mut *w,
             &JsonDiagnostic {
-                kind: if diag.severity == Severity::Error {
-                    "error"
-                } else {
-                    "warning"
+                kind: match diag.severity {
+                    Severity::Help | Severity::Note => "note",
+                    Severity::Warning => "warning",
+                    Severity::Error | Severity::Bug => "error",
                 },
                 location,
                 message: &diag.message,

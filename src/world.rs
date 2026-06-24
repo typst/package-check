@@ -43,15 +43,21 @@ pub struct SystemWorld {
     /// always the same within one compilation.
     /// Reset between compilations if not [`Now::Fixed`].
     now: typst_kit::datetime::Time,
+    /// The package specification of the currently checked package.
+    package_spec: Option<PackageSpec>,
     /// Override for package resolution
-    package_override: Option<(PackageSpec, PathBuf)>,
+    package_override: Option<PathBuf>,
     /// Files that are considered excluded and should not be read from.
     exclude: Exclude,
 }
 
 impl SystemWorld {
     /// Create a new system world.
-    pub fn new(input: PathBuf, root: PathBuf) -> Result<Self, WorldCreationError> {
+    pub fn new(
+        input: PathBuf,
+        root: PathBuf,
+        package_spec: Option<PackageSpec>,
+    ) -> Result<Self, WorldCreationError> {
         // Resolve the virtual path of the main file within the project root.
         let main_path =
             VirtualPath::virtualize(&root, &input).or(Err(WorldCreationError::InputOutsideRoot))?;
@@ -70,13 +76,14 @@ impl SystemWorld {
             fonts: searcher.fonts,
             slots: Mutex::new(HashMap::new()),
             now: typst_kit::datetime::Time::system(),
+            package_spec,
             package_override: None,
             exclude: Exclude::empty(),
         })
     }
 
-    pub fn with_package_override(mut self, spec: &PackageSpec, dir: &Path) -> Self {
-        self.package_override = Some((spec.clone(), dir.to_owned()));
+    pub fn with_package_override(mut self, dir: PathBuf) -> Self {
+        self.package_override = Some(dir);
         self
     }
 
@@ -102,6 +109,16 @@ impl SystemWorld {
     pub fn virtual_line(&self, id: FileId) -> usize {
         self.slot(id, |f| f.line_shift)
     }
+
+    pub fn package_spec(&self) -> Option<&PackageSpec> {
+        self.package_spec.as_ref()
+    }
+
+    pub fn package_override(&self) -> Option<(&PackageSpec, &Path)> {
+        self.package_spec
+            .as_ref()
+            .zip(self.package_override.as_deref())
+    }
 }
 
 impl World for SystemWorld {
@@ -119,13 +136,13 @@ impl World for SystemWorld {
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         self.slot(id, |slot| {
-            slot.source(&self.root, &self.package_override, &self.exclude)
+            slot.source(&self.root, self.package_override(), &self.exclude)
         })
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         self.slot(id, |slot| {
-            slot.file(&self.root, &self.package_override, &self.exclude)
+            slot.file(&self.root, self.package_override(), &self.exclude)
         })
     }
 
@@ -177,7 +194,7 @@ impl FileSlot {
     fn source(
         &mut self,
         project_root: &Path,
-        package_override: &Option<(PackageSpec, PathBuf)>,
+        package_override: Option<(&PackageSpec, &Path)>,
         exclude: &Exclude,
     ) -> FileResult<Source> {
         self.source.get_or_init(
@@ -214,7 +231,7 @@ impl FileSlot {
     fn file(
         &mut self,
         project_root: &Path,
-        package_override: &Option<(PackageSpec, PathBuf)>,
+        package_override: Option<(&PackageSpec, &Path)>,
         exclude: &Exclude,
     ) -> FileResult<Bytes> {
         self.file.get_or_init(
@@ -279,7 +296,7 @@ impl<T: Clone> SlotCell<T> {
 /// Resolves the path of a file id on the system, downloading a package if
 /// necessary.
 fn system_path(
-    package_override: &Option<(PackageSpec, PathBuf)>,
+    package_override: Option<(&PackageSpec, &Path)>,
     project_root: &Path,
     exclude: &Exclude,
     id: FileId,
@@ -303,10 +320,10 @@ fn system_path(
     // Determine the root path relative to which the file path
     // will be resolved.
     let root = if let VirtualRoot::Package(spec) = id.root() {
-        if let Some(package_override) = package_override
-            && *spec == package_override.0
+        if let Some((override_spec, override_dir)) = package_override
+            && spec == override_spec
         {
-            return exclude(id, &package_override.1);
+            return exclude(id, override_dir);
         }
 
         expect_parents(
@@ -355,7 +372,7 @@ fn expect_parents<'a>(dir: &'a Path, parents: &'a [&'a str]) -> Option<PathBuf> 
 fn read(
     id: FileId,
     project_root: &Path,
-    package_override: &Option<(PackageSpec, PathBuf)>,
+    package_override: Option<(&PackageSpec, &Path)>,
     exclude: &Exclude,
 ) -> FileResult<Vec<u8>> {
     read_from_disk(&system_path(package_override, project_root, exclude, id)?)
