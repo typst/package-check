@@ -1,0 +1,6 @@
+[package]
+name = "second"
+license = "MIT"
+version = "0.1.0"
+entrypoint = "lib.typ"
+description = "Hi"

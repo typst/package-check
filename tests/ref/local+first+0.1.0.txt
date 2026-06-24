@@ -4,6 +4,12 @@ error[compile/error]: The following error was reported by the Typst compiler: fa
 1 │ #import "@preview/first:0.1.0": add as add
   │         ^^^^^^^^^^^^^^^^^^^^^^
 
+note[import/outdated]: This import seems to use an older version of the package.
+  ┌─ lib.typ:2:1
+  │
+2 │ #import "@local/second:0.1.0"
+  │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 error[manifest/template/thumbnail/not-found]: This file does not exist.
   ┌─ typst.toml:7:12
   │

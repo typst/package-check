@@ -110,11 +110,25 @@ pub async fn check(
         dont_exclude_template_files(diags, package_dir, &package.exclude, template);
     }
 
-    let world = SystemWorld::new(package.entrypoint.full().to_owned(), package_dir.to_owned())
-        .error(
-            "compile/package-world-init",
-            "Failed to initialize the Typst compiler",
-        )?;
+    let package_spec = package_spec.cloned().or_else(|| {
+        let name = package.name.as_ref()?;
+        let version = package.version.as_ref()?;
+        Some(PackageSpec {
+            namespace: "preview".into(),
+            name: name.as_ref().val.into(),
+            version: version.val,
+        })
+    });
+
+    let world = SystemWorld::new(
+        package.entrypoint.full().to_owned(),
+        package_dir.to_owned(),
+        package_spec.clone(),
+    )
+    .error(
+        "compile/package-world-init",
+        "Failed to initialize the Typst compiler",
+    )?;
 
     let template_world = world_for_template(package_dir, package_spec, &package, &template);
 
@@ -658,19 +672,11 @@ fn check_template(
 
 fn world_for_template(
     package_dir: &Path,
-    package_spec: Option<&PackageSpec>,
+    package_spec: Option<PackageSpec>,
     package: &Spanned<Package>,
     template: &Option<Spanned<Template>>,
 ) -> Option<SystemWorld> {
-    let name = package.name.as_ref()?;
-    let version = package.version.as_ref()?;
-    let inferred_package_spec = PackageSpec {
-        namespace: "preview".into(),
-        name: name.as_ref().val.into(),
-        version: version.val,
-    };
-    let package_spec = package_spec.unwrap_or(&inferred_package_spec);
-
+    let package_spec = package_spec?;
     let template = template.as_ref()?;
     let template_path = template.path.as_ref()?;
     let template_main = template.entrypoint.as_ref()?;
@@ -678,9 +684,10 @@ fn world_for_template(
     let mut world = SystemWorld::new(
         template_main.full().to_owned(),
         template_path.full().to_owned(),
+        Some(package_spec),
     )
     .ok()?
-    .with_package_override(package_spec, package_dir);
+    .with_package_override(package_dir.to_owned());
     world.exclude(package.exclude.val.clone());
     Some(world)
 }
