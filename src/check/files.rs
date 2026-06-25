@@ -77,12 +77,13 @@ fn warn_ignored_files(
 
     // Don't emit noisy warnings for common hidden files that won't be a problem
     // when missing from the bundle.
-    const COMMON: [&str; 5] = [
+    const COMMON: [&str; 6] = [
         ".gitattributes",
         ".gitignore",
         ".gitkeep",
         ".ignore",
         ".keep",
+        ".typstignore",
     ];
     if COMMON.map(OsStr::new).contains(&file_path.file_name()) {
         return;
