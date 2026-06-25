@@ -150,7 +150,7 @@ fn check_readme_code_block(
         )
         .unwrap();
     let (errors, warnings) = source.root().errors_and_warnings();
-    for err in errors.into_iter().chain(warnings.into_iter()) {
+    for err in errors.into_iter().chain(warnings) {
         diags.emit(
             Diagnostic::warning()
                 .with_code("readme/syntax")
