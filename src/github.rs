@@ -474,10 +474,10 @@ fn diagnostic_to_annotation(
         end_line: end_line + 1,
         start_column,
         end_column,
-        annotation_level: if diag.severity == Severity::Warning {
-            AnnotationLevel::Warning
-        } else {
-            AnnotationLevel::Failure
+        annotation_level: match diag.severity {
+            Severity::Help | Severity::Note => AnnotationLevel::Notice,
+            Severity::Warning => AnnotationLevel::Warning,
+            Severity::Error | Severity::Bug => AnnotationLevel::Failure,
         },
         message: diag.message.clone(),
     })

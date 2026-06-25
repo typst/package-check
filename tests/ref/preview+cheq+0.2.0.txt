@@ -72,15 +72,15 @@ If this code block is not supposed to be parsed as a Typst source, please explic
 152 │ #let checked-sym(fill: white, stroke: rgb("#616161"), radius: .1em) = { .. }
     │                                                                         ^^
 
-warning[import/outdated]: This import seems to use an older version of the package.
-   ┌─ README.md:53:1
-   │
-53 │ #import "@preview/cheq:0.1.0": checklist
-   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 warning[manifest/package/exclude/leading-dot]: Leading `./` of exclusions are trimmed. Use an absolute path starting with `/` to avoid recursive matching.
   ┌─ typst.toml:6:11
   │
 6 │ exclude = ["./examples"]
   │            ^^^^^^^^^^^^
+
+error[import/outdated]: This import seems to use an older version of the package.
+   ┌─ README.md:53:1
+   │
+53 │ #import "@preview/cheq:0.1.0": checklist
+   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
