@@ -3,31 +3,41 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixpkgs-unstable";
-    utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, utils }:
-    let cargoMeta = builtins.fromTOML (builtins.readFile ./Cargo.toml);
-    in utils.lib.eachDefaultSystem (system:
-      let pkgs = nixpkgs.legacyPackages.${system};
-      in {
-        packages = rec {
+  outputs =
+    {
+      self,
+      nixpkgs,
+    }:
+    let
+      inherit (nixpkgs) lib;
+      supportedSystems = [
+        "x86_64-linux"
+        "aarch64-linux"
+        "x86_64-darwin"
+        "aarch64-darwin"
+      ];
+      forAllSystems = lib.genAttrs supportedSystems;
+    in
+    {
+      formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
+
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        rec {
           default = typst-package-check;
-          typst-package-check = pkgs.rustPlatform.buildRustPackage {
-            pname = cargoMeta.package.name;
-            version = cargoMeta.package.version;
-            src = ./.;
-            nativeBuildInputs = [ pkgs.pkg-config ];
-            buildInputs = [ pkgs.openssl.dev pkgs.git ];
-            cargoHash = "sha256-RMjZLacXHStsPyK5R0T++mr2yLlJE52xpcK1sqJ57Fw=";
-            # Don't run `cargo test`, as there are no tests to run.
-            doCheck = false;
-          };
+
+          typst-package-check = pkgs.callPackage ./package.nix { };
+
           docker-image = pkgs.dockerTools.buildImage {
             name = "ghcr.io/typst/package-check";
             tag = typst-package-check.version;
-            copyToRoot = with pkgs.dockerTools; [
-              caCertificates
+            copyToRoot = [
+              pkgs.dockerTools.caCertificates
               pkgs.gitMinimal
               pkgs.bashNonInteractive
               pkgs.busybox
@@ -38,6 +48,7 @@
               WorkingDir = "/data";
             };
           };
-        };
-      });
+        }
+      );
+    };
 }
