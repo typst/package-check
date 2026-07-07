@@ -523,8 +523,42 @@ fn check_exclude(
     package: Spanned<&Table>,
     template: &Option<Spanned<Template>>,
 ) -> Result<Spanned<Exclude>> {
+    let mut exclude_globs = build_exclude_globs(diags, package_dir, package)?;
+
+    let thumbnail_path = template.as_ref().and_then(|t| t.thumbnail.as_ref());
+    if let Some(thumbnail_path) = thumbnail_path {
+        // Check if the thumbnail is directly excluded, it's fine if a parent
+        // directory is excluded.
+        if let Ok(exclude) = exclude_globs.build()
+            && exclude.matched(thumbnail_path.full(), false).is_ignore()
+        {
+            diags.emit(
+                Diagnostic::error()
+                    .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
+                    .with_code("manifest/template/thumbnail/exclude")
+                    .with_message("The template thumbnail is automatically excluded"),
+            );
+        }
+
+        exclude_globs
+            .add(&format!("!{}", thumbnail_path.relative().display()))
+            .ok();
+    }
+
+    let exclude = exclude_globs
+        .build()
+        .error("manifest/package/exclude/invalid", "Invalid exclude globs")?;
+    Ok(exclude_globs.map(|_| Exclude::new(exclude)))
+}
+
+fn build_exclude_globs(
+    diags: &mut Diagnostics,
+    package_dir: &Path,
+    package: Spanned<&Table>,
+) -> Result<Spanned<OverrideBuilder>> {
+    let mut exclude_globs = OverrideBuilder::new(package_dir);
     let Some(exclude) = package.get_spanned("exclude") else {
-        return Ok(Spanned::new(Exclude::empty(), package.span()));
+        return Ok(Spanned::new(exclude_globs, package.span()));
     };
 
     let exclude = exclude.try_map(Item::as_array).error(
@@ -532,7 +566,6 @@ fn check_exclude(
         "`exclude` must be an array of strings",
     )?;
 
-    let mut exclude_globs = OverrideBuilder::new(package_dir);
     for exclusion in exclude.iter() {
         let Some(exclusion_str) = exclusion.as_str() else {
             continue;
@@ -557,30 +590,7 @@ fn check_exclude(
         exclude_globs.add(&format!("!{exclusion_str}")).ok();
     }
 
-    let thumbnail_path = template.as_ref().and_then(|t| t.thumbnail.as_ref());
-    if let Some(thumbnail_path) = thumbnail_path {
-        // Check if the thumbnail is directly excluded, it's fine if a parent
-        // directory is excluded.
-        if let Ok(exclude) = exclude_globs.build()
-            && exclude.matched(thumbnail_path.full(), false).is_ignore()
-        {
-            diags.emit(
-                Diagnostic::error()
-                    .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
-                    .with_code("manifest/template/thumbnail/exclude")
-                    .with_message("The template thumbnail is automatically excluded"),
-            );
-        }
-
-        exclude_globs
-            .add(&format!("!{}", thumbnail_path.relative().display()))
-            .ok();
-    }
-
-    let exclude_globs = exclude_globs
-        .build()
-        .error("manifest/package/exclude/invalid", "Invalid exclude globs")?;
-    Ok(exclude.map(|_| Exclude::new(exclude_globs)))
+    Ok(exclude.map(|_| exclude_globs))
 }
 
 #[derive(Debug, Clone)]
