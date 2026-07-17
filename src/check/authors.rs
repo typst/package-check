@@ -27,7 +27,7 @@ pub async fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
 }
 
 pub async fn commit_for_previous_version(spec: &PackageSpec) -> Option<String> {
-    let last_manifest = spec.previous_version()?.directory().join("typst.toml");
+    let last_manifest = spec.previous_version()?.git_dir().join("typst.toml");
 
     let repo = git::repo_dir();
     let repo = git::GitRepo::open(&repo).await.ok()?;
@@ -36,8 +36,8 @@ pub async fn commit_for_previous_version(spec: &PackageSpec) -> Option<String> {
 }
 
 pub async fn authors_are_differents(spec: &PackageSpec) -> Option<bool> {
-    let last_manifest = spec.previous_version()?.directory().join("typst.toml");
-    let new_manifest = spec.directory().join("typst.toml");
+    let last_manifest = spec.previous_version()?.git_dir().join("typst.toml");
+    let new_manifest = spec.git_dir().join("typst.toml");
 
     let repo = git::repo_dir();
     let repo = git::GitRepo::open(&repo).await.ok()?;
