@@ -13,7 +13,8 @@ use typst::syntax::{
 };
 
 use crate::check::files;
-use crate::check::path::{self, PackagePath};
+use crate::check::path::PackagePath;
+use crate::world::WorldRoot;
 use crate::{
     check::{Diagnostics, Result, TryExt},
     world::SystemWorld,
@@ -40,7 +41,7 @@ impl Manifest {
 
 #[derive(Debug, Clone)]
 pub struct Package {
-    pub entrypoint: Spanned<PackagePath>,
+    pub entrypoint: Spanned<VirtualPath>,
     pub name: Option<Spanned<String>>,
     pub version: Option<Spanned<PackageVersion>>,
     pub exclude: Spanned<Exclude>,
@@ -51,7 +52,7 @@ pub struct Template {
     pub path: Option<Spanned<PackagePath>>,
     /// The package directory of this path is still relative to the package, not
     /// the template directory.
-    pub entrypoint: Option<Spanned<PackagePath>>,
+    pub entrypoint: Option<Spanned<VirtualPath>>,
     pub thumbnail: Option<Spanned<PackagePath>>,
 }
 
@@ -88,7 +89,15 @@ pub async fn check(
         "manifest/package/entrypoint/missing",
         "Packages must specify an `entrypoint` in their manifest",
     )?;
-    let entrypoint = entrypoint.map(|e| PackagePath::from_relative(package_dir, e));
+    let entrypoint = entrypoint.try_map(|path| {
+        VirtualPath::new(path).map_err(|err| {
+            Diagnostic::error()
+                .with_label(Label::primary(manifest_id(), entrypoint.span()))
+                .with_code("manifest/template/entrypoint/invalid")
+                .with_message(format_args!("invalid entrypoint ({err})"))
+        })
+    })?;
+
     let name = check_name(diags, package, package_spec);
     let version = check_version(diags, package, package_spec);
     let template = check_template(diags, &manifest, package_dir);
@@ -127,14 +136,10 @@ pub async fn check(
     });
 
     let world = SystemWorld::new(
-        package.entrypoint.full().to_owned(),
-        package_dir.to_owned(),
+        package.entrypoint.val.clone(),
+        WorldRoot::Package(package_dir.to_owned()),
         package_spec.clone(),
-    )
-    .error(
-        "compile/package-world-init",
-        "Failed to initialize the Typst compiler",
-    )?;
+    );
 
     let template_world = world_for_template(package_dir, package_spec, &package, &template);
 
@@ -168,7 +173,7 @@ fn check_name(
     let error = Diagnostic::error().with_label(Label::primary(manifest_id(), name.span()));
     let warning = Diagnostic::warning().with_label(Label::primary(manifest_id(), name.span()));
 
-    let Some(name) = name.try_map(Item::as_str) else {
+    let Some(name) = name.filter_map(Item::as_str) else {
         diags.emit(
             error
                 .with_code("manifest/package/name/type")
@@ -234,7 +239,7 @@ fn check_version(
 
     let error = Diagnostic::error().with_label(Label::primary(manifest_id(), version.span()));
 
-    let Some(version) = version.try_map(Item::as_str) else {
+    let Some(version) = version.filter_map(Item::as_str) else {
         diags.emit(
             error
                 .with_code("manifest/package/version/type")
@@ -243,7 +248,7 @@ fn check_version(
         return None;
     };
 
-    let Some(version) = version.try_map(|v| v.parse::<PackageVersion>().ok()) else {
+    let Some(version) = version.filter_map(|v| v.parse::<PackageVersion>().ok()) else {
         diags.emit(
             error
                 .with_code("manifest/package/version/invalid")
@@ -278,7 +283,7 @@ fn check_version(
 fn check_compiler_version(diags: &mut Diagnostics, package: Spanned<&Table>) -> Option<()> {
     let compiler = package.get_spanned("compiler")?;
 
-    let Some(compiler) = compiler.try_map(Item::as_str) else {
+    let Some(compiler) = compiler.filter_map(Item::as_str) else {
         diags.emit(
             Diagnostic::error()
                 .with_label(Label::primary(manifest_id(), compiler.span()))
@@ -567,7 +572,7 @@ fn build_exclude_globs(
         return Ok(Spanned::new(exclude_globs, package.span()));
     };
 
-    let exclude = exclude.try_map(Item::as_array).error(
+    let exclude = exclude.filter_map(Item::as_array).error(
         "manifest/package/exclude/type",
         "`exclude` must be an array of strings",
     )?;
@@ -615,6 +620,10 @@ impl Exclude {
         Self { globs }
     }
 
+    pub fn root(&self) -> &Path {
+        self.globs.path()
+    }
+
     /// Whether the package file path is excluded.
     pub fn matches_file<T: AsRef<Path>>(&self, path: &PackagePath<T>) -> bool {
         self.matches_relative_file(path.relative())
@@ -650,7 +659,7 @@ fn check_template(
 ) -> Option<Spanned<Template>> {
     let template = manifest.get_spanned("template")?;
 
-    let Some(template) = template.try_map(Item::as_table) else {
+    let Some(template) = template.filter_map(Item::as_table) else {
         diags.emit(
             Diagnostic::error()
                 .with_label(Label::primary(manifest_id(), template.span()))
@@ -666,12 +675,17 @@ fn check_template(
     });
 
     let entrypoint = template.get_str("entrypoint").and_then(|entrypoint| {
-        let template_dir = path.as_ref()?;
-        Some(
-            entrypoint
-                .map(|entrypoint| path::join_to(template_dir.full(), entrypoint))
-                .map(|path| PackagePath::from_full(package_dir, path)),
-        )
+        let virtual_path = VirtualPath::new(entrypoint.val)
+            .inspect_err(|err| {
+                diags.emit(
+                    Diagnostic::error()
+                        .with_label(Label::primary(manifest_id(), entrypoint.span()))
+                        .with_code("manifest/template/entrypoint/invalid")
+                        .with_message(format_args!("invalid entrypoint ({err})")),
+                );
+            })
+            .ok()?;
+        Some(entrypoint.map(|_| virtual_path))
     });
 
     let thumbnail = template.get_str("thumbnail").map(|path| {
@@ -694,18 +708,17 @@ fn world_for_template(
 ) -> Option<SystemWorld> {
     let package_spec = package_spec?;
     let template = template.as_ref()?;
-    let template_path = template.path.as_ref()?;
-    let template_main = template.entrypoint.as_ref()?;
+    let template_dir = template.path.as_ref()?;
+    let main = template.entrypoint.as_ref()?;
 
-    let mut world = SystemWorld::new(
-        template_main.full().to_owned(),
-        template_path.full().to_owned(),
-        Some(package_spec),
-    )
-    .ok()?
-    .with_package_override(package_dir.to_owned());
-    world.exclude(package.exclude.val.clone());
-    Some(world)
+    let root = WorldRoot::Template {
+        package: package_dir.to_owned(),
+        template: template_dir.full().to_owned(),
+    };
+
+    let world = SystemWorld::new(main.val.clone(), root, Some(package_spec));
+
+    Some(world.exclude(package.exclude.val.clone()))
 }
 
 fn dont_exclude_template_files(
@@ -842,11 +855,21 @@ impl<T> Spanned<T> {
         }
     }
 
-    pub fn try_map<F, V>(self, f: F) -> Option<Spanned<V>>
+    pub fn filter_map<F, V>(self, f: F) -> Option<Spanned<V>>
     where
         F: FnOnce(T) -> Option<V>,
     {
         Some(Spanned {
+            val: f(self.val)?,
+            span: self.span,
+        })
+    }
+
+    pub fn try_map<F, V, E>(self, f: F) -> std::result::Result<Spanned<V>, E>
+    where
+        F: FnOnce(T) -> std::result::Result<V, E>,
+    {
+        Ok(Spanned {
             val: f(self.val)?,
             span: self.span,
         })
@@ -899,14 +922,14 @@ impl TomlExt for Table {
     }
 
     fn get_table(&self, name: &'static str) -> Option<Spanned<&Table>> {
-        self.get_spanned(name)?.try_map(Item::as_table)
+        self.get_spanned(name)?.filter_map(Item::as_table)
     }
 
     fn get_array(&self, name: &'static str) -> Option<Spanned<&Array>> {
-        self.get_spanned(name)?.try_map(Item::as_array)
+        self.get_spanned(name)?.filter_map(Item::as_array)
     }
 
     fn get_str(&self, name: &'static str) -> Option<Spanned<&str>> {
-        self.get_spanned(name)?.try_map(Item::as_str)
+        self.get_spanned(name)?.filter_map(Item::as_str)
     }
 }

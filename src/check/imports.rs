@@ -1,16 +1,9 @@
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use codespan_reporting::diagnostic::{Diagnostic, Severity};
-use typst::{
-    World,
-    syntax::{
-        ast::{self, AstNode, ModuleImport},
-        package::{PackageSpec, PackageVersion, VersionlessPackageSpec},
-    },
-};
+use typst::syntax::ast::{self, AstNode, ModuleImport};
+use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
 use walkdir::WalkDir;
 
 use crate::check::path::PackagePath;
@@ -18,15 +11,8 @@ use crate::check::{Diagnostics, Result, TryExt, label};
 use crate::world::SystemWorld;
 
 pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -> Result<()> {
-    let root_path = world.root();
-    let main_path = root_path
-        .join(world.main().vpath().get_without_slash())
-        .canonicalize()
-        .ok();
-    let all_packages = root_path
-        .parent()
-        .and_then(|package_dir| package_dir.parent())
-        .and_then(|namespace_dir| namespace_dir.parent());
+    let all_packages = world.root().all_packages();
+    let entrypoint = world.root().is_package().then(|| world.entrypoint());
 
     for ch in WalkDir::new(package_dir).into_iter().flatten() {
         let Ok(meta) = ch.metadata() else {
@@ -46,7 +32,7 @@ pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -
                 world,
                 source.root(),
                 path.full(),
-                main_path.as_deref(),
+                entrypoint.as_deref(),
                 all_packages,
             );
         }
@@ -58,12 +44,12 @@ pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -
 pub fn check_ast(
     diags: &mut Diagnostics,
     world: &SystemWorld,
-    root: &typst::syntax::SyntaxNode,
+    node: &typst::syntax::SyntaxNode,
     path: &Path,
-    main_path: Option<&Path>,
+    package_entrypoint: Option<&Path>,
     all_packages: Option<&Path>,
 ) {
-    let imports = root.children().filter_map(|ch| ch.cast::<ModuleImport>());
+    let imports = node.children().filter_map(|ch| ch.cast::<ModuleImport>());
     for import in imports {
         let ast::Expr::Str(source_str) = import.source() else {
             continue;
@@ -74,7 +60,7 @@ pub fn check_ast(
             .join(source_str.get().as_str())
             .canonicalize()
             .ok();
-        if main_path == import_path.as_deref() {
+        if package_entrypoint == import_path.as_deref() {
             diags.emit(
                 Diagnostic::warning()
                     .with_labels(label(world, import.span()).into_iter().collect())
