@@ -28,14 +28,20 @@ pub struct CheckRunOutput<'a> {
 #[derive(Debug, Serialize)]
 pub struct Annotation {
     pub path: String,
+    #[serde(flatten)]
+    pub span: Option<Span>,
+    pub annotation_level: AnnotationLevel,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct Span {
     pub start_line: usize,
     pub end_line: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_column: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_column: Option<usize>,
-    pub annotation_level: AnnotationLevel,
-    pub message: String,
 }
 
 #[derive(Debug, Serialize)]
