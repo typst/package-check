@@ -366,10 +366,11 @@ pub async fn run_github_check(
                     },
                     summary: &format!(
                         "Our bots have automatically run some checks on your packages. \
-                                They found {} error{} and {} warning{}.\n\n\
-                                Warnings are suggestions, your package can still be accepted even \
-                                if you prefer not to fix them.\n\n\
-                                A human being will soon review your package, too.",
+                         They found {} error{} and {} warning{}.\n\n\
+                         Most warnings and errors should be dealt with, if you think that
+                         a diagnostic is a false positive or doesn't apply to your package,
+                         you can ask on the forum, discord, or on this pull request.\n\n\
+                         A human being will soon review your package, too.",
                         diags.errors().len(),
                         plural(diags.errors().len()),
                         diags.warnings().len(),
