@@ -10,6 +10,16 @@ note[import/outdated]: This import seems to use an older version of the package.
 2 │ #import "@local/second:0.1.0"
   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+error[files/fonts]: Font files are not allowed.
+
+Delete them and instruct your users to install them manually, in your README and/or in a documentation comment.
+
+More details: https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages
+  ┌─ fonts/empty.woff2:1:0
+  │
+1 │ 
+  │ ^
+
 error[manifest/template/thumbnail/not-found]: This file does not exist.
   ┌─ typst.toml:7:12
   │
