@@ -188,10 +188,11 @@ fn exclude_examples_and_tests(diags: &mut Diagnostics, path: PackagePath<&Path>,
 }
 
 fn forbid_font_files(diags: &mut Diagnostics, path: PackagePath<&Path>) {
-    let Some(ext) = path.extension() else {
+    let Some(ext) = path.extension().and_then(OsStr::to_str) else {
         return;
     };
-    if !(ext == "otf" || ext == "ttf") {
+    const EXTENSIONS: [&str; 4] = ["otf", "ttf", "woff", "woff2"];
+    if !EXTENSIONS.contains(&ext.to_lowercase().as_str()) {
         return;
     }
 
