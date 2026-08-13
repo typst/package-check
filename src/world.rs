@@ -12,7 +12,7 @@ use fontdb::Database;
 use parking_lot::Mutex;
 use tracing::{Level, debug, span};
 use typst::foundations::Duration;
-use typst::syntax::{RootedPath, VirtualRoot};
+use typst::syntax::{RealizeError, RootedPath, VirtualRoot};
 use typst::{
     Library, LibraryExt, World,
     diag::{FileError, FileResult, PackageError, PackageResult},
@@ -28,7 +28,7 @@ use crate::package::PackageExt;
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
     /// The root relative to which absolute paths are resolved.
-    root: PathBuf,
+    root: WorldRoot,
     /// The input path.
     main: FileId,
     /// Typst's standard library.
@@ -45,30 +45,21 @@ pub struct SystemWorld {
     now: typst_kit::datetime::Time,
     /// The package specification of the currently checked package.
     package_spec: Option<PackageSpec>,
-    /// Override for package resolution
-    package_override: Option<PathBuf>,
     /// Files that are considered excluded and should not be read from.
     exclude: Exclude,
 }
 
 impl SystemWorld {
     /// Create a new system world.
-    pub fn new(
-        input: PathBuf,
-        root: PathBuf,
-        package_spec: Option<PackageSpec>,
-    ) -> Result<Self, WorldCreationError> {
-        // Resolve the virtual path of the main file within the project root.
-        let main_path =
-            VirtualPath::virtualize(&root, &input).or(Err(WorldCreationError::InputOutsideRoot))?;
-        let main = FileId::new(RootedPath::new(VirtualRoot::Project, main_path));
+    pub fn new(input: VirtualPath, root: WorldRoot, package_spec: Option<PackageSpec>) -> Self {
+        let main = FileId::new(RootedPath::new(VirtualRoot::Project, input));
 
         let library = Library::default();
 
         let mut searcher = FontSearcher::new();
         searcher.search(&[]);
 
-        Ok(Self {
+        Self {
             root,
             main,
             library: LazyHash::new(library),
@@ -77,29 +68,31 @@ impl SystemWorld {
             slots: Mutex::new(HashMap::new()),
             now: typst_kit::datetime::Time::system(),
             package_spec,
-            package_override: None,
             exclude: Exclude::empty(),
-        })
+        }
     }
 
-    pub fn with_package_override(mut self, dir: PathBuf) -> Self {
-        self.package_override = Some(dir);
+    pub fn exclude(mut self, exclude: Exclude) -> Self {
+        self.exclude = exclude;
         self
     }
 
     /// The root relative to which absolute paths are resolved.
-    pub fn root(&self) -> &Path {
+    pub fn root(&self) -> &WorldRoot {
         &self.root
+    }
+
+    /// Get the realized entrypoint path.
+    pub fn entrypoint(&self) -> PathBuf {
+        self.root()
+            .realize(self.main().vpath())
+            .expect("main file to be inside the world root")
     }
 
     /// Lookup a source file by id.
     #[track_caller]
     pub fn lookup(&self, id: FileId) -> FileResult<Source> {
         self.source(id)
-    }
-
-    pub fn exclude(&mut self, exclude: Exclude) {
-        self.exclude = exclude;
     }
 
     pub fn virtual_source(&self, id: FileId, src: Bytes, line_shift: usize) -> FileResult<Source> {
@@ -112,12 +105,6 @@ impl SystemWorld {
 
     pub fn package_spec(&self) -> Option<&PackageSpec> {
         self.package_spec.as_ref()
-    }
-
-    pub fn package_override(&self) -> Option<(&PackageSpec, &Path)> {
-        self.package_spec
-            .as_ref()
-            .zip(self.package_override.as_deref())
     }
 }
 
@@ -136,13 +123,13 @@ impl World for SystemWorld {
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         self.slot(id, |slot| {
-            slot.source(&self.root, self.package_override(), &self.exclude)
+            slot.source(&self.root, self.package_spec.as_ref(), &self.exclude)
         })
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         self.slot(id, |slot| {
-            slot.file(&self.root, self.package_override(), &self.exclude)
+            slot.file(&self.root, self.package_spec.as_ref(), &self.exclude)
         })
     }
 
@@ -163,6 +150,61 @@ impl SystemWorld {
     {
         let mut map = self.slots.lock();
         f(map.entry(id).or_insert_with(|| FileSlot::new(id)))
+    }
+}
+
+pub enum WorldRoot {
+    Package(PathBuf),
+    Template { package: PathBuf, template: PathBuf },
+}
+
+impl WorldRoot {
+    pub fn is_package(&self) -> bool {
+        matches!(self, Self::Package(..))
+    }
+
+    /// Returns the directory of the package this world lives in.
+    pub fn package_dir(&self) -> &Path {
+        match self {
+            WorldRoot::Package(path) => path,
+            WorldRoot::Template { package, .. } => package,
+        }
+    }
+
+    /// Returns the root of the world, either the template directory if this is
+    /// a template root, otherwise the package directory.
+    pub fn world_dir(&self) -> &Path {
+        match self {
+            WorldRoot::Package(path) => path,
+            WorldRoot::Template { template, .. } => template,
+        }
+    }
+
+    /// Returns the relative template dir.
+    pub fn relative_template_dir(&self) -> Option<&Path> {
+        match self {
+            WorldRoot::Package(_) => None,
+            WorldRoot::Template { package, template } => {
+                Some(template.strip_prefix(package).unwrap())
+            }
+        }
+    }
+
+    /// Returns the path in which all pacakges reside.
+    pub fn all_packages(&self) -> Option<&Path> {
+        // 1. version
+        // 2. package name
+        // 3. namespace
+        self.package_dir().parent()?.parent()?.parent()
+    }
+
+    /// Virtualize a path relative to this world root.
+    pub fn realize(&self, path: &VirtualPath) -> Result<PathBuf, RealizeError> {
+        let root = match self {
+            WorldRoot::Package(path) => path,
+            WorldRoot::Template { template, .. } => template,
+        };
+        path.realize(root)
     }
 }
 
@@ -193,12 +235,12 @@ impl FileSlot {
     /// Retrieve the source for this file.
     fn source(
         &mut self,
-        project_root: &Path,
-        package_override: Option<(&PackageSpec, &Path)>,
+        root: &WorldRoot,
+        override_spec: Option<&PackageSpec>,
         exclude: &Exclude,
     ) -> FileResult<Source> {
         self.source.get_or_init(
-            || read(self.id, project_root, package_override, exclude),
+            || read(root, override_spec, exclude, self.id),
             |data, prev| {
                 let text = decode_utf8(&data)?;
                 if let Some(mut prev) = prev {
@@ -230,12 +272,12 @@ impl FileSlot {
     /// Retrieve the file's bytes.
     fn file(
         &mut self,
-        project_root: &Path,
-        package_override: Option<(&PackageSpec, &Path)>,
+        root: &WorldRoot,
+        override_spec: Option<&PackageSpec>,
         exclude: &Exclude,
     ) -> FileResult<Bytes> {
         self.file.get_or_init(
-            || read(self.id, project_root, package_override, exclude),
+            || read(root, override_spec, exclude, self.id),
             |data, _| Ok(Bytes::new(data)),
         )
     }
@@ -293,89 +335,118 @@ impl<T: Clone> SlotCell<T> {
     }
 }
 
-/// Resolves the path of a file id on the system, downloading a package if
-/// necessary.
-fn system_path(
-    package_override: Option<(&PackageSpec, &Path)>,
-    project_root: &Path,
+/// Reads a file from a `FileId`.
+fn read(
+    root: &WorldRoot,
+    override_spec: Option<&PackageSpec>,
+    exclude: &Exclude,
+    id: FileId,
+) -> FileResult<Vec<u8>> {
+    let resolved = resolve_system_path(root, override_spec, exclude, id)?;
+    read_from_disk(&resolved)
+}
+
+/// Resolves the path of a file id on the system.
+fn resolve_system_path(
+    root: &WorldRoot,
+    override_spec: Option<&PackageSpec>,
     exclude: &Exclude,
     id: FileId,
 ) -> FileResult<PathBuf> {
     let _ = span!(Level::DEBUG, "Path resolution").enter();
     debug!("File ID = {:?}", id);
-    let exclude = |id: FileId, root: &Path| {
-        let file = id.vpath().realize(root).or(Err(FileError::AccessDenied))?;
 
-        if exclude.matches_relative_file(id.vpath().get_without_slash()) {
-            debug!("This file is excluded");
-            return Err(FileError::Other(Some(
-                "This file exists but is excluded from your package.".into(),
-            )));
+    // Determine the root path relative to which the file path will be resolved.
+    let mut resolved = None;
+    let root = match id.root() {
+        VirtualRoot::Project => root.world_dir(),
+        VirtualRoot::Package(spec) => {
+            // If the current package is imported, return the package dir
+            // directly, otherwise try to find the package:
+            // 1. relative to the current world's package dir.
+            // 2. inside the current git directory.
+            // 3. in the global package cache.
+            if Some(spec) == override_spec {
+                root.package_dir()
+            } else if let Some(dir) = find_relative_package(root, spec) {
+                resolved.insert(dir)
+            } else {
+                let dir = find_in_git_dir_or_cache(spec).map_err(FileError::Package)?;
+                resolved.insert(dir)
+            }
         }
-
-        debug!("Resolved to {}", file.display());
-        Ok(file)
     };
 
-    // Determine the root path relative to which the file path
-    // will be resolved.
-    let root = if let VirtualRoot::Package(spec) = id.root() {
-        if let Some((override_spec, override_dir)) = package_override
-            && spec == override_spec
-        {
-            return exclude(id, override_dir);
-        }
+    let realized_path = id.vpath().realize(root).or(Err(FileError::AccessDenied))?;
 
-        expect_parents(
-            project_root,
-            &[&spec.version.to_string(), &spec.name, &spec.namespace],
-        )
-        .map(|packages_root| {
-            Ok(packages_root
-                .join(spec.namespace.as_str())
-                .join(spec.name.as_str())
-                .join(spec.version.to_string()))
-        })
-        .unwrap_or_else(|| prepare_package(spec))
-        .map_err(FileError::Package)?
-    } else {
-        project_root.to_owned()
-    };
-    exclude(id, &root)
+    // FIXME: To be fully correct, we would need to read the exclude globs
+    // of the imported package and filter out files that are imported but
+    // excluded. Though these issues will most likely be discovered during
+    // package development.
+    if let Ok(exclude_relative_path) = realized_path.strip_prefix(exclude.root())
+        && exclude.matches_relative_file(exclude_relative_path)
+    {
+        debug!("This file is excluded");
+        return Err(FileError::Other(Some(
+            "This file exists but is excluded from your package.".into(),
+        )));
+    }
+
+    debug!("Resolved to {}", realized_path.display());
+    Ok(realized_path)
 }
 
 // Goes up in a file system hierarchy while the parent folder matches the expected name
-fn expect_parents<'a>(dir: &'a Path, parents: &'a [&'a str]) -> Option<PathBuf> {
-    let dir = dir.canonicalize().ok()?;
+fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<PathBuf> {
+    let dir = root.all_packages()?;
+    let mut buf = dir.to_path_buf();
 
-    if parents.is_empty() {
-        return Some(dir);
-    }
+    buf.push(spec.namespace.as_str());
+    buf.push(spec.name.as_str());
+    buf.push(spec.version.to_string());
 
-    let (expected_parent, rest) = parents.split_first()?;
-    if dir.file_name().and_then(|n| n.to_str()) != Some(expected_parent) {
+    if !buf.exists() {
         debug!(
-            "Expected parent folder to be {}, but it was {}",
-            expected_parent,
+            "Expected package `{spec}` to be present in `{}`",
             dir.display()
         );
         return None;
     }
 
-    expect_parents(dir.parent()?, rest)
+    Some(buf)
 }
 
-/// Reads a file from a `FileId`.
-///
-/// If the ID represents stdin it will read from standard input,
-/// otherwise it gets the file path of the ID and reads the file from disk.
-fn read(
-    id: FileId,
-    project_root: &Path,
-    package_override: Option<(&PackageSpec, &Path)>,
-    exclude: &Exclude,
-) -> FileResult<Vec<u8>> {
-    read_from_disk(&system_path(package_override, project_root, exclude, id)?)
+/// Try to find a pacakge in current git directory or in the on-disk cache.
+fn find_in_git_dir_or_cache(spec: &PackageSpec) -> PackageResult<PathBuf> {
+    let git_package_dir = spec.git_dir();
+    if git_package_dir.exists() {
+        return Ok(git_package_dir);
+    }
+
+    let subdir = format!(
+        "typst/packages/{}/{}/{}",
+        spec.namespace, spec.name, spec.version
+    );
+
+    if let Some(data_dir) = dirs::data_dir() {
+        let dir = data_dir.join(&subdir);
+        if dir.exists() {
+            return Ok(dir);
+        }
+    }
+
+    if let Some(cache_dir) = dirs::cache_dir() {
+        let dir = cache_dir.join(&subdir);
+        if dir.exists() {
+            return Ok(dir);
+        }
+
+        return Err(PackageError::NetworkFailed(Some(
+            "All packages are supposed to be present in the `packages` repository, or in the local cache.".into(),
+        )));
+    }
+
+    Err(PackageError::NotFound(spec.clone()))
 }
 
 /// Read a file from disk.
@@ -394,22 +465,6 @@ fn decode_utf8(buf: &[u8]) -> FileResult<&str> {
     Ok(std::str::from_utf8(
         buf.strip_prefix(b"\xef\xbb\xbf").unwrap_or(buf),
     )?)
-}
-/// An error that occurs during world construction.
-#[derive(Debug)]
-pub enum WorldCreationError {
-    /// The input file is not contained within the root folder.
-    InputOutsideRoot,
-}
-
-impl std::fmt::Display for WorldCreationError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            WorldCreationError::InputOutsideRoot => {
-                write!(f, "source file must be contained in project root")
-            }
-        }
-    }
 }
 
 /// Searches for fonts.
@@ -504,37 +559,4 @@ impl FontSearcher {
             }
         }
     }
-}
-
-/// Make a package available in the on-disk cache.
-pub fn prepare_package(spec: &PackageSpec) -> PackageResult<PathBuf> {
-    let subdir = format!(
-        "typst/packages/{}/{}/{}",
-        spec.namespace, spec.name, spec.version
-    );
-
-    let local_package_dir = spec.directory();
-    if local_package_dir.exists() {
-        return Ok(local_package_dir);
-    }
-
-    if let Some(data_dir) = dirs::data_dir() {
-        let dir = data_dir.join(&subdir);
-        if dir.exists() {
-            return Ok(dir);
-        }
-    }
-
-    if let Some(cache_dir) = dirs::cache_dir() {
-        let dir = cache_dir.join(&subdir);
-        if dir.exists() {
-            return Ok(dir);
-        }
-
-        return Err(PackageError::NetworkFailed(Some(
-            "All packages are supposed to be present in the `packages` repository, or in the local cache.".into(),
-        )));
-    }
-
-    Err(PackageError::NotFound(spec.clone()))
 }

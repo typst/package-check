@@ -12,15 +12,15 @@ use crate::{check::all_checks, package::PackageExt, world::SystemWorld};
 pub async fn main(spec_or_path: String, json_output: bool, offline: bool) {
     let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
     let package_dir = if let Some(ref package_spec) = package_spec {
-        package_spec.directory()
+        package_spec.git_dir()
     } else {
         PathBuf::from(spec_or_path)
     };
 
     match all_checks(package_spec.as_ref(), package_dir, true, offline).await {
-        Ok((mut world, diags)) => {
+        Ok((world, diags)) => {
             if let Err(err) =
-                print_diagnostics(&mut world, diags.errors(), diags.warnings(), json_output)
+                print_diagnostics(world, diags.errors(), diags.warnings(), json_output)
             {
                 error!("failed to print diagnostics ({err})");
                 error!(
@@ -47,7 +47,7 @@ pub async fn main(spec_or_path: String, json_output: bool, offline: bool) {
 
 /// Print diagnostic messages to the terminal.
 pub fn print_diagnostics(
-    world: &mut SystemWorld,
+    world: SystemWorld,
     errors: &[Diagnostic<FileId>],
     warnings: &[Diagnostic<FileId>],
     json: bool,
@@ -60,16 +60,16 @@ pub fn print_diagnostics(
     // We should be able to print diagnostics even on excluded files. If we
     // don't remove the exclusion, it will fail to read and display the file
     // contents.
-    world.exclude(Exclude::empty());
+    let mut world = world.exclude(Exclude::empty());
 
     for diagnostic in errors.iter().chain(warnings).rev() {
         if json {
-            json::emit(&mut std::io::stdout(), world, diagnostic)?;
+            json::emit(&mut std::io::stdout(), &mut world, diagnostic)?;
         } else {
             term::emit_to_write_style(
                 &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Auto),
                 &config,
-                world,
+                &world,
                 diagnostic,
             )?;
         }
