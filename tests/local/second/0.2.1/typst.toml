@@ -7,3 +7,7 @@ compiler = -inf
 exclude = ["LICENSE", "README.md", "ascii art.txt"]
 authors = [2024-01-01]
 description = "Hi"
+
+[template]
+path = "template"
+entrypoint = "main.typ"
