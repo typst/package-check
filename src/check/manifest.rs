@@ -746,6 +746,12 @@ fn dont_exclude_template_files(
 
 fn check_thumbnail(diags: &mut Diagnostics, template: &Spanned<Template>) {
     let Some(thumbnail_path) = &template.thumbnail else {
+        diags.emit(
+            Diagnostic::error()
+                .with_label(Label::primary(manifest_id(), template.span()))
+                .with_code("manifest/template/thumbnail/missing")
+                .with_message("Thumbnails are required for templates."),
+        );
         return;
     };
 

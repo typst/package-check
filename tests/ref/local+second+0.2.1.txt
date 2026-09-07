@@ -16,6 +16,12 @@ warning[exclude/license]: Your LICENSE file should not be excluded.
 7 │ exclude = ["LICENSE", "README.md", "ascii art.txt"]
   │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+error[manifest/template/thumbnail/missing]: Thumbnails are required for templates.
+   ┌─ typst.toml:11:0
+   │
+11 │ [template]
+   │ ^^^^^^^^^^
+
 error[manifest/package/compiler/type]: Compiler version should be a string
   ┌─ typst.toml:6:11
   │
