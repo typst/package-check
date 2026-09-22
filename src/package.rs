@@ -4,24 +4,29 @@ use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec
 
 use crate::github::git;
 
-/// Return the path of the directory containing all the packages (i.e. `typst/packages/packages`).
-fn dir() -> PathBuf {
+/// Return the path of the directory within the current git directory containing
+/// all the packages (i.e. `typst/packages/packages`).
+fn git_packages_dir() -> PathBuf {
     git::repo_dir().join("packages")
 }
 
 pub trait PackageExt: Sized {
     type Versionless;
 
+    /// Resolves the directory of the previous version of the package inside the
+    /// current git directory.
     fn previous_version(&self) -> Option<Self>;
 
-    fn directory(&self) -> PathBuf;
+    /// Resolves the directory of the package version inside the current git
+    /// directory.
+    fn git_dir(&self) -> PathBuf;
 }
 
 impl PackageExt for PackageSpec {
     type Versionless = VersionlessPackageSpec;
 
     fn previous_version(&self) -> Option<Self> {
-        let all_versions_dir = self.versionless().directory();
+        let all_versions_dir = self.versionless().git_dir();
         let mut last_version = None;
         for version_dir in std::fs::read_dir(&all_versions_dir).ok()? {
             let Ok(version_dir) = version_dir else {
@@ -52,8 +57,8 @@ impl PackageExt for PackageSpec {
         })
     }
 
-    fn directory(&self) -> PathBuf {
-        dir()
+    fn git_dir(&self) -> PathBuf {
+        git_packages_dir()
             .join(self.namespace.as_str())
             .join(self.name.as_str())
             .join(self.version.to_string())
@@ -61,11 +66,14 @@ impl PackageExt for PackageSpec {
 }
 
 pub trait VersionlessPackageExt {
-    fn directory(&self) -> PathBuf;
+    /// Resolves the directory of the package inside the current git directory.
+    fn git_dir(&self) -> PathBuf;
 }
 
 impl VersionlessPackageExt for VersionlessPackageSpec {
-    fn directory(&self) -> PathBuf {
-        dir().join(self.namespace.as_str()).join(self.name.as_str())
+    fn git_dir(&self) -> PathBuf {
+        git_packages_dir()
+            .join(self.namespace.as_str())
+            .join(self.name.as_str())
     }
 }
