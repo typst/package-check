@@ -1,0 +1,6 @@
+error[manifest/template/thumbnail/not-found]: This file does not exist.
+   ┌─ typst.toml:10:12
+   │
+10 │ thumbnail = "missing.png"
+   │             ^^^^^^^^^^^^^
+

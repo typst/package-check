@@ -60,7 +60,7 @@ pub fn check(
         warn_ignored_files(diags, file_path, excluded, ignored);
         forbid_font_files(diags, file_path);
         exclude_large_files(diags, file_path, excluded, metadata.len());
-        exclude_examples_and_tests(diags, file_path, excluded);
+        exclude_examples_and_tests(diags, manifest, file_path, excluded);
         link_manuals(diags, readme, file_path, excluded);
     }
 }
@@ -167,8 +167,19 @@ fn exclude_large_files(
     )
 }
 
-fn exclude_examples_and_tests(diags: &mut Diagnostics, path: PackagePath<&Path>, excluded: bool) {
-    if excluded {
+fn exclude_examples_and_tests(
+    diags: &mut Diagnostics,
+    manifest: &Manifest,
+    path: PackagePath<&Path>,
+    excluded: bool,
+) {
+    // Don't exclude template files, even if they contain "example" or "test" in their name.
+    let in_template_dir = || {
+        manifest
+            .template_path()
+            .is_some_and(|dir| path.full().starts_with(dir.full()))
+    };
+    if excluded || in_template_dir() {
         return;
     }
 

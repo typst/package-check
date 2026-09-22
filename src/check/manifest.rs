@@ -32,6 +32,12 @@ pub struct Manifest {
     pub template: Option<Spanned<Template>>,
 }
 
+impl Manifest {
+    pub fn template_path(&self) -> Option<&PackagePath> {
+        Some(&self.template.as_ref()?.path.as_ref()?.val)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Package {
     pub entrypoint: Spanned<PackagePath>,
