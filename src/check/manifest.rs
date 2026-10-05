@@ -1,24 +1,18 @@
-use std::path::PathBuf;
-use std::{ops::Range, path::Path, str::FromStr};
+use std::ops::Range;
+use std::path::Path;
+use std::str::FromStr;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ignore::overrides::{Override, OverrideBuilder};
 use reqwest::StatusCode;
 use toml_edit::{Array, Item, Table};
 use tracing::{debug, warn};
-use typst::syntax::RootedPath;
-use typst::syntax::{
-    FileId, VirtualPath,
-    package::{PackageSpec, PackageVersion},
-};
+use typst::syntax::package::{PackageSpec, PackageVersion};
+use typst::syntax::{FileId, PathError, RootedPath, VirtualPath};
 
-use crate::check::files;
 use crate::check::path::PackagePath;
-use crate::world::WorldRoot;
-use crate::{
-    check::{Diagnostics, Result, TryExt},
-    world::SystemWorld,
-};
+use crate::check::{Diagnostics, Result, TryExt, files};
+use crate::world::{SystemWorld, WorldRoot};
 
 pub struct Worlds {
     pub package: SystemWorld,
@@ -94,7 +88,7 @@ pub async fn check(
             Diagnostic::error()
                 .with_label(Label::primary(manifest_id(), entrypoint.span()))
                 .with_code("manifest/template/entrypoint/invalid")
-                .with_message(format_args!("invalid entrypoint ({err})"))
+                .with_message(format_args!("Invalid entrypoint ({err})"))
         })
     })?;
 
@@ -669,28 +663,60 @@ fn check_template(
         return None;
     };
 
-    let path = template.get_str("path").map(|path| {
-        path.map(PathBuf::from)
-            .map(|path| PackagePath::from_relative(package_dir, path))
+    let path = template.get_str("path").and_then(|path| {
+        // The template path is naively joined in `typst-cli` and thus shouldn't
+        // be absolute, otherwise it could escape the package directory, when
+        // initializing a template.
+        if path.trim().starts_with("/") {
+            diags.emit(
+                Diagnostic::error()
+                    .with_label(Label::primary(manifest_id(), path.span()))
+                    .with_code("manifest/template/path/invalid")
+                    .with_message(format!(
+                        "The template path is absolute `{}`.\n\
+                         Use a relative path instead.",
+                        path.val
+                    )),
+            );
+        }
+
+        let res = path
+            .try_map(|path| PackagePath::from_relative(package_dir, path))
+            .map_err(|err| {
+                path_error(
+                    "manifest/template/path/invalid",
+                    "template path",
+                    err,
+                    &path,
+                )
+            });
+        diags.maybe_emit(res)
     });
 
     let entrypoint = template.get_str("entrypoint").and_then(|entrypoint| {
-        let virtual_path = VirtualPath::new(entrypoint.val)
-            .inspect_err(|err| {
-                diags.emit(
-                    Diagnostic::error()
-                        .with_label(Label::primary(manifest_id(), entrypoint.span()))
-                        .with_code("manifest/template/entrypoint/invalid")
-                        .with_message(format_args!("invalid entrypoint ({err})")),
-                );
-            })
-            .ok()?;
-        Some(entrypoint.map(|_| virtual_path))
+        let res = entrypoint.try_map(VirtualPath::new).map_err(|err| {
+            path_error(
+                "manifest/template/entrypoint/invalid",
+                "template entrypoint",
+                err,
+                &entrypoint,
+            )
+        });
+        diags.maybe_emit(res)
     });
 
-    let thumbnail = template.get_str("thumbnail").map(|path| {
-        path.map(PathBuf::from)
-            .map(|path| PackagePath::from_relative(package_dir, path))
+    let thumbnail = template.get_str("thumbnail").and_then(|path| {
+        let res = path
+            .try_map(|path| PackagePath::from_relative(package_dir, path))
+            .map_err(|err| {
+                path_error(
+                    "manifest/template/thumbnail/invalid",
+                    "template thumbnail",
+                    err,
+                    &path,
+                )
+            });
+        diags.maybe_emit(res)
     });
 
     Some(template.map(|_| Template {
@@ -698,6 +724,18 @@ fn check_template(
         entrypoint,
         thumbnail,
     }))
+}
+
+fn path_error(
+    code: &str,
+    field: &str,
+    error: PathError,
+    path: &Spanned<&str>,
+) -> Diagnostic<FileId> {
+    Diagnostic::error()
+        .with_label(Label::primary(manifest_id(), path.span()))
+        .with_code(code)
+        .with_message(format_args!("Invalid {field} `{}` ({error})", path.val))
 }
 
 fn world_for_template(
