@@ -299,7 +299,25 @@ fn check_readme_link_url(
     }
 
     // Check if the local file exists.
-    let path = PackagePath::from_relative(world.root().package_dir(), absolute_path.as_ref());
+    let path = match PackagePath::from_relative(world.root().package_dir(), absolute_path.as_ref())
+    {
+        Ok(path) => path,
+        Err(err) => {
+            diags.emit(
+                Diagnostic::error()
+                    .with_code("readme/link/invalid")
+                    .with_message(format_args!(
+                        "invalid readme link `{absolute_path}` ({err})"
+                    ))
+                    .with_label(Label::primary(
+                        readme_file_id(),
+                        sourcepos_to_range(readme, sourcepos),
+                    )),
+            );
+            return;
+        }
+    };
+
     if !path.full().exists() {
         diags.emit(
             Diagnostic::error()
