@@ -1,5 +1,6 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{Context, anyhow, bail};
 use codespan_reporting::term;
@@ -82,6 +83,12 @@ fn prepare() -> anyhow::Result<()> {
 
     // Make sure the `out` directory exists.
     std::fs::create_dir_all("tests/out").context("creating `out` directory")?;
+
+    // Make sure we have the package that should be tested available.
+    Command::new("./prepare")
+        .current_dir("tests")
+        .output()
+        .context("preparing packages")?;
 
     Ok(())
 }
