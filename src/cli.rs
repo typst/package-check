@@ -1,49 +1,9 @@
-use std::path::PathBuf;
-use std::process::exit;
-
 use codespan_reporting::{diagnostic::Diagnostic, term};
-use tracing::error;
 use typst::syntax::VirtualRoot;
-use typst::syntax::{FileId, Source, package::PackageSpec};
+use typst::syntax::{FileId, Source};
 
 use crate::check::Exclude;
-use crate::{check::all_checks, package::PackageExt, world::SystemWorld};
-
-pub async fn main(spec_or_path: String, json_output: bool, offline: bool) {
-    let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
-    let package_dir = if let Some(ref package_spec) = package_spec {
-        package_spec.path_in_git_repo()
-    } else {
-        PathBuf::from(spec_or_path)
-    };
-
-    match all_checks(package_spec.as_ref(), package_dir, true, offline).await {
-        Ok((world, diags)) => {
-            if let Err(err) =
-                print_diagnostics(world, diags.errors(), diags.warnings(), json_output)
-            {
-                error!("failed to print diagnostics ({err})");
-                error!(
-                    "Raw diagnostics: {:#?}\n{:#?}",
-                    diags.errors(),
-                    diags.warnings()
-                );
-            }
-
-            if !diags.errors().is_empty() {
-                exit(1)
-            }
-
-            if !diags.warnings().is_empty() {
-                exit(2)
-            }
-        }
-        Err(e) => {
-            println!("Fatal error: {}", e.message);
-            exit(1)
-        }
-    }
-}
+use crate::world::SystemWorld;
 
 /// Print diagnostic messages to the terminal.
 pub fn print_diagnostics(

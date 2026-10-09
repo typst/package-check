@@ -3,6 +3,10 @@ name = "typst-package-check"
 version = "0.7.0"
 edition = "2024"
 
+[[bin]]
+name = "typst-package-check"
+path = "src/bin/main.rs"
+
 [dependencies]
 casbab = "0.1.1"
 clap = { version= "4.5", features = ["derive"] }
