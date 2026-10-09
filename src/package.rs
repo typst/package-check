@@ -20,6 +20,9 @@ pub trait PackageExt: Sized {
     /// Resolves the directory of the package version inside the current git
     /// directory.
     fn path_in_git_repo(&self) -> PathBuf;
+
+    /// Convert into a relative path.
+    fn to_relative_path(&self) -> PathBuf;
 }
 
 impl PackageExt for PackageSpec {
@@ -58,10 +61,16 @@ impl PackageExt for PackageSpec {
     }
 
     fn path_in_git_repo(&self) -> PathBuf {
-        git_packages_dir()
-            .join(self.namespace.as_str())
-            .join(self.name.as_str())
-            .join(self.version.to_string())
+        git_packages_dir().join(self.to_relative_path())
+    }
+
+    fn to_relative_path(&self) -> PathBuf {
+        let PackageSpec {
+            namespace,
+            name,
+            version,
+        } = self;
+        PathBuf::from(format!("{namespace}/{name}/{version}"))
     }
 }
 

@@ -108,9 +108,7 @@ async fn run_cli(spec_or_path: String, json_output: bool, offline: bool) {
 
     match all_checks(package_spec.as_ref(), package_dir, true, offline).await {
         Ok((world, diags)) => {
-            if let Err(err) =
-                cli::print_diagnostics(world, diags.errors(), diags.warnings(), json_output)
-            {
+            if let Err(err) = cli::print_diagnostics(world, &diags, json_output) {
                 error!("failed to print diagnostics ({err})");
                 error!(
                     "Raw diagnostics: {:#?}\n{:#?}",
