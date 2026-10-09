@@ -1,7 +1,8 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
-use anyhow::{anyhow, bail};
+use anyhow::{Context, anyhow, bail};
 use codespan_reporting::term;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use typst::ecow::EcoString;
@@ -26,6 +27,8 @@ fn main() -> anyhow::Result<()> {
     // clicking on paths printed to the terminal.
     let workspace_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     std::env::set_current_dir(workspace_dir).unwrap();
+
+    prepare_packages().context("preparing packages")?;
 
     let filters = std::env::args().skip(1).collect::<Vec<_>>();
 
@@ -69,6 +72,15 @@ fn main() -> anyhow::Result<()> {
     let failed = all - passed - filtered;
     eprintln!("{passed} passed, {failed} failed, {filtered} filtered out");
 
+    Ok(())
+}
+
+/// Make sure we have the package that should be tested available.
+fn prepare_packages() -> anyhow::Result<()> {
+    Command::new("./prepare")
+        .current_dir("tests")
+        .spawn()?
+        .wait()?;
     Ok(())
 }
 

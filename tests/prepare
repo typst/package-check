@@ -1,0 +1,33 @@
+#!/bin/env bash
+
+# Do a sparse checkout fo the packages repo and copy the local packages into it.
+
+set -e
+
+packages=$(ls ref | sed -e 's,\([a-z]\+\)+\([a-z0-9-]\+\)+\([0-9.]\+\).txt,@\1/\2:\3,')
+
+package_paths=$(
+	echo $packages |
+	tr ' ' '\n' |
+	grep '^@preview/' |
+	tr -d '@' |
+	tr ':' '/' |
+	sed 's,^,packages/,'
+)
+
+if [[ ! -d packages ]]; then
+	mkdir packages
+fi
+
+pushd packages > /dev/null
+	git init --quiet
+	git sparse-checkout set $package_paths
+	if [[ -z $(git remote) ]]; then
+		git remote add upstream https://github.com/typst/packages.git
+		git config remote.upstream.partialclonefilter tree:0
+	fi
+	git fetch --quiet upstream main
+	git checkout --quiet main
+popd > /dev/null
+
+cp -r local packages/packages
