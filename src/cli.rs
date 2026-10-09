@@ -1,15 +1,14 @@
-use codespan_reporting::{diagnostic::Diagnostic, term};
+use codespan_reporting::term;
 use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, Source};
 
-use crate::check::Exclude;
+use crate::check::{Diagnostics, Exclude};
 use crate::world::SystemWorld;
 
 /// Print diagnostic messages to the terminal.
 pub fn print_diagnostics(
     world: SystemWorld,
-    errors: &[Diagnostic<FileId>],
-    warnings: &[Diagnostic<FileId>],
+    diags: &Diagnostics,
     json: bool,
 ) -> Result<(), codespan_reporting::files::Error> {
     let config = term::Config {
@@ -22,7 +21,7 @@ pub fn print_diagnostics(
     // contents.
     let mut world = world.exclude(Exclude::empty());
 
-    for diagnostic in errors.iter().chain(warnings).rev() {
+    for diagnostic in diags.all().rev() {
         if json {
             json::emit(&mut std::io::stdout(), &mut world, diagnostic)?;
         } else {

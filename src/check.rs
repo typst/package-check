@@ -36,6 +36,9 @@ pub async fn all_checks(
     if !offline {
         urls::check(&mut diags, &manifest).await;
     }
+
+    diags.sort();
+
     Ok((worlds.package, diags))
 }
 
