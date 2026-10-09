@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::path::Path;
 use std::sync::LazyLock;
 use std::{collections::HashSet, ops::Range};
 
@@ -6,12 +7,8 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 use comrak::nodes::{LineColumn, NodeList, NodeValue as MdNode, Sourcepos};
 use html5ever::tendril::TendrilSink;
 use regex::Regex;
-use typst::syntax::RootedPath;
-use typst::{
-    World,
-    foundations::Bytes,
-    syntax::{FileId, VirtualPath},
-};
+use typst::foundations::Bytes;
+use typst::syntax::{FileId, RootedPath, VirtualPath};
 use url::Url;
 
 use crate::check::path::PackagePath;
@@ -29,7 +26,7 @@ pub struct Readme {
 pub async fn check(world: &SystemWorld, diags: &mut Diagnostics) -> crate::check::Result<Readme> {
     // check syntax, versions and kebab-case
     // warn on unsupported gfm features
-    let text = tokio::fs::read_to_string(world.root().join("README.md"))
+    let text = tokio::fs::read_to_string(world.root().package_dir().join("README.md"))
         .await
         .error("io/readme", "Failed to read README.md")?;
 
@@ -166,24 +163,7 @@ fn check_readme_code_block(
 
     kebab_case::check_ast(world, diags, &HashSet::new(), source.root(), true);
 
-    let main_path = world
-        .root()
-        .join(world.main().vpath().get_without_slash())
-        .canonicalize()
-        .ok();
-    let all_packages = world
-        .root()
-        .parent()
-        .and_then(|package_dir| package_dir.parent())
-        .and_then(|namespace_dir| namespace_dir.parent());
-    imports::check_ast(
-        diags,
-        world,
-        source.root(),
-        &world.root().join("README.md"),
-        main_path.as_deref(),
-        all_packages,
-    );
+    imports::check_ast(diags, world, source.root(), Path::new("README.md"));
 }
 
 fn check_readme_html(
@@ -311,7 +291,25 @@ fn check_readme_link_url(
     }
 
     // Check if the local file exists.
-    let path = PackagePath::from_relative(world.root(), absolute_path.as_ref());
+    let path = match PackagePath::from_relative(world.root().package_dir(), absolute_path.as_ref())
+    {
+        Ok(path) => path,
+        Err(err) => {
+            diags.emit(
+                Diagnostic::error()
+                    .with_code("readme/link/invalid")
+                    .with_message(format_args!(
+                        "invalid readme link `{absolute_path}` ({err})"
+                    ))
+                    .with_label(Label::primary(
+                        readme_file_id(),
+                        sourcepos_to_range(readme, sourcepos),
+                    )),
+            );
+            return;
+        }
+    };
+
     if !path.full().exists() {
         diags.emit(
             Diagnostic::error()

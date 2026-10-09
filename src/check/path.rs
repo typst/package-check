@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use typst::syntax::{FileId, RootedPath, VirtualPath};
+use typst::syntax::{FileId, PathError, RootedPath, VirtualPath};
 
 /// A path inside a package that allows either retrieving the full or the
 /// package-relative path.
@@ -14,10 +14,15 @@ pub struct PackagePath<T = PathBuf> {
 impl PackagePath<PathBuf> {
     /// Create a new package path from the package directory and a relative path
     /// within the directory.
-    pub fn from_relative<T: AsRef<Path>>(package_dir: &Path, relative_path: T) -> Self {
-        let full_path = join_to(package_dir, relative_path.as_ref());
+    pub fn from_relative<T: AsRef<str>>(
+        package_dir: &Path,
+        relative_path: T,
+    ) -> Result<Self, PathError> {
+        let relative_path = VirtualPath::new(relative_path.as_ref())?;
+
+        let full_path = package_dir.join(relative_path.get_without_slash());
         let offset = package_dir.components().count();
-        Self { offset, full_path }
+        Ok(Self { offset, full_path })
     }
 }
 
@@ -69,19 +74,6 @@ impl<T: AsRef<Path>> PackagePath<T> {
     }
 }
 
-/// Strips any any leading root components (`/` or `\`) of the `path` before
-/// joining it to the `root` path. Absolute paths would otherwise replace the
-/// complete path when `join`ed with a parent path.
-pub fn join_to(root: &Path, path: impl AsRef<Path>) -> PathBuf {
-    let components = path
-        .as_ref()
-        .components()
-        .skip_while(|c| matches!(c, std::path::Component::RootDir))
-        .map(|c| Path::new(c.as_os_str()));
-
-    PathBuf::from_iter(std::iter::once(root).chain(components))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,7 +82,7 @@ mod tests {
     fn from_relative() {
         #[track_caller]
         fn test_relative(root: &str, relative: &str) {
-            let path = PackagePath::from_relative(Path::new(root), relative);
+            let path = PackagePath::from_relative(Path::new(root), relative).unwrap();
             assert_eq!(path.full(), "/root/path/to/package/src/thing.typ");
             assert_eq!(path.relative(), "src/thing.typ");
         }
@@ -102,10 +94,22 @@ mod tests {
     }
 
     #[test]
+    fn from_relative_errors() {
+        #[track_caller]
+        fn test_relative(relative: &str, expected: PathError) {
+            let error = PackagePath::from_relative(Path::new("/"), relative).unwrap_err();
+            assert_eq!(expected, error);
+        }
+
+        test_relative("../thing.typ", PathError::Escapes);
+        test_relative("a/../../thing.typ", PathError::Escapes);
+    }
+
+    #[test]
     fn from_full() {
         #[track_caller]
-        fn test_full(root: &str, relative: &str) {
-            let path = PackagePath::from_full(Path::new(root), relative);
+        fn test_full(root: &str, full: &str) {
+            let path = PackagePath::from_full(Path::new(root), full);
             assert_eq!(path.full(), "/root/path/to/package/src/thing.typ");
             assert_eq!(path.relative(), "src/thing.typ");
         }

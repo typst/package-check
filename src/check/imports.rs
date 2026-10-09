@@ -1,16 +1,11 @@
-use std::{
-    path::{Path, PathBuf},
-    str::FromStr,
-};
+use std::path::Path;
+use std::str::FromStr;
 
 use codespan_reporting::diagnostic::{Diagnostic, Severity};
-use typst::{
-    World,
-    syntax::{
-        ast::{self, AstNode, ModuleImport},
-        package::{PackageSpec, PackageVersion, VersionlessPackageSpec},
-    },
-};
+use typst::World;
+use typst::syntax::VirtualPath;
+use typst::syntax::ast::{self, AstNode, ModuleImport};
+use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
 use walkdir::WalkDir;
 
 use crate::check::path::PackagePath;
@@ -18,16 +13,6 @@ use crate::check::{Diagnostics, Result, TryExt, label};
 use crate::world::SystemWorld;
 
 pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -> Result<()> {
-    let root_path = world.root();
-    let main_path = root_path
-        .join(world.main().vpath().get_without_slash())
-        .canonicalize()
-        .ok();
-    let all_packages = root_path
-        .parent()
-        .and_then(|package_dir| package_dir.parent())
-        .and_then(|namespace_dir| namespace_dir.parent());
-
     for ch in WalkDir::new(package_dir).into_iter().flatten() {
         let Ok(meta) = ch.metadata() else {
             continue;
@@ -41,14 +26,7 @@ pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -
             let source = world
                 .lookup(path.file_id())
                 .error("io", "Can't read source file")?;
-            check_ast(
-                diags,
-                world,
-                source.root(),
-                path.full(),
-                main_path.as_deref(),
-                all_packages,
-            );
+            check_ast(diags, world, source.root(), path.relative());
         }
     }
 
@@ -58,23 +36,28 @@ pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -
 pub fn check_ast(
     diags: &mut Diagnostics,
     world: &SystemWorld,
-    root: &typst::syntax::SyntaxNode,
-    path: &Path,
-    main_path: Option<&Path>,
-    all_packages: Option<&Path>,
+    node: &typst::syntax::SyntaxNode,
+    relative_path: &Path,
 ) {
-    let imports = root.children().filter_map(|ch| ch.cast::<ModuleImport>());
+    let imports = node.children().filter_map(|ch| ch.cast::<ModuleImport>());
     for import in imports {
         let ast::Expr::Str(source_str) = import.source() else {
             continue;
         };
-        let import_path = path
-            .parent()
-            .unwrap_or(&PathBuf::new())
-            .join(source_str.get().as_str())
-            .canonicalize()
-            .ok();
-        if main_path == import_path.as_deref() {
+
+        // Normalize the import path using the virutal path constructor.
+        let import_path = VirtualPath::new(
+            relative_path
+                .parent()
+                .unwrap_or(Path::new(""))
+                .join(source_str.get().as_str())
+                .to_str()
+                .expect("This should be valid UTF-8"),
+        );
+        if let Ok(import_path) = import_path
+            && world.root().is_package()
+            && &import_path == world.main().vpath()
+        {
             diags.emit(
                 Diagnostic::warning()
                     .with_labels(label(world, import.span()).into_iter().collect())
@@ -85,7 +68,7 @@ pub fn check_ast(
             )
         }
 
-        if let Some(all_packages) = all_packages
+        if let Some(all_packages) = world.root().all_packages()
             && let Ok(import_spec) = PackageSpec::from_str(source_str.get().as_str())
             && let Some(latest_version) =
                 latest_package_version(all_packages, import_spec.versionless())

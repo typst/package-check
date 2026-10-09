@@ -39,7 +39,7 @@ pub async fn all_checks(
         compile::check(&mut template_diags, &template_world);
         let template_dir = template_world
             .root()
-            .strip_prefix(worlds.package.root())
+            .relative_template_dir()
             .expect("Template should be in a subfolder of the package");
         diags.extend(template_diags, template_dir);
     }

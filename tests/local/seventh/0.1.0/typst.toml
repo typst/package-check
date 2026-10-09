@@ -1,0 +1,10 @@
+[package]
+name = "seventh"
+version = "0.1.0"
+license = "MIT"
+entrypoint = "lib.typ"
+
+[template]
+thumbnail = "missing.png"
+path = "/template"
+entrypoint = "src/../../main.typ"

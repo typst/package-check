@@ -1,0 +1,31 @@
+error[manifest/template/entrypoint/invalid]: Invalid template entrypoint `src/../../main.typ` (path escapes project root)
+   ┌─ typst.toml:10:13
+   │
+10 │ entrypoint = "src/../../main.typ"
+   │              ^^^^^^^^^^^^^^^^^^^^
+
+error[manifest/template/path/invalid]: The template path is absolute `/template`.
+Use a relative path instead.
+  ┌─ typst.toml:9:7
+  │
+9 │ path = "/template"
+  │        ^^^^^^^^^^^
+
+error[manifest/template/thumbnail/not-found]: This file does not exist.
+  ┌─ typst.toml:8:12
+  │
+8 │ thumbnail = "missing.png"
+  │             ^^^^^^^^^^^^^
+
+error[manifest/package/authors/type]: The `authors` field should be an array of strings
+  ┌─ typst.toml:1:0
+  │
+1 │ [package]
+  │ ^^^^^^^^^
+
+error[manifest/package/description/type]: The `description` field should be a string
+  ┌─ typst.toml:1:0
+  │
+1 │ [package]
+  │ ^^^^^^^^^
+
