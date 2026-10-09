@@ -6,7 +6,7 @@ use crate::github::git;
 
 /// Return the path of the directory within the current git directory containing
 /// all the packages (i.e. `typst/packages/packages`).
-fn git_packages_dir() -> PathBuf {
+pub fn git_packages_dir() -> PathBuf {
     git::repo_dir().join("packages")
 }
 
