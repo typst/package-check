@@ -7,6 +7,11 @@ edition = "2024"
 name = "typst-package-check"
 path = "src/bin/main.rs"
 
+[[test]]
+name = "tests"
+path = "tests/tests.rs"
+harness = false
+
 [dependencies]
 casbab = "0.1.1"
 clap = { version= "4.5", features = ["derive"] }
@@ -42,3 +47,8 @@ typst-layout = "0.15.0"
 typst-kit = {version = "0.15.0", features = ["datetime"]}
 url = "2.5.7"
 walkdir = "2.5.0"
+
+[dev-dependencies]
+anyhow = "1.0"
+rayon = "1.12"
+pretty_assertions = "1.4.1"
