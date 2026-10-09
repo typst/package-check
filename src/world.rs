@@ -12,7 +12,7 @@ use fontdb::Database;
 use parking_lot::Mutex;
 use tracing::{Level, debug, span};
 use typst::foundations::Duration;
-use typst::syntax::{RealizeError, RootedPath, VirtualRoot};
+use typst::syntax::{RootedPath, VirtualRoot};
 use typst::{
     Library, LibraryExt, World,
     diag::{FileError, FileResult, PackageError, PackageResult},
@@ -80,13 +80,6 @@ impl SystemWorld {
     /// The root relative to which absolute paths are resolved.
     pub fn root(&self) -> &WorldRoot {
         &self.root
-    }
-
-    /// Get the realized entrypoint path.
-    pub fn entrypoint(&self) -> PathBuf {
-        self.root()
-            .realize(self.main().vpath())
-            .expect("main file to be inside the world root")
     }
 
     /// Lookup a source file by id.
@@ -196,15 +189,6 @@ impl WorldRoot {
         // 2. package name
         // 3. namespace
         self.package_dir().parent()?.parent()?.parent()
-    }
-
-    /// Virtualize a path relative to this world root.
-    pub fn realize(&self, path: &VirtualPath) -> Result<PathBuf, RealizeError> {
-        let root = match self {
-            WorldRoot::Package(path) => path,
-            WorldRoot::Template { template, .. } => template,
-        };
-        path.realize(root)
     }
 }
 

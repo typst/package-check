@@ -1,4 +1,5 @@
 use std::io::Cursor;
+use std::path::Path;
 use std::sync::LazyLock;
 use std::{collections::HashSet, ops::Range};
 
@@ -162,16 +163,7 @@ fn check_readme_code_block(
 
     kebab_case::check_ast(world, diags, &HashSet::new(), source.root(), true);
 
-    let entrypoint = world.root().is_package().then(|| world.entrypoint());
-    let all_packages = world.root().all_packages();
-    imports::check_ast(
-        diags,
-        world,
-        source.root(),
-        &world.root().package_dir().join("README.md"),
-        entrypoint.as_deref(),
-        all_packages,
-    );
+    imports::check_ast(diags, world, source.root(), Path::new("README.md"));
 }
 
 fn check_readme_html(
