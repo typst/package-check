@@ -51,6 +51,7 @@ impl AppState {
         }
     }
 
+    #[expect(clippy::result_unit_err)]
     pub fn as_github_api(&self) -> std::result::Result<GitHub<AuthJwt>, ()> {
         let Ok(private_key) = RS256KeyPair::from_pem(&self.private_key) else {
             warn!("The private key in the .env file cannot be parsed as PEM.");

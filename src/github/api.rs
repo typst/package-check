@@ -107,16 +107,9 @@ impl<A: ToString> GitHub<A> {
     }
 }
 
-pub trait GitHubAuth {
-    async fn auth_installation(
-        self,
-        installation: &Installation,
-    ) -> ApiResult<GitHub<AuthInstallation>>;
-}
-
-impl GitHubAuth for GitHub<AuthJwt> {
+impl GitHub<AuthJwt> {
     #[tracing::instrument(skip_all)]
-    async fn auth_installation(
+    pub async fn auth_installation(
         self,
         installation: &Installation,
     ) -> ApiResult<GitHub<AuthInstallation>> {
@@ -141,15 +134,6 @@ impl GitHubAuth for GitHub<AuthJwt> {
             req: self.req,
             auth: AuthInstallation(installation_token.token),
         })
-    }
-}
-
-impl GitHubAuth for GitHub<AuthInstallation> {
-    async fn auth_installation(
-        self,
-        _installation: &Installation,
-    ) -> ApiResult<GitHub<AuthInstallation>> {
-        Ok(self)
     }
 }
 
