@@ -44,7 +44,7 @@ pub async fn all_checks(
         diags.extend(template_diags, template_dir);
     }
 
-    let res = readme::check(&worlds.package, &mut diags).await;
+    let res = readme::check(&worlds.package, &mut diags);
     let readme = diags.maybe_emit(res);
 
     files::check(&mut diags, &package_dir, &manifest, &readme);
@@ -55,7 +55,7 @@ pub async fn all_checks(
     diags.maybe_emit(res);
 
     if let Some(spec) = package_spec.filter(|_| check_authors) {
-        authors::check(&mut diags, spec).await;
+        authors::check(&mut diags, spec);
     }
 
     diags.sort();
