@@ -5,9 +5,10 @@ use typst::{
 };
 use typst_layout::PagedDocument;
 
+use crate::check::label;
 use crate::world::SystemWorld;
 
-use super::{Diagnostics, label};
+use super::Diagnostics;
 
 pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<PagedDocument> {
     let result = typst::compile(world);

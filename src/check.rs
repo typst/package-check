@@ -7,6 +7,8 @@ use typst::{
     syntax::{FileId, package::PackageSpec},
 };
 
+use crate::check::manifest::{Manifest, Worlds};
+use crate::check::readme::Readme;
 use crate::world::SystemWorld;
 
 pub mod authors;
@@ -18,6 +20,7 @@ mod kebab_case;
 mod manifest;
 mod path;
 mod readme;
+pub mod urls;
 
 pub use diagnostics::{Diagnostics, Result, TryExt};
 pub use manifest::Exclude;
@@ -28,15 +31,27 @@ pub async fn all_checks(
     check_authors: bool,
     offline: bool,
 ) -> Result<(SystemWorld, Diagnostics)> {
+    let (worlds, manifest, _, mut diags) =
+        offline_checks(package_spec, package_dir, check_authors)?;
+    if !offline {
+        urls::check(&mut diags, &manifest).await;
+    }
+    Ok((worlds.package, diags))
+}
+
+pub fn offline_checks(
+    package_spec: Option<&PackageSpec>,
+    package_dir: PathBuf,
+    check_authors: bool,
+) -> Result<(Worlds, Manifest, Option<Readme>, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
-    let (manifest, worlds) =
-        manifest::check(&package_dir, &mut diags, package_spec, offline).await?;
+    let (manifest, worlds) = manifest::check(&package_dir, &mut diags, package_spec)?;
 
     compile::check(&mut diags, &worlds.package);
-    if let Some(template_world) = worlds.template {
+    if let Some(template_world) = &worlds.template {
         let mut template_diags = Diagnostics::default();
-        compile::check(&mut template_diags, &template_world);
+        compile::check(&mut template_diags, template_world);
         let template_dir = template_world
             .root()
             .relative_template_dir()
@@ -60,7 +75,7 @@ pub async fn all_checks(
 
     diags.sort();
 
-    Ok((worlds.package, diags))
+    Ok((worlds, manifest, readme, diags))
 }
 
 /// Create a label for a span.
