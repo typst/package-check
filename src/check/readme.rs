@@ -23,11 +23,10 @@ pub struct Readme {
     pub linked_files: Vec<PackagePath>,
 }
 
-pub async fn check(world: &SystemWorld, diags: &mut Diagnostics) -> crate::check::Result<Readme> {
+pub fn check(world: &SystemWorld, diags: &mut Diagnostics) -> crate::check::Result<Readme> {
     // check syntax, versions and kebab-case
     // warn on unsupported gfm features
-    let text = tokio::fs::read_to_string(world.root().package_dir().join("README.md"))
-        .await
+    let text = std::fs::read_to_string(world.root().package_dir().join("README.md"))
         .error("io/readme", "Failed to read README.md")?;
 
     let arena = comrak::Arena::new();

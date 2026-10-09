@@ -1,12 +1,12 @@
 //! Wrapper around the `git` command line.
 
+use std::process::Command;
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
     process::{Output, Stdio},
 };
 
-use tokio::process::Command;
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 
@@ -25,13 +25,13 @@ pub struct GitRepo<'a> {
 }
 
 impl<'a> GitRepo<'a> {
-    pub async fn open(dir: &'a Path) -> Result<Self> {
+    pub fn open(dir: &'a Path) -> Result<Self> {
         let repo = GitRepo { dir };
-        traced_git(["config", "--global", "--add", "safe.directory", repo.dir()?]).await?;
+        traced_git(["config", "--global", "--add", "safe.directory", repo.dir()?])?;
         Ok(repo)
     }
 
-    pub async fn files_touched_by(&self, sha: impl AsRef<str>) -> Result<Vec<PathBuf>> {
+    pub fn files_touched_by(&self, sha: impl AsRef<str>) -> Result<Vec<PathBuf>> {
         debug!("Listing files touched by {}", sha.as_ref());
         let command_output = String::from_utf8(
             traced_git([
@@ -47,8 +47,7 @@ impl<'a> GitRepo<'a> {
                     .unwrap_or("main"),
                 sha.as_ref(),
                 "--",
-            ])
-            .await?
+            ])?
             .stdout,
         )
         .error("git/touched-by/utf-8", "Invalid UTF-8 output from Git")?;
@@ -58,7 +57,7 @@ impl<'a> GitRepo<'a> {
         Ok(parse_diff_tree_paths(&command_output))
     }
 
-    pub async fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
+    pub fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
         debug!("Listing authors of {}", file.display());
 
         let output = String::from_utf8(
@@ -70,7 +69,6 @@ impl<'a> GitRepo<'a> {
                 "--",
                 Path::new(".").canonicalize().ok()?.join(file).to_str()?,
             ])
-            .await
             .ok()?
             .stdout,
         )
@@ -89,7 +87,7 @@ impl<'a> GitRepo<'a> {
         Some(authors)
     }
 
-    pub async fn commit_for_file(&self, file: &Path) -> Option<String> {
+    pub fn commit_for_file(&self, file: &Path) -> Option<String> {
         debug!("Finding the commit that last touched {}", file.display());
 
         let output = String::from_utf8(
@@ -101,7 +99,6 @@ impl<'a> GitRepo<'a> {
                 "--",
                 Path::new(".").canonicalize().ok()?.join(file).to_str()?,
             ])
-            .await
             .ok()?
             .stdout,
         )
@@ -121,21 +118,15 @@ impl<'a> GitRepo<'a> {
             .error("git/dir/utf-8", "Directory name is not valid unicode")
     }
 
-    pub async fn has_previous_version(&self, package: &PackageSpec) -> Result<bool> {
+    pub fn has_previous_version(&self, package: &PackageSpec) -> Result<bool> {
         let package_dir = PathBuf::from(self.dir()?)
             .join("packages")
             .join(package.namespace.as_str())
             .join(package.name.as_str());
-        let mut all_versions = tokio::fs::read_dir(package_dir)
-            .await
-            .error("io/list-versions", "Failed to list versions")?;
-        while let Ok(Some(version)) = all_versions.next_entry().await {
-            if version
-                .file_type()
-                .await
-                .map(|t| t.is_dir())
-                .unwrap_or(false)
-            {
+        let mut all_versions =
+            std::fs::read_dir(package_dir).error("io/list-versions", "Failed to list versions")?;
+        while let Some(Ok(version)) = all_versions.next() {
+            if version.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                 let version: PackageVersion = version
                     .file_name()
                     .to_str()
@@ -155,7 +146,7 @@ impl<'a> GitRepo<'a> {
 }
 
 #[tracing::instrument(name = "git-command")]
-async fn traced_git(args: impl IntoIterator<Item = &str> + std::fmt::Debug) -> Result<Output> {
+fn traced_git<'a>(args: impl IntoIterator<Item = &'a str> + std::fmt::Debug) -> Result<Output> {
     let out = Command::new("git")
         .args(args)
         .stderr(Stdio::piped())
@@ -163,7 +154,6 @@ async fn traced_git(args: impl IntoIterator<Item = &str> + std::fmt::Debug) -> R
         .spawn()
         .error("io", "Failed to spawn git subprocess")?
         .wait_with_output()
-        .await
         .error("io", "Failed to read git output")?;
 
     if let Ok(stderr) = std::str::from_utf8(&out.stderr) {
