@@ -4,7 +4,6 @@ use std::str::FromStr;
 
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ignore::overrides::{Override, OverrideBuilder};
-use reqwest::StatusCode;
 use toml_edit::{Array, Item, Table};
 use tracing::{debug, warn};
 use typst::syntax::package::{PackageSpec, PackageVersion};
@@ -39,6 +38,8 @@ pub struct Package {
     pub name: Option<Spanned<String>>,
     pub version: Option<Spanned<PackageVersion>>,
     pub exclude: Spanned<Exclude>,
+    pub homepage: Option<Spanned<String>>,
+    pub repository: Option<Spanned<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -50,11 +51,10 @@ pub struct Template {
     pub thumbnail: Option<Spanned<PackagePath>>,
 }
 
-pub async fn check(
+pub fn check(
     package_dir: &Path,
     diags: &mut Diagnostics,
     package_spec: Option<&PackageSpec>,
-    offline: bool,
 ) -> Result<(Manifest, Worlds)> {
     let manifest_path = package_dir.join("typst.toml");
     debug!("Reading manifest at {}", &manifest_path.display());
@@ -99,7 +99,7 @@ pub async fn check(
 
     check_compiler_version(diags, package);
     check_universe_fields(diags, package);
-    check_repo(diags, package, offline).await;
+    let (homepage, repository) = check_urls(diags, package);
 
     let res = check_file_names(diags, package_dir);
     diags.maybe_emit(res);
@@ -112,6 +112,8 @@ pub async fn check(
         name,
         version,
         exclude,
+        homepage,
+        repository,
     });
 
     if let Some(template) = &template {
@@ -460,64 +462,29 @@ fn check_universe_fields(diags: &mut Diagnostics, package: Spanned<&Table>) {
     }
 }
 
-async fn check_url(
+fn check_urls(
     diags: &mut Diagnostics,
-    field: Spanned<&str>,
-    name: &'static str,
-    offline: bool,
-) -> Option<()> {
-    if offline {
-        return Some(());
-    }
+    package: Spanned<&Table>,
+) -> (Option<Spanned<String>>, Option<Spanned<String>>) {
+    let homepage = package.get_str("homepage").map(Spanned::to_owned);
+    let repo = package.get_str("repository").map(Spanned::to_owned);
 
-    if let Err(e) = reqwest::get(field.val)
-        .await
-        .and_then(|res| res.error_for_status())
+    if let Some(repo) = &repo
+        && let Some(homepage) = &homepage
+        && repo.val == homepage.val
     {
-        let kind = if matches!(
-            e.status(),
-            Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
-        ) {
-            "private"
-        } else {
-            "unreachable"
-        };
-
         diags.emit(
             Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), field.span()))
-                .with_code(format!("manifest/package/{}/{}", name, kind))
-                .with_message(format!(
-                    "We could not fetch this URL.\n\nDetails: {:#?}",
-                    e.without_url()
-                )),
-        )
-    }
-
-    Some(())
-}
-
-async fn check_repo(diags: &mut Diagnostics, package: Spanned<&Table>, offline: bool) {
-    let repo = package.get_str("repository");
-    if let Some(repo) = repo {
-        check_url(diags, repo, "repository", offline).await;
-    }
-
-    if let Some(homepage) = package.get_str("homepage") {
-        check_url(diags, homepage, "homepage", offline).await;
-
-        if repo.is_some_and(|repo| repo.val == homepage.val) {
-            diags.emit(
-                Diagnostic::error()
-                    .with_label(Label::primary(manifest_id(), homepage.span()))
-                    .with_code("manifest/package/homepage/redundant")
-                    .with_message(
-                        "Use the homepage field only if there is a dedicated website. \
+                .with_label(Label::primary(manifest_id(), homepage.span()))
+                .with_code("manifest/package/homepage/redundant")
+                .with_message(
+                    "Use the homepage field only if there is a dedicated website. \
                          Otherwise, prefer the `repository` field.",
-                    ),
-            )
-        }
+                ),
+        );
     }
+
+    (homepage, repo)
 }
 
 /// This function is fallible, because if exclude parsing fails, there might be
@@ -850,7 +817,7 @@ fn check_thumbnail(diags: &mut Diagnostics, template: &Spanned<Template>) {
     }
 }
 
-fn manifest_id() -> FileId {
+pub fn manifest_id() -> FileId {
     FileId::new(RootedPath::new(
         typst::syntax::VirtualRoot::Project,
         VirtualPath::new("typst.toml").unwrap(),
