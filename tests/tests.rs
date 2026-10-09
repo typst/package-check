@@ -1,12 +1,12 @@
 use std::ffi::OsStr;
-use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
-use anyhow::{anyhow, bail};
+use anyhow::{Context, anyhow, bail};
+use codespan_reporting::term;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use typst::ecow::EcoString;
 use typst::syntax::package::{PackageSpec, PackageVersion};
+use typst_package_check::package::PackageExt;
 
 #[derive(Debug)]
 struct Snapshot {
@@ -26,6 +26,8 @@ fn main() -> anyhow::Result<()> {
     // clicking on paths printed to the terminal.
     let workspace_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     std::env::set_current_dir(workspace_dir).unwrap();
+
+    prepare()?;
 
     let filters = std::env::args().skip(1).collect::<Vec<_>>();
 
@@ -72,6 +74,18 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn prepare() -> anyhow::Result<()> {
+    // SAFETY: This part of the test runner is single-threaded
+    unsafe {
+        std::env::set_var("PACKAGES_DIR", "tests/packages");
+    }
+
+    // Make sure the `out` directory exists.
+    std::fs::create_dir_all("tests/out").context("creating `out` directory")?;
+
+    Ok(())
+}
+
 enum TestResult<'a> {
     Passed,
     Failed {
@@ -82,21 +96,34 @@ enum TestResult<'a> {
 
 fn check_snapshot(snapshot: &Snapshot) -> anyhow::Result<TestResult<'_>> {
     eprintln!("run {}", snapshot.spec,);
-    let output = Command::new("typst-package-check")
-        .current_dir("tests/packages")
-        .stdin(Stdio::null())
-        .env("NO_COLOR", "1")
-        .env("IGNORE_DOTENV", "1")
-        .env("PACKAGES_DIR", ".")
-        .arg("check")
-        .arg(snapshot.spec.to_string())
-        .output()?;
+    let res = typst_package_check::check::offline_checks(
+        Some(&snapshot.spec),
+        Path::new("tests/packages/packages/").join(snapshot.spec.to_relative_path()),
+        true,
+    );
 
-    std::io::stderr().write_all(&output.stderr).unwrap();
+    // Format diagnostics.
+    let output = match res {
+        Ok((worlds, _, _, diags)) => {
+            let config = term::Config {
+                tab_width: 2,
+                ..Default::default()
+            };
+            let mut output = String::new();
+            for diagnostic in diags.all().rev() {
+                term::emit_to_string(&mut output, &config, &worlds.package, diagnostic).unwrap();
+            }
+            output
+        }
+        Err(e) => {
+            format!("Fatal error: {}\n", e.message)
+        }
+    };
 
-    let output = String::from_utf8(output.stdout)?;
-    std::fs::write(snapshot.output_path(), &output)?;
+    // Write to output file.
+    std::fs::write(snapshot.output_path(), &output).context("writing output")?;
 
+    // Generate diff.
     if output != snapshot.output {
         let diff = pretty_assertions::StrComparison::new(&snapshot.output, &output).to_string();
         return Ok(TestResult::Failed { snapshot, diff });

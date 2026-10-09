@@ -12,6 +12,9 @@ name = "tests"
 path = "tests/tests.rs"
 harness = false
 
+[profile.dev.package."*"]
+opt-level = 2
+
 [dependencies]
 casbab = "0.1.1"
 clap = { version= "4.5", features = ["derive"] }
