@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use codespan_reporting::diagnostic::LabelStyle;
 use codespan_reporting::{
     diagnostic::{Diagnostic, Severity},
     files::Files,
@@ -13,6 +14,7 @@ use tracing::{debug, warn};
 use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, package::PackageSpec};
 
+use crate::github::api::check::Span;
 use crate::{
     check::{self, Result, TryExt},
     package::PackageExt,
@@ -379,7 +381,7 @@ pub async fn run_github_check(
                         .errors()
                         .iter()
                         .chain(diags.warnings())
-                        .filter_map(|diag| diagnostic_to_annotation(&world, package, diag))
+                        .map(|diag| diagnostic_to_annotation(&world, package, diag))
                         .take(50)
                         .collect::<Vec<_>>(),
                 },
@@ -442,43 +444,62 @@ fn diagnostic_to_annotation(
     world: &SystemWorld,
     package: &PackageSpec,
     diag: &Diagnostic<FileId>,
-) -> Option<Annotation> {
-    let label = diag.labels.first()?;
-    let start_line = world.line_index(label.file_id, label.range.start).ok()?;
-    let end_line = world.line_index(label.file_id, label.range.end).ok()?;
-    let (start_column, end_column) = if start_line == end_line {
-        let start = world
-            .column_number(label.file_id, start_line, label.range.start)
-            .ok();
-        let end = world
-            .column_number(label.file_id, start_line, label.range.end)
-            .ok();
-        (start, end)
-    } else {
-        (None, None)
-    };
-    let package = match label.file_id.root() {
-        VirtualRoot::Package(p) => p,
-        VirtualRoot::Project => package,
-    };
-    Some(Annotation {
-        path: Path::new("packages")
-            .join(package.namespace.to_string())
-            .join(package.name.to_string())
-            .join(package.version.to_string())
-            .join(label.file_id.vpath().get_without_slash())
-            .to_str()?
-            .to_owned(),
+) -> Annotation {
+    let label = (diag.labels.iter())
+        .find(|l| l.style == LabelStyle::Primary)
+        .or(diag.labels.first());
+
+    let path = label
+        .and_then(|label| {
+            let package = match label.file_id.root() {
+                VirtualRoot::Package(p) => p,
+                VirtualRoot::Project => package,
+            };
+
+            let mut path = PathBuf::from("packages");
+            path.push(package.namespace.as_str());
+            path.push(package.name.as_str());
+            path.push(package.version.to_string());
+            path.push(label.file_id.vpath().get_without_slash());
+            path.into_os_string().into_string().ok()
+        })
+        .unwrap_or_else(|| "packages".into());
+
+    let span = label.and_then(|label| {
+        let start_line = world.line_index(label.file_id, label.range.start).ok()?;
+        let end_line = world.line_index(label.file_id, label.range.end).ok()?;
+
+        let (start_column, end_column) = if start_line == end_line {
+            let start = world
+                .column_number(label.file_id, start_line, label.range.start)
+                .ok();
+            let end = world
+                .column_number(label.file_id, start_line, label.range.end)
+                .ok();
+            (start, end)
+        } else {
+            (None, None)
+        };
+
         // Lines are 1-indexed on GitHub but not for codespan
-        start_line: start_line + 1,
-        end_line: end_line + 1,
-        start_column,
-        end_column,
-        annotation_level: match diag.severity {
-            Severity::Help | Severity::Note => AnnotationLevel::Notice,
-            Severity::Warning => AnnotationLevel::Warning,
-            Severity::Error | Severity::Bug => AnnotationLevel::Failure,
-        },
+        Some(Span {
+            start_line: start_line + 1,
+            start_column,
+            end_line: end_line + 1,
+            end_column,
+        })
+    });
+
+    let annotation_level = match diag.severity {
+        Severity::Help | Severity::Note => AnnotationLevel::Notice,
+        Severity::Warning => AnnotationLevel::Warning,
+        Severity::Error | Severity::Bug => AnnotationLevel::Failure,
+    };
+
+    Annotation {
+        path,
+        span,
+        annotation_level,
         message: diag.message.clone(),
-    })
+    }
 }

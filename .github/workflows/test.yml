@@ -1,0 +1,38 @@
+name: Check how the GitHub API works
+
+on: pull_request
+
+jobs:
+  check:
+    name: Fake Check
+    runs-on: ubuntu-slim
+    permissions:
+      checks: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - run: |
+          set -euxo pipefail
+          # Create a fake check run for the current PR
+          id=$(gh api repos/typst/package-check/check-runs \
+            -F name="Fake check" \
+            -F head_sha=$GITHUB_HEAD_REF \
+            -F status=in_progress \
+            -q '.id')
+          # Add an annotation
+          jq --null-input '{
+            status: "completed",
+            conclusion: "failure",
+            output: {
+              title: "Done",
+              summary: "Did it work?",
+              annotations: [
+                {
+                  path: "src/github/api/check.rs",
+                  annotation_level: "notice",
+                  message: "I am not attached to a specific line!"
+                }
+              ]
+            }
+          }' > input.json 
+          gh api --verbose --method PATCH repos/typst/package-check/check-runs/$id --input input.json
