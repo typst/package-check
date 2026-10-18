@@ -326,16 +326,15 @@ fn dont_over_exclude(diags: &mut Diagnostics, exclude: &Spanned<Exclude>) -> Res
 
 fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) -> Result<()> {
     for ch in std::fs::read_dir(package_dir).error("io", "Failed to read package directory")? {
-        let mut error_for_file = |path: &Path, message| {
+        let error_for_file = |path: &Path, code: &str, message| {
             let file_id = FileId::new(RootedPath::new(
                 typst::syntax::VirtualRoot::Project,
                 VirtualPath::new(path.to_str().unwrap()).unwrap(),
             ));
-            diags.emit(
-                Diagnostic::error()
-                    .with_label(Label::primary(file_id, 0..0))
-                    .with_message(message),
-            )
+            Diagnostic::error()
+                .with_label(Label::primary(file_id, 0..0))
+                .with_code(code)
+                .with_message(message)
         };
 
         let Ok(ch) = ch else {
@@ -355,30 +354,29 @@ fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) -> Result<()> {
             .map(|s| s.to_string_lossy().into_owned());
         let stem_uppercase = stem.as_ref().map(|s| s.to_uppercase());
 
-        if stem_uppercase.as_deref() == Some("LICENCE") {
-            error_for_file(file_path, "This file should be named LICENSE.");
-        }
-
-        if (stem_uppercase.as_deref() == Some("LICENSE")
-            || stem_uppercase.as_deref() == Some("README"))
-            && stem_uppercase != stem
+        if matches!(stem_uppercase.as_deref(), Some("LICENSE" | "LICENCE"))
+            && file_name != "LICENSE"
         {
-            let fixed = if let Some(ext) = file_path.extension() {
-                format!(
-                    "{}.{}",
-                    stem.unwrap_or_default().to_uppercase(),
-                    ext.to_string_lossy()
-                )
-            } else {
-                stem.unwrap_or_default().to_uppercase()
-            };
-            error_for_file(
+            diags.emit(error_for_file(
                 file_path,
-                &format!(
-                    "To keep consistency, please use \
-                        ALL CAPS for the name of this file (i.e. {fixed})"
-                ),
-            )
+                "files/license-name",
+                "This file should be named `LICENSE`, all uppercase and without a file extension.\n\n\
+                 More details: https://github.com/typst/packages/blob/main/docs/licensing.md",
+            ));
+        } else if stem_uppercase.as_deref() == Some("README") && file_name != "README.md" {
+            let mut diag = error_for_file(
+                file_path,
+                "files/readme-name",
+                "This file should be named `README.md`, all uppercase and without a file extension.\n\n\
+                 More details: https://github.com/typst/packages/blob/main/docs/documentation.md",
+            );
+            if file_path
+                .extension()
+                .is_none_or(|ext| !ext.eq_ignore_ascii_case("md"))
+            {
+                diag = diag.with_note("READMEs must be formatted in Markdown");
+            }
+            diags.emit(diag);
         }
     }
 
