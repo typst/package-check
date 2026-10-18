@@ -1,0 +1,7 @@
+[package]
+name = "seventh"
+version = "0.1.0"
+description = "Useless package"
+authors = ["Some Person"]
+entrypoint = "lib.typ"
+license = "MIT"

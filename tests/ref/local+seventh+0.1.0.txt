@@ -1,0 +1,20 @@
+error[files/readme-name]: This file should be named `README.md`, all uppercase and without a file extension.
+
+More details: https://github.com/typst/packages/blob/main/docs/documentation.md
+  ┌─ README.txt:1:0
+  │
+1 │ seventh is a package :)
+  │ ^
+  │
+  = READMEs must be formatted in Markdown
+
+error[files/license-name]: This file should be named `LICENSE`, all uppercase and without a file extension.
+
+More details: https://github.com/typst/packages/blob/main/docs/licensing.md
+  ┌─ LICENSE.txt:1:0
+  │
+1 │ totally an MIT license
+  │ ^
+
+error[io/readme]: Failed to read README.md
+
