@@ -1,5 +1,6 @@
 use std::{
     ffi::OsStr,
+    fmt::{self, Write},
     path::{Path, PathBuf},
 };
 
@@ -14,7 +15,7 @@ use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, package::PackageSpec};
 
 use crate::{
-    check::{self, Result, TryExt},
+    check::{self, Diagnostics, Result, TryExt},
     package::PackageExt,
     world::SystemWorld,
 };
@@ -28,6 +29,8 @@ use self::{
     api::check::{Annotation, AnnotationLevel, CheckRunOutput},
     git::GitRepo,
 };
+
+const MAX_ANNOTATIONS: usize = 50;
 
 /// Application configuration, read from .env file.
 #[derive(Clone)]
@@ -330,7 +333,19 @@ pub async fn run_github_check(
             }
         };
 
-        let plural = |n| if n == 1 { "" } else { "s" };
+        // Diagnostics that can't be attached to a file (for instance because
+        // they have no label or point to a directory) are listed in the
+        // summary instead, so that they don't silently disappear.
+        let mut annotations = Vec::new();
+        let mut unplaced = Vec::new();
+        for diag in diags.errors().iter().chain(diags.warnings()) {
+            match diagnostic_to_annotation(&world, package, diag) {
+                Some(annotation) => annotations.push(annotation),
+                None => unplaced.push(diag),
+            }
+        }
+        let suppressed = annotations.len().saturating_sub(MAX_ANNOTATIONS);
+        annotations.truncate(MAX_ANNOTATIONS);
 
         api_client
             .update_check_run(
@@ -364,24 +379,8 @@ pub async fn run_github_check(
                             plural(diags.warnings().len())
                         )
                     },
-                    summary: &format!(
-                        "Our bots have automatically run some checks on your packages. \
-                                They found {} error{} and {} warning{}.\n\n\
-                                Warnings are suggestions, your package can still be accepted even \
-                                if you prefer not to fix them.\n\n\
-                                A human being will soon review your package, too.",
-                        diags.errors().len(),
-                        plural(diags.errors().len()),
-                        diags.warnings().len(),
-                        plural(diags.warnings().len()),
-                    ),
-                    annotations: &diags
-                        .errors()
-                        .iter()
-                        .chain(diags.warnings())
-                        .filter_map(|diag| diagnostic_to_annotation(&world, package, diag))
-                        .take(50)
-                        .collect::<Vec<_>>(),
+                    summary: &summary(package, &diags, suppressed, &unplaced),
+                    annotations: &annotations,
                 },
             )
             .await
@@ -438,6 +437,94 @@ fn update_description_checks(
     body_changed.then_some(new_body)
 }
 
+/// Builds the summary of the check run.
+fn summary(
+    package: &PackageSpec,
+    diags: &Diagnostics,
+    suppressed: usize,
+    unplaced: &[&Diagnostic<FileId>],
+) -> String {
+    let errors = diags.errors().len();
+    let warnings = diags.warnings().len();
+
+    let mut summary = String::new();
+    write!(
+        summary,
+        "Our bots have automatically run some checks on your packages. \
+         They found {errors} error{} and {warnings} warning{}.\n\n",
+        plural(errors),
+        plural(warnings),
+    )
+    .unwrap();
+
+    if warnings > 0 {
+        summary.push_str(
+            "Warnings are suggestions, your package can still be accepted even \
+             if you prefer not to fix them.\n\n",
+        );
+    }
+
+    if suppressed > 0 {
+        write!(
+            summary,
+            "Only the first {MAX_ANNOTATIONS} annotations are shown. \
+             {suppressed} additional annotation{} suppressed.\n\n",
+            if suppressed == 1 { " was" } else { "s were" },
+        )
+        .unwrap();
+    }
+
+    summary.push_str("A human being will soon review your package, too.");
+
+    if !unplaced.is_empty() {
+        summary.push_str("\n\n");
+        write_unplaced_summary(&mut summary, package, unplaced).unwrap();
+    }
+
+    summary
+}
+
+/// Emits diagnostics that could not be turned into annotations as part of the summary.
+fn write_unplaced_summary(
+    mut f: impl Write,
+    package: &PackageSpec,
+    diags: &[&Diagnostic<FileId>],
+) -> fmt::Result {
+    writeln!(
+        f,
+        "There are a few diagnostics which we could \
+         not show inline with your changes. These are listed here:",
+    )?;
+
+    for diag in diags {
+        let severity = match diag.severity {
+            Severity::Error | Severity::Bug => "Error",
+            Severity::Warning => "Warning",
+            Severity::Note | Severity::Help => "Note",
+        };
+        write!(f, "- **{severity}**")?;
+        if let Some(label) = diag.labels.first() {
+            let file_package = match label.file_id.root() {
+                VirtualRoot::Package(p) => p,
+                VirtualRoot::Project => package,
+            };
+            let path = label.file_id.vpath().get_without_slash();
+            if file_package == package {
+                write!(f, " in `{path}`")?;
+            } else {
+                write!(f, " in `{file_package}/{path}`")?;
+            }
+        }
+        write!(f, ": {}", diag.message)?;
+        if let Some(code) = &diag.code {
+            write!(f, " (`{code}`)")?;
+        }
+        writeln!(f)?;
+    }
+
+    Ok(())
+}
+
 fn diagnostic_to_annotation(
     world: &SystemWorld,
     package: &PackageSpec,
@@ -481,4 +568,8 @@ fn diagnostic_to_annotation(
         },
         message: diag.message.clone(),
     })
+}
+
+fn plural(n: usize) -> &'static str {
+    if n == 1 { "" } else { "s" }
 }
