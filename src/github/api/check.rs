@@ -35,6 +35,8 @@ pub struct Annotation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_column: Option<usize>,
     pub annotation_level: AnnotationLevel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     pub message: String,
 }
 

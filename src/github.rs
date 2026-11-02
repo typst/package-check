@@ -568,11 +568,8 @@ fn diagnostic_to_annotation(
             Severity::Warning => AnnotationLevel::Warning,
             Severity::Error | Severity::Bug => AnnotationLevel::Failure,
         },
-        message: if let Some(code) = &diag.code {
-            format!("{} [`{code}`]", diag.message)
-        } else {
-            diag.message.clone()
-        },
+        title: diag.code.clone(),
+        message: diag.message.clone(),
     })
 }
 
