@@ -125,7 +125,7 @@ pub async fn run_github_check(
                 has_new_packages = true;
             }
         }
-        const REMOVE_LABELS: [&str; 3] = ["new", "updated", "waiting-on-author"];
+        const REMOVE_LABELS: [&str; 3] = ["new", "update", "waiting-on-author"];
         let mut labels = (pr.labels.iter())
             .filter_map(|l| {
                 let remove = REMOVE_LABELS.contains(&l.name.as_str());
