@@ -54,6 +54,7 @@ impl AppState {
         }
     }
 
+    #[expect(clippy::result_unit_err)]
     pub fn as_github_api(&self) -> std::result::Result<GitHub<AuthJwt>, ()> {
         let Ok(private_key) = RS256KeyPair::from_pem(&self.private_key) else {
             warn!("The private key in the .env file cannot be parsed as PEM.");
@@ -81,8 +82,8 @@ pub async fn run_github_check(
     previous_check_run: Option<CheckRun>,
     pr: Option<PullRequest>,
 ) -> Result<()> {
-    let git_repo = GitRepo::open(Path::new(git_dir)).await?;
-    let touched_files = git_repo.files_touched_by("HEAD").await?;
+    let git_repo = GitRepo::open(Path::new(git_dir))?;
+    let touched_files = git_repo.files_touched_by("HEAD")?;
 
     let mut touches_outside_of_packages = false;
 
@@ -118,11 +119,7 @@ pub async fn run_github_check(
         let mut has_new_packages = false;
         let mut has_updated_packages = false;
         for package in &touched_packages {
-            if git_repo
-                .has_previous_version(package)
-                .await
-                .unwrap_or(false)
-            {
+            if git_repo.has_previous_version(package).unwrap_or(false) {
                 has_updated_packages = true;
             } else {
                 has_new_packages = true;
@@ -234,9 +231,7 @@ pub async fn run_github_check(
         // the previous version.
         if let Some(current_pr) = &pr {
             debug!("There is a current PR");
-            if let Some(previous_commit) =
-                check::authors::commit_for_previous_version(package).await
-            {
+            if let Some(previous_commit) = check::authors::commit_for_previous_version(package) {
                 debug!("Found previous commit: {previous_commit}");
                 if let Ok(Some(previous_pr)) = api_client
                     .prs_for_commit(repository.owner(), repository.name(), previous_commit)

@@ -6,8 +6,8 @@ use crate::{github::git, package::PackageExt};
 
 use super::Diagnostics;
 
-pub async fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
-    if authors_are_differents(spec).await.unwrap_or(false) {
+pub fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
+    if authors_are_differents(spec).unwrap_or(false) {
         let manifest = FileId::new(RootedPath::new(
             VirtualRoot::Project,
             VirtualPath::new("typst.toml").ok()?,
@@ -26,19 +26,19 @@ pub async fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
     Some(())
 }
 
-pub async fn commit_for_previous_version(spec: &PackageSpec) -> Option<String> {
+pub fn commit_for_previous_version(spec: &PackageSpec) -> Option<String> {
     let last_manifest = spec
         .previous_version()?
         .path_in_git_repo()
         .join("typst.toml");
 
     let repo = git::repo_dir();
-    let repo = git::GitRepo::open(&repo).await.ok()?;
+    let repo = git::GitRepo::open(&repo).ok()?;
 
-    repo.commit_for_file(&last_manifest).await
+    repo.commit_for_file(&last_manifest)
 }
 
-pub async fn authors_are_differents(spec: &PackageSpec) -> Option<bool> {
+pub fn authors_are_differents(spec: &PackageSpec) -> Option<bool> {
     let last_manifest = spec
         .previous_version()?
         .path_in_git_repo()
@@ -46,10 +46,10 @@ pub async fn authors_are_differents(spec: &PackageSpec) -> Option<bool> {
     let new_manifest = spec.path_in_git_repo().join("typst.toml");
 
     let repo = git::repo_dir();
-    let repo = git::GitRepo::open(&repo).await.ok()?;
+    let repo = git::GitRepo::open(&repo).ok()?;
 
-    let last_authors = repo.authors_of(&last_manifest).await?;
-    let new_authors = repo.authors_of(&new_manifest).await?;
+    let last_authors = repo.authors_of(&last_manifest)?;
+    let new_authors = repo.authors_of(&new_manifest)?;
     Some(
         !last_authors.is_empty()
             && !new_authors.is_empty()
