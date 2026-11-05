@@ -16,5 +16,24 @@ More details: https://github.com/typst/packages/blob/main/docs/licensing.md
 1 │ totally an MIT license
   │ ^
 
+error[manifest/template/entrypoint/invalid]: Invalid template entrypoint `src/../../main.typ` (path escapes project root)
+   ┌─ typst.toml:12:13
+   │
+12 │ entrypoint = "src/../../main.typ"
+   │              ^^^^^^^^^^^^^^^^^^^^
+
+error[manifest/template/path/invalid]: The template path is absolute `/template`.
+Use a relative path instead.
+   ┌─ typst.toml:11:7
+   │
+11 │ path = "/template"
+   │        ^^^^^^^^^^^
+
+error[manifest/template/thumbnail/not-found]: This file does not exist.
+   ┌─ typst.toml:10:12
+   │
+10 │ thumbnail = "missing.png"
+   │             ^^^^^^^^^^^^^
+
 error[io/readme]: Failed to read README.md
 
