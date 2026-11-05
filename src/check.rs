@@ -9,6 +9,7 @@ use typst::{
 
 use crate::check::manifest::{Manifest, Worlds};
 use crate::check::readme::Readme;
+use crate::workspace::Workspace;
 use crate::world::SystemWorld;
 
 pub mod authors;
@@ -26,13 +27,14 @@ pub use diagnostics::{Diagnostics, Result, TryExt};
 pub use manifest::Exclude;
 
 pub async fn all_checks(
+    workspace: &Workspace,
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
     check_authors: bool,
     offline: bool,
 ) -> Result<(SystemWorld, Diagnostics)> {
     let (worlds, manifest, _, mut diags) =
-        offline_checks(package_spec, package_dir, check_authors)?;
+        offline_checks(workspace, package_spec, package_dir, check_authors)?;
     if !offline {
         urls::check(&mut diags, &manifest).await;
     }
@@ -43,13 +45,14 @@ pub async fn all_checks(
 }
 
 pub fn offline_checks(
+    workspace: &Workspace,
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
     check_authors: bool,
 ) -> Result<(Worlds, Manifest, Option<Readme>, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
-    let (manifest, worlds) = manifest::check(&package_dir, &mut diags, package_spec)?;
+    let (manifest, worlds) = manifest::check(workspace, &package_dir, &mut diags, package_spec)?;
 
     compile::check(&mut diags, &worlds.package);
     if let Some(template_world) = &worlds.template {
@@ -73,7 +76,7 @@ pub fn offline_checks(
     diags.maybe_emit(res);
 
     if let Some(spec) = package_spec.filter(|_| check_authors) {
-        authors::check(&mut diags, spec);
+        authors::check(&mut diags, workspace, spec);
     }
 
     diags.sort();

@@ -7,7 +7,7 @@ use codespan_reporting::term;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use typst::ecow::EcoString;
 use typst::syntax::package::{PackageSpec, PackageVersion};
-use typst_package_check::package::PackageExt;
+use typst_package_check::workspace::{SystemPackages, Workspace};
 
 #[derive(Debug)]
 struct Snapshot {
@@ -53,17 +53,22 @@ fn main() -> anyhow::Result<()> {
     });
     let filtered = all - snapshots.len();
 
+    // Ignore system wide installed packages.
+    let workspace = Workspace::new("tests/packages".into(), SystemPackages::empty());
     let results = snapshots
         .par_iter()
-        .map(check_snapshot)
+        .map(|snapshot| {
+            let res = check_snapshot(&workspace, snapshot)?;
+            Ok((snapshot, res))
+        })
         .collect::<anyhow::Result<Vec<_>>>()?;
 
     eprintln!("\n=== Results ===");
     let mut passed = 0;
-    for res in results {
+    for (snapshot, res) in results {
         match res {
             TestResult::Passed => passed += 1,
-            TestResult::Failed { snapshot, diff } => {
+            TestResult::Failed { diff } => {
                 eprintln!("[ERROR] {}:\n{diff}", snapshot.spec);
             }
         }
@@ -76,11 +81,6 @@ fn main() -> anyhow::Result<()> {
 }
 
 fn prepare() -> anyhow::Result<()> {
-    // SAFETY: This part of the test runner is single-threaded
-    unsafe {
-        std::env::set_var("PACKAGES_DIR", "tests/packages");
-    }
-
     // Make sure the `out` directory exists.
     std::fs::create_dir_all("tests/out").context("creating `out` directory")?;
 
@@ -93,19 +93,17 @@ fn prepare() -> anyhow::Result<()> {
     Ok(())
 }
 
-enum TestResult<'a> {
+enum TestResult {
     Passed,
-    Failed {
-        snapshot: &'a Snapshot,
-        diff: String,
-    },
+    Failed { diff: String },
 }
 
-fn check_snapshot(snapshot: &Snapshot) -> anyhow::Result<TestResult<'_>> {
+fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<TestResult> {
     eprintln!("run {}", snapshot.spec,);
     let res = typst_package_check::check::offline_checks(
+        workspace,
         Some(&snapshot.spec),
-        Path::new("tests/packages/packages/").join(snapshot.spec.to_relative_path()),
+        workspace.path_in_repo(&snapshot.spec),
         true,
     );
 
@@ -133,7 +131,7 @@ fn check_snapshot(snapshot: &Snapshot) -> anyhow::Result<TestResult<'_>> {
     // Generate diff.
     if output != snapshot.output {
         let diff = pretty_assertions::StrComparison::new(&snapshot.output, &output).to_string();
-        return Ok(TestResult::Failed { snapshot, diff });
+        return Ok(TestResult::Failed { diff });
     }
 
     Ok(TestResult::Passed)
