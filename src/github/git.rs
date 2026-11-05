@@ -12,14 +12,6 @@ use typst::syntax::package::{PackageSpec, PackageVersion};
 
 use crate::check::{Result, TryExt};
 
-pub fn repo_dir() -> PathBuf {
-    PathBuf::from(
-        &std::env::var("PACKAGES_DIR")
-            .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
-            .unwrap_or(".".to_owned()),
-    )
-}
-
 pub struct GitRepo<'a> {
     dir: &'a Path,
 }

@@ -21,12 +21,15 @@ use typst::{
     text::{Font, FontBook, FontInfo},
     utils::LazyHash,
 };
+use typst_kit::files::FsRoot;
 
 use crate::check::Exclude;
-use crate::package::PackageExt;
+use crate::workspace::Workspace;
 
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
+    /// The workspace in which the package is checked.
+    workspace: Workspace,
     /// The root relative to which absolute paths are resolved.
     root: WorldRoot,
     /// The input path.
@@ -51,7 +54,12 @@ pub struct SystemWorld {
 
 impl SystemWorld {
     /// Create a new system world.
-    pub fn new(input: VirtualPath, root: WorldRoot, package_spec: Option<PackageSpec>) -> Self {
+    pub fn new(
+        input: VirtualPath,
+        workspace: Workspace,
+        root: WorldRoot,
+        package_spec: Option<PackageSpec>,
+    ) -> Self {
         let main = FileId::new(RootedPath::new(VirtualRoot::Project, input));
 
         let library = Library::default();
@@ -60,6 +68,7 @@ impl SystemWorld {
         searcher.search(&[]);
 
         Self {
+            workspace,
             root,
             main,
             library: LazyHash::new(library),
@@ -116,13 +125,23 @@ impl World for SystemWorld {
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         self.slot(id, |slot| {
-            slot.source(&self.root, self.package_spec.as_ref(), &self.exclude)
+            slot.source(
+                &self.workspace,
+                &self.root,
+                self.package_spec.as_ref(),
+                &self.exclude,
+            )
         })
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         self.slot(id, |slot| {
-            slot.file(&self.root, self.package_spec.as_ref(), &self.exclude)
+            slot.file(
+                &self.workspace,
+                &self.root,
+                self.package_spec.as_ref(),
+                &self.exclude,
+            )
         })
     }
 
@@ -219,12 +238,13 @@ impl FileSlot {
     /// Retrieve the source for this file.
     fn source(
         &mut self,
+        workspace: &Workspace,
         root: &WorldRoot,
         override_spec: Option<&PackageSpec>,
         exclude: &Exclude,
     ) -> FileResult<Source> {
         self.source.get_or_init(
-            || read(root, override_spec, exclude, self.id),
+            || read(workspace, root, override_spec, exclude, self.id),
             |data, prev| {
                 let text = decode_utf8(&data)?;
                 if let Some(mut prev) = prev {
@@ -256,12 +276,13 @@ impl FileSlot {
     /// Retrieve the file's bytes.
     fn file(
         &mut self,
+        workspace: &Workspace,
         root: &WorldRoot,
         override_spec: Option<&PackageSpec>,
         exclude: &Exclude,
     ) -> FileResult<Bytes> {
         self.file.get_or_init(
-            || read(root, override_spec, exclude, self.id),
+            || read(workspace, root, override_spec, exclude, self.id),
             |data, _| Ok(Bytes::new(data)),
         )
     }
@@ -321,17 +342,19 @@ impl<T: Clone> SlotCell<T> {
 
 /// Reads a file from a `FileId`.
 fn read(
+    workspace: &Workspace,
     root: &WorldRoot,
     override_spec: Option<&PackageSpec>,
     exclude: &Exclude,
     id: FileId,
 ) -> FileResult<Vec<u8>> {
-    let resolved = resolve_system_path(root, override_spec, exclude, id)?;
+    let resolved = resolve_system_path(workspace, root, override_spec, exclude, id)?;
     read_from_disk(&resolved)
 }
 
 /// Resolves the path of a file id on the system.
 fn resolve_system_path(
+    workspace: &Workspace,
     root: &WorldRoot,
     override_spec: Option<&PackageSpec>,
     exclude: &Exclude,
@@ -349,19 +372,19 @@ fn resolve_system_path(
             // directly, otherwise try to find the package:
             // 1. relative to the current world's package dir.
             // 2. inside the current git directory.
-            // 3. in the global package cache.
+            // 3. in the system wide package cache.
             if Some(spec) == override_spec {
                 root.package_dir()
-            } else if let Some(dir) = find_relative_package(root, spec) {
-                resolved.insert(dir)
+            } else if let Some(root) = find_relative_package(root, spec) {
+                resolved.insert(root).path()
             } else {
-                let dir = find_in_git_repo_or_cache(spec).map_err(FileError::Package)?;
-                resolved.insert(dir)
+                let root = find_in_repo_or_cache(workspace, spec).map_err(FileError::Package)?;
+                resolved.insert(root).path()
             }
         }
     };
 
-    let realized_path = id.vpath().realize(root).or(Err(FileError::AccessDenied))?;
+    let realized_path = id.vpath().realize(root).map_err(FileError::from)?;
 
     // FIXME: To be fully correct, we would need to read the exclude globs
     // of the imported package and filter out files that are imported but
@@ -381,7 +404,7 @@ fn resolve_system_path(
 }
 
 // Try to find a package relative to the one that is being checked by the world.
-fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<PathBuf> {
+fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<FsRoot> {
     let dir = root.all_packages()?;
     let mut buf = dir.to_path_buf();
 
@@ -397,40 +420,32 @@ fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<PathBuf
         return None;
     }
 
-    Some(buf)
+    Some(FsRoot::new(buf))
 }
 
 /// Try to find a pacakge in current git directory or in the on-disk cache.
-fn find_in_git_repo_or_cache(spec: &PackageSpec) -> PackageResult<PathBuf> {
-    let git_package_dir = spec.path_in_git_repo();
-    if git_package_dir.exists() {
-        return Ok(git_package_dir);
+fn find_in_repo_or_cache(workspace: &Workspace, spec: &PackageSpec) -> PackageResult<FsRoot> {
+    if let Some(root) = workspace.packages.obtain(spec) {
+        return Ok(root);
     }
 
-    let subdir = format!(
-        "typst/packages/{}/{}/{}",
-        spec.namespace, spec.name, spec.version
-    );
-
-    if let Some(data_dir) = dirs::data_dir() {
-        let dir = data_dir.join(&subdir);
-        if dir.exists() {
-            return Ok(dir);
-        }
+    if let Some(data) = &workspace.system.data
+        && let Some(root) = data.obtain(spec)
+    {
+        return Ok(root);
     }
 
-    if let Some(cache_dir) = dirs::cache_dir() {
-        let dir = cache_dir.join(&subdir);
-        if dir.exists() {
-            return Ok(dir);
-        }
-
-        return Err(PackageError::NetworkFailed(Some(
-            "All packages are supposed to be present in the `packages` repository, or in the local cache.".into(),
-        )));
+    if let Some(cache) = &workspace.system.cache
+        && let Some(root) = cache.obtain(spec)
+    {
+        return Ok(root);
     }
 
-    Err(PackageError::NotFound(spec.clone()))
+    Err(PackageError::NetworkFailed(Some(
+        "All packages are supposed to be present in the \
+         `packages` repository, or in the local cache."
+            .into(),
+    )))
 }
 
 /// Read a file from disk.

@@ -10,7 +10,7 @@ use typst_package_check::cli;
 use typst_package_check::github::api::pr::PullRequestEvent;
 use typst_package_check::github::api::{Installation, Repository};
 use typst_package_check::github::{AppState, run_github_check};
-use typst_package_check::package::PackageExt;
+use typst_package_check::workspace::{SystemPackages, Workspace};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -70,17 +70,15 @@ async fn main() {
     let args = Cli::parse();
     match args.command {
         Commands::Check {
-            packages,
+            mut packages,
             json,
             offline,
         } => {
             if packages.is_empty() {
-                run_cli(".".into(), json, offline).await
+                packages.push(".".into());
             }
 
-            for package in packages {
-                run_cli(package, json, offline).await
-            }
+            run_cli(&packages, json, offline).await
         }
         Commands::TypstVersion => {
             let version = typst_utils::version();
@@ -98,36 +96,54 @@ async fn main() {
     }
 }
 
-async fn run_cli(spec_or_path: String, json_output: bool, offline: bool) {
-    let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
-    let package_dir = if let Some(ref package_spec) = package_spec {
-        package_spec.path_in_git_repo()
-    } else {
-        PathBuf::from(spec_or_path)
-    };
+async fn run_cli(packages: &[String], json_output: bool, offline: bool) {
+    let packages_repo_dir = PathBuf::from(
+        std::env::var("PACKAGES_DIR")
+            .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
+            .unwrap_or(".".to_owned()),
+    );
+    let workspace = Workspace::new(packages_repo_dir, SystemPackages::default());
 
-    match all_checks(package_spec.as_ref(), package_dir, true, offline).await {
-        Ok((world, diags)) => {
-            if let Err(err) = cli::print_diagnostics(world, &diags, json_output) {
-                error!("failed to print diagnostics ({err})");
-                error!(
-                    "Raw diagnostics: {:#?}\n{:#?}",
-                    diags.errors(),
-                    diags.warnings()
-                );
+    for spec_or_path in packages {
+        let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
+        let package_dir = if let Some(ref package_spec) = package_spec {
+            workspace.path_in_repo(package_spec)
+        } else {
+            PathBuf::from(spec_or_path)
+        };
+
+        let res = all_checks(
+            &workspace,
+            package_spec.as_ref(),
+            package_dir,
+            true,
+            offline,
+        )
+        .await;
+
+        match res {
+            Ok((world, diags)) => {
+                if let Err(err) = cli::print_diagnostics(world, &diags, json_output) {
+                    error!("failed to print diagnostics ({err})");
+                    error!(
+                        "Raw diagnostics: {:#?}\n{:#?}",
+                        diags.errors(),
+                        diags.warnings()
+                    );
+                }
+
+                if !diags.errors().is_empty() {
+                    std::process::exit(1)
+                }
+
+                if !diags.warnings().is_empty() {
+                    std::process::exit(2)
+                }
             }
-
-            if !diags.errors().is_empty() {
+            Err(e) => {
+                println!("Fatal error: {}", e.message);
                 std::process::exit(1)
             }
-
-            if !diags.warnings().is_empty() {
-                std::process::exit(2)
-            }
-        }
-        Err(e) => {
-            println!("Fatal error: {}", e.message);
-            std::process::exit(1)
         }
     }
 }
@@ -162,7 +178,7 @@ pub async fn run_action() {
         .unwrap();
 
     run_github_check(
-        &state.git_dir,
+        &state.workspace,
         event.pull_request.head.sha.clone(),
         api_client,
         repository,
