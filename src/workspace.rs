@@ -22,7 +22,7 @@ impl Workspace {
             packages: FsPackages::new(repo_dir.join("packages")),
             repo_dir,
             system,
-            fonts: LazyLock::new(Box::new(|| discover_fonts())),
+            fonts: LazyLock::new(Box::new(discover_fonts)),
         }))
     }
     /// The path of the `typst/packages` repository, which is used to resolve

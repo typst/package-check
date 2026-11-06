@@ -16,21 +16,27 @@ warning[exclude/license]: Your LICENSE file should not be excluded.
 7 │ exclude = ["LICENSE", "README.md", "ascii art.txt"]
   │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error[manifest/template/thumbnail/missing]: Thumbnails are required for templates.
+error[manifest/template/thumbnail/missing]: Missing `template.thumbnail`, which is required.
    ┌─ typst.toml:11:0
    │
 11 │ [template]
    │ ^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md
 
-error[manifest/package/compiler/type]: Compiler version should be a string
+error[manifest/package/authors/type]: The `authors` list should only contain strings
+  ┌─ typst.toml:8:11
+  │
+8 │ authors = [2024-01-01]
+  │            ^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
+
+error[manifest/package/compiler/type]: The `package.compiler` field should be a string
   ┌─ typst.toml:6:11
   │
 6 │ compiler = -inf
   │            ^^^^
-
-error[manifest/package/authors/type]: The `authors` field should be an array of strings
-  ┌─ typst.toml:1:0
   │
-1 │ [package]
-  │ ^^^^^^^^^
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 

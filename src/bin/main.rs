@@ -5,6 +5,7 @@ use clap::Parser;
 use tracing::error;
 use tracing_subscriber::EnvFilter;
 use typst::syntax::package::PackageSpec;
+use typst_package_check::check::diagnostics::Code;
 use typst_package_check::check::{TryExt, all_checks};
 use typst_package_check::cli;
 use typst_package_check::github::api::pr::PullRequestEvent;
@@ -141,7 +142,7 @@ async fn run_cli(packages: &[String], json_output: bool, offline: bool) {
                 }
             }
             Err(e) => {
-                println!("Fatal error: {}", e.message);
+                print!("{}", e.format_fatal_error());
                 std::process::exit(1)
             }
         }
@@ -171,10 +172,10 @@ pub async fn run_action() {
         std::env::var("GITHUB_EVENT_PATH").expect("This command should be run in GitHub Actions"),
     )
     .await
-    .error("github/actions/event", "Failed to read event metadata")
+    .error(Code::GithubActionsEventIo, "Failed to read event metadata")
     .unwrap();
     let event: PullRequestEvent = serde_json::from_str(&event)
-        .error("github/actions/event/invalid", "Invalid event JSON")
+        .error(Code::GithubActionsEventInvalid, "Invalid event JSON")
         .unwrap();
 
     run_github_check(

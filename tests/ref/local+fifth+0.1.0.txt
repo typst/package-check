@@ -1,1 +1,2 @@
-Fatal error: All `typst.toml` manifests must contain a [package] section. See the README.md file of this repository for details about the manifest format.
+Fatal error [manifest/package/missing]: Missing `[package]` table, which is required.
+= See: https://github.com/typst/packages/blob/main/docs/manifest.md

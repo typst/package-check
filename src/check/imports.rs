@@ -1,18 +1,22 @@
 use std::path::Path;
 use std::str::FromStr;
 
-use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use typst::World;
 use typst::syntax::VirtualPath;
 use typst::syntax::ast::{self, AstNode, ModuleImport};
 use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
 use walkdir::WalkDir;
 
+use crate::check::diagnostics::{Code, Diagnostic, Label, Severity};
 use crate::check::path::PackagePath;
-use crate::check::{Diagnostics, Result, TryExt, label};
+use crate::check::{Diagnostics, TryExt};
 use crate::world::SystemWorld;
 
-pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -> Result<()> {
+pub fn check(
+    diags: &mut Diagnostics,
+    package_dir: &Path,
+    world: &SystemWorld,
+) -> crate::check::Result<()> {
     for ch in WalkDir::new(package_dir).into_iter().flatten() {
         let Ok(meta) = ch.metadata() else {
             continue;
@@ -25,7 +29,7 @@ pub fn check(diags: &mut Diagnostics, package_dir: &Path, world: &SystemWorld) -
         if path.extension().is_some_and(|ext| ext == "typ") {
             let source = world
                 .lookup(path.file_id())
-                .error("io", "Can't read source file")?;
+                .error(Code::Io, "Can't read source file")?;
             check_ast(diags, world, source.root(), path.relative());
         }
     }
@@ -58,14 +62,15 @@ pub fn check_ast(
             && world.root().is_package()
             && &import_path == world.main().vpath()
         {
-            diags.emit(
-                Diagnostic::warning()
-                    .with_labels(label(world, import.span()).into_iter().collect())
-                    .with_code("import/relative")
-                    .with_message(
-                        "This import should use the package specification, not a relative path.",
-                    ),
-            )
+            Diagnostic::warn(Code::ImportRelative)
+                .with_message(
+                    "This import should use the package specification, \
+                     not a relative path.",
+                )
+                // TODO: Expand section in `documentation.md` to explain why we
+                // require package spec imports.
+                .with_label(Label::for_span(world, import.span()))
+                .emit(diags);
         }
 
         if let Some(all_packages) = world.root().all_packages()
@@ -77,16 +82,16 @@ pub fn check_ast(
             // Generate an error if an old version of the package is imported.
             // For other packages this usually isn't an issue, so only notify
             // package authors.
-            let severity = match world.package_spec() {
-                Some(spec) if import_spec.versionless() == spec.versionless() => Severity::Error,
-                _ => Severity::Note,
+            let (severity, code) = match world.package_spec() {
+                Some(spec) if import_spec.versionless() == spec.versionless() => {
+                    (Severity::Error, Code::ImportOutdatedSelf)
+                }
+                _ => (Severity::Note, Code::ImportOutdatedDependency),
             };
-            diags.emit(
-                Diagnostic::new(severity)
-                    .with_labels(label(world, import.span()).into_iter().collect())
-                    .with_code("import/outdated")
-                    .with_message("This import seems to use an older version of the package."),
-            )
+            Diagnostic::new(severity, code)
+                .with_message("This import seems to use an older version of the package.")
+                .with_label(Label::for_span(world, import.span()))
+                .emit(diags);
         }
     }
 }

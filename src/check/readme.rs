@@ -3,7 +3,6 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::{collections::HashSet, ops::Range};
 
-use codespan_reporting::diagnostic::{Diagnostic, Label};
 use comrak::nodes::{LineColumn, NodeList, NodeValue as MdNode, Sourcepos};
 use html5ever::tendril::TendrilSink;
 use regex::Regex;
@@ -11,9 +10,10 @@ use typst::foundations::Bytes;
 use typst::syntax::{FileId, RootedPath, VirtualPath};
 use url::Url;
 
+use crate::check::diagnostics::{Code, Diagnostic, Docs, Label};
 use crate::check::path::PackagePath;
 use crate::{
-    check::{Diagnostics, TryExt, imports, kebab_case, label},
+    check::{Diagnostics, TryExt, imports, kebab_case},
     world::SystemWorld,
 };
 
@@ -27,7 +27,7 @@ pub fn check(world: &SystemWorld, diags: &mut Diagnostics) -> crate::check::Resu
     // check syntax, versions and kebab-case
     // warn on unsupported gfm features
     let text = std::fs::read_to_string(world.root().package_dir().join("README.md"))
-        .error("io/readme", "Failed to read README.md")?;
+        .error(Code::ReadmeIo, "Failed to read README.md")?;
 
     let arena = comrak::Arena::new();
     let md_ast = comrak::parse_document(
@@ -62,29 +62,21 @@ pub fn check(world: &SystemWorld, diags: &mut Diagnostics) -> crate::check::Resu
         match &md_node.value {
             // Check that alert blocks are not used
             MdNode::Alert(_) => {
-                diags.emit(
-                    Diagnostic::warning()
-                        .with_code("readme/unsupported-extension/alert")
-                        .with_message("GFM alert boxes are not supported on Typst Universe.")
-                        .with_labels(vec![Label::primary(
-                            readme_file_id(),
-                            sourcepos_to_range(&readme, md_node.sourcepos),
-                        )]),
-                );
+                Diagnostic::warn(Code::ReadmeUnsupportedExtensionAlert)
+                    .with_message("GFM alert boxes are not supported on Typst Universe.")
+                    .with_label(readme_label(&readme, md_node.sourcepos))
+                    .with_docs_link(Docs::DOCS_GFM)
+                    .emit(diags);
             }
             // Also check for checklists
             MdNode::List(NodeList {
                 is_task_list: true, ..
             }) => {
-                diags.emit(
-                    Diagnostic::warning()
-                        .with_code("readme/unsupported-extension/tasklist")
-                        .with_message("GFM task lists are not supported on Typst Universe.")
-                        .with_label(Label::primary(
-                            readme_file_id(),
-                            sourcepos_to_range(&readme, md_node.sourcepos),
-                        )),
-                );
+                Diagnostic::warn(Code::ReadmeUnsupportedExtensionTasklist)
+                    .with_message("GFM task lists are not supported on Typst Universe.")
+                    .with_label(readme_label(&readme, md_node.sourcepos))
+                    .with_docs_link(Docs::DOCS_GFM)
+                    .emit(diags);
             }
             // Basic Typst examples linting
             MdNode::CodeBlock(code_block) => {
@@ -147,17 +139,15 @@ fn check_readme_code_block(
         .unwrap();
     let (errors, warnings) = source.root().errors_and_warnings();
     for err in errors.into_iter().chain(warnings) {
-        diags.emit(
-            Diagnostic::warning()
-                .with_code("readme/syntax")
-                .with_message(format!(
-                    "Syntax error in README.\n\n  {}\n\n\
-                        If this code block is not supposed to be parsed as a Typst source, \
-                        please explicitely specify another language.",
-                    err.message
-                ))
-                .with_labels(label(world, err.span).into_iter().collect()),
-        );
+        Diagnostic::warn(Code::ReadmeSyntax)
+            .with_message(format!(
+                "Syntax error in README.\n\n  {}\n\n\
+                 If this code block is not supposed to be parsed as a Typst source, \
+                 please explicitely specify another language.",
+                err.message
+            ))
+            .with_label(Label::for_span(world, err.span))
+            .emit(diags);
     }
 
     kebab_case::check_ast(world, diags, &HashSet::new(), source.root(), true);
@@ -260,13 +250,9 @@ fn check_readme_link_url(
     };
 
     let invalid_url_error = || {
-        Diagnostic::error()
-            .with_code("readme/link/invalid-url")
-            .with_message(format_args!("Invalid url: `{url_text}`\n{url_error}"))
-            .with_labels(vec![Label::primary(
-                readme_file_id(),
-                sourcepos_to_range(readme, sourcepos),
-            )])
+        Diagnostic::error(Code::ReadmeLinkInvalidUrl)
+            .with_message(format!("Invalid url: `{url_text}`\n{url_error}"))
+            .with_label(readme_label(readme, sourcepos))
     };
 
     // The link couldn't be parsed as a URL, assume it's a local file.
@@ -294,36 +280,27 @@ fn check_readme_link_url(
     {
         Ok(path) => path,
         Err(err) => {
-            diags.emit(
-                Diagnostic::error()
-                    .with_code("readme/link/invalid")
-                    .with_message(format_args!(
-                        "invalid readme link `{absolute_path}` ({err})"
-                    ))
-                    .with_label(Label::primary(
-                        readme_file_id(),
-                        sourcepos_to_range(readme, sourcepos),
-                    )),
-            );
+            Diagnostic::error(Code::ReadmeLinkInvalidPath)
+                .with_message(format!("invalid readme link `{absolute_path}` ({err})"))
+                .with_label(readme_label(readme, sourcepos))
+                .emit(diags);
             return;
         }
     };
 
     if !path.full().exists() {
-        diags.emit(
-            Diagnostic::error()
-                .with_code("readme/link/file-not-found")
-                .with_message(format_args!(
-                    "Linked file not found: `{absolute_path}`.\n\n\
-                     Make sure to commit all linked files and possibly add them to the `exclude` list.\n\n\
-                     More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
-                ))
-                .with_note(format_args!("This link was assumed to be a local file because it couldn't be parsed as an URL: `{url_text}`\n{url_error}"))
-                .with_labels(vec![Label::primary(
-                    readme_file_id(),
-                    sourcepos_to_range(readme, sourcepos),
-                )]),
-        );
+        Diagnostic::error(Code::ReadmeLinkFileNotFound)
+            .with_message(format!(
+                "Linked file not found: `{absolute_path}`.\n\n\
+                 Make sure to commit all linked files and possibly add them to the `exclude` list."
+            ))
+            .with_hint(format!(
+                "The link `{url_text}` was assumed to be a local file \
+                 because it couldn't be parsed as an URL ({url_error})"
+            ))
+            .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+            .with_label(readme_label(readme, sourcepos))
+            .emit(diags);
     }
 
     readme.linked_files.push(path);
@@ -387,22 +364,19 @@ fn check_repo_file_url(diags: &mut Diagnostics, readme: &Readme, sourcepos: Sour
         Host::Codeberg => format!("https://codeberg.org/{user}/{repo}/src/branch/{branch}/{path}"),
     };
 
-    diags.emit(
-        Diagnostic::warning()
-            .with_code("readme/link/repository-url-permalink")
-            .with_message(format_args!(
-                "{name} URL links to default branch: `{url}`.\n\n\
-                 Consider using a link to a specific tag/release or a permalink to a commit instead. \
-                 This will ensure that the linked resource always matches this version of the package.\n\n\
-                 You can create a permalink here: {non_raw_url}\n\n\
-                 Alternatively you can also link to a local file. This is preferred if the linked file \
-                 is already present in the submitted package."
-            ))
-            .with_label(Label::primary(
-                readme_file_id(),
-                sourcepos_to_range(readme, sourcepos),
-            )),
-    );
+    Diagnostic::warn(Code::ReadmeLinkRepoDefaultBranch)
+        .with_message(format!(
+            "{name} URL links to default branch: `{url}`.\n\n\
+             Consider using a link to a specific tag/release or a permalink to a \
+             commit instead. This will ensure that the linked resource always \
+             matches this version of the package.\n\n\
+             You can create a permalink here: {non_raw_url}\n\n\
+             Alternatively you can also link to a local file. This is  preferred \
+             if the linked file is already present in the submitted package."
+        ))
+        .with_docs_link(Docs::DOCS)
+        .with_label(readme_label(readme, sourcepos))
+        .emit(diags);
 }
 
 fn check_image_alternative_description(
@@ -419,32 +393,27 @@ fn check_image_alternative_description(
 
     let alt = alt.trim();
     if alt.is_empty() {
-        diags.emit(
-            Diagnostic::error()
-                .with_code("readme/image/missing-alt")
-                .with_message(
-                    "Missing alternative description for image. \
-                     Please add a short description to make this image more accessible.",
-                )
-                .with_label(Label::primary(
-                    readme_file_id(),
-                    sourcepos_to_range(readme, sourcepos),
-                )),
-        );
+        Diagnostic::error(Code::ReadmeImageMissingAlt)
+            .with_message(
+                "Missing alternative description for image. \
+                 Please add a short description to make this image more accessible.",
+            )
+            // TODO: Update docs for alternative descriptions and link here.
+            .with_label(readme_label(readme, sourcepos))
+            .emit(diags);
     } else if SINGLE_WORD.is_match(alt) || SINGLE_LETTER.is_match(alt) {
-        diags.emit(
-            Diagnostic::warning()
-                .with_code("readme/image/inadequate-alt")
-                .with_message(format_args!(
-                    "Possibly inadequate alternative description for image: `{alt}`. \
-                     Please add a short description to make this image more accessible."
-                ))
-                .with_label(Label::primary(
-                    readme_file_id(),
-                    sourcepos_to_range(readme, sourcepos),
-                )),
-        );
+        Diagnostic::warn(Code::ReadmeImageInadequateAlt)
+            .with_message(format!(
+                "Possibly inadequate alternative description for image: `{alt}`. \
+                 Please add a short description to make this image more accessible."
+            ))
+            .with_label(readme_label(readme, sourcepos))
+            .emit(diags);
     }
+}
+
+fn readme_label(readme: &Readme, pos: Sourcepos) -> Label {
+    Label::new(readme_file_id(), sourcepos_to_range(readme, pos))
 }
 
 fn sourcepos_to_range(readme: &Readme, pos: Sourcepos) -> Range<usize> {

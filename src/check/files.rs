@@ -1,11 +1,12 @@
 use std::collections::HashSet;
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use codespan_reporting::diagnostic::{Diagnostic, Label};
+use typst::syntax::{FileId, RootedPath, VirtualPath};
 use walkdir::WalkDir;
 
 use crate::check::Diagnostics;
+use crate::check::diagnostics::{Code, Diagnostic, Docs, Label, Result, Severity};
 use crate::check::manifest::Manifest;
 use crate::check::path::PackagePath;
 use crate::check::readme::Readme;
@@ -32,17 +33,15 @@ pub fn check(
     manifest: &Manifest,
     readme: &Option<Readme>,
 ) {
-    let exclude = &manifest.package.exclude;
+    let res = check_special_files(diags, package_dir);
+    diags.maybe_emit(res);
 
     // The bundler enables some local ignore features, which can be confusing.
     // Collect the list of files the bundler would consider bundling, without
     // the exclude globs. Use it to determine if a file is ignored.
     let without_ignored = walk(package_dir)
         .flatten()
-        .filter_map(|ch| {
-            let metadata = ch.metadata().ok()?;
-            metadata.is_file().then_some(ch.into_path())
-        })
+        .filter_map(|ch| ch.file_type()?.is_file().then(|| ch.into_path()))
         .collect::<HashSet<_>>();
 
     for ch in WalkDir::new(package_dir).into_iter().flatten() {
@@ -54,7 +53,7 @@ pub fn check(
         }
 
         let file_path = PackagePath::from_full(package_dir, ch.path());
-        let excluded = exclude.matches_file(&file_path);
+        let excluded = manifest.package.exclude.matches_file(&file_path);
         let ignored = !without_ignored.contains(file_path.full());
 
         warn_ignored_files(diags, file_path, excluded, ignored);
@@ -101,18 +100,18 @@ fn warn_ignored_files(
         )
     };
 
-    diags.emit(
-        Diagnostic::warning()
-            .with_code("files/ignored")
-            .with_label(Label::primary(file_path.file_id(), 0..0))
-            .with_message(format_args!(
-                "This file won't be present in the bundled package{reason}\n\n\
-                 If this is intentional and the file is used for documentation and linked in the readme, \
-                 consider explicitly adding it to the `exclude` list.\n\
-                 {hint}\n\n\
-                 More details: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude",
-            )),
-    );
+    Diagnostic::warn(Code::FilesIgnored)
+        .with_message(format!(
+            "This file won't be present in the bundled package{reason}"
+        ))
+        .with_hint(format!(
+            "If this is intentional and the file is used for documentation \
+             and linked in the readme, consider explicitly adding it to the \
+             `exclude` list.\n {hint}"
+        ))
+        .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+        .with_label(Label::new(file_path.file_id(), 0..0))
+        .emit(diags);
 }
 
 fn exclude_large_files(
@@ -121,6 +120,7 @@ fn exclude_large_files(
     excluded: bool,
     size: u64,
 ) {
+    // TODO: Adjust limits and add execptions for package exceeding the limit.
     /// Size (in bytes) after which a file is considered large.
     const LARGE: u64 = 1024 * 1024; // 1 MB
     const REALLY_LARGE: u64 = 50 * 1024 * 1024; // 50 MB
@@ -135,9 +135,10 @@ fn exclude_large_files(
         return;
     }
 
-    let (code, message) = if size > REALLY_LARGE {
+    let (severity, code, message) = if size > REALLY_LARGE {
         (
-            "size/extra-large",
+            Severity::Error,
+            Code::SizeExtraLarge,
             format!(
                 "This file is really large ({size}MB). \
                  If possible, do not include it in this repository at all.",
@@ -146,7 +147,8 @@ fn exclude_large_files(
         )
     } else if !excluded {
         (
-            "size/large",
+            Severity::Warning,
+            Code::SizeLarge,
             format!(
                 "This file is quite large ({size}MB). \
                  If it is not required to use the package \
@@ -159,12 +161,10 @@ fn exclude_large_files(
         return;
     };
 
-    diags.emit(
-        Diagnostic::warning()
-            .with_code(code)
-            .with_label(Label::primary(path.file_id(), 0..0))
-            .with_message(message),
-    )
+    Diagnostic::new(severity, code)
+        .with_label(Label::new(path.file_id(), 0..0))
+        .with_message(message)
+        .emit(diags);
 }
 
 fn exclude_examples_and_tests(
@@ -184,14 +184,18 @@ fn exclude_examples_and_tests(
     }
 
     let file_name = path.file_name().to_string_lossy();
-    let warning = || Diagnostic::warning().with_label(Label::primary(path.file_id(), 0..0));
+    let mut file_diag = |diag: Diagnostic| {
+        diag.with_docs_link(Docs::WHAT_TO_EXCLUDE)
+            .with_label(Label::new(path.file_id(), 0..0))
+            .emit(diags)
+    };
     if file_name.contains("example") {
-        diags.emit(warning().with_code("exclude/example").with_message(
+        file_diag(Diagnostic::warn(Code::ExcludeExample).with_message(
             "This file seems to be an example, \
              and should probably be added to `exclude` in your `typst.toml`.",
         ));
     } else if file_name.contains("test") {
-        diags.emit(warning().with_code("exclude/test").with_message(
+        file_diag(Diagnostic::warn(Code::ExcludeTest).with_message(
             "This file seems to be a test, \
              and should probably be added to `exclude` in your `typst.toml`.",
         ));
@@ -207,17 +211,15 @@ fn forbid_font_files(diags: &mut Diagnostics, path: PackagePath<&Path>) {
         return;
     }
 
-    diags.emit(
-        Diagnostic::error()
-            .with_label(Label::primary(path.file_id(), 0..0))
-            .with_code("files/fonts")
-            .with_message(
-                "Font files are not allowed.\n\n\
-                Delete them and instruct your users to install them manually, \
-                in your README and/or in a documentation comment.\n\n\
-                More details: https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages",
-            ),
-    );
+    Diagnostic::error(Code::FilesFonts)
+        .with_message(
+            "Font files are not allowed.\n\n\
+             Delete them and instruct your users to install them manually, \
+             in your README and/or in a documentation comment.",
+        )
+        .with_docs_link(Docs::FONTS_NOT_ALLOWED)
+        .with_label(Label::new(path.file_id(), 0..0))
+        .emit(diags);
 }
 
 fn link_manuals(
@@ -236,18 +238,70 @@ fn link_manuals(
     if MANUAL_FILES.contains(&name.as_str())
         && readme.linked_files.iter().all(|l| l.full() != path.full())
     {
-        let note = (!excluded)
+        let hint = (!excluded)
             .then(|| "It should also be added to `exclude` in your `typst.toml`.".into());
 
-        diags.emit(
-            Diagnostic::warning()
-                .with_label(Label::primary(path.file_id(), 0..0))
-                .with_code("files/manual/unlinked")
-                .with_message(
-                    "This file seems to be a manual/documentation, but isn't linked in the readme. \
+        Diagnostic::warn(Code::FilesManualUnlinked)
+            .with_message(
+                "This file seems to be a manual/documentation, but isn't linked in the readme. \
                  It will be inacessible on Typst Universe.",
-                )
-                .with_notes_iter(note),
-        );
+            )
+            .with_hints(hint)
+            .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+            .with_label(Label::new(path.file_id(), 0..0))
+            .emit(diags);
     }
+}
+
+fn check_special_files(diags: &mut Diagnostics, package_dir: &Path) -> Result<()> {
+    let entries = std::fs::read_dir(package_dir).map_err(|err| {
+        Diagnostic::error(Code::Io)
+            .with_message(format!("Failed to read package directory ({err})"))
+    })?;
+    for ch in entries
+        .flatten()
+        .filter(|ch| ch.file_type().is_ok_and(|ft| ft.is_file()))
+    {
+        let file_name = PathBuf::from(ch.file_name());
+        let Some(stem) = file_name.file_stem() else {
+            continue;
+        };
+        let stem_uppercase = stem.to_string_lossy().to_ascii_uppercase();
+
+        let label_for_file = || {
+            let file_id = FileId::new(RootedPath::new(
+                typst::syntax::VirtualRoot::Project,
+                VirtualPath::new(file_name.to_str().unwrap()).unwrap(),
+            ));
+            Label::new(file_id, 0..0)
+        };
+
+        if matches!(stem_uppercase.as_str(), "LICENSE" | "LICENCE") && &file_name != "LICENSE" {
+            Diagnostic::error(Code::FilesLicenseName)
+                .with_message(
+                    "This file should be named `LICENSE`, \
+                     all uppercase and without a file extension.",
+                )
+                .with_docs_link(Docs::LICENSE)
+                .with_label(label_for_file())
+                .emit(diags);
+        } else if stem_uppercase == "README" && &file_name != "README.md" {
+            let hint = file_name
+                .extension()
+                .is_none_or(|ext| !ext.eq_ignore_ascii_case("md"))
+                .then(|| "READMEs must be formatted in Markdown".to_string());
+
+            Diagnostic::error(Code::FilesReadmeName)
+                .with_message(
+                    "This file should be named `README.md`, \
+                     all uppercase and with the `.md` file extension.",
+                )
+                .with_hints(hint)
+                .with_docs_link(Docs::DOCS)
+                .with_label(label_for_file())
+                .emit(diags);
+        }
+    }
+
+    Ok(())
 }

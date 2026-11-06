@@ -101,7 +101,10 @@ fn main() -> anyhow::Result<()> {
         match res {
             TestResult::Passed => passed += 1,
             TestResult::Failed { diff, output } => {
-                eprintln!("\x1b[31m[ERROR]\x1b[0m \x1b[33m{}\x1b[0m:\n{diff}", snapshot.spec);
+                eprintln!(
+                    "\x1b[31m[ERROR]\x1b[0m \x1b[33m{}\x1b[0m:\n{diff}",
+                    snapshot.spec
+                );
 
                 if should_update(args.update)? {
                     std::fs::write(snapshot.ref_path(), &output).context("updating reference")?;
@@ -161,13 +164,12 @@ fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<
             };
             let mut output = String::new();
             for diagnostic in diags.all().rev() {
-                term::emit_to_string(&mut output, &config, &worlds.package, diagnostic).unwrap();
+                term::emit_to_string(&mut output, &config, &worlds.package, &diagnostic.into())
+                    .unwrap();
             }
             output
         }
-        Err(e) => {
-            format!("Fatal error: {}\n", e.message)
-        }
+        Err(e) => e.format_fatal_error(),
     };
 
     // Write to output file.

@@ -1,7 +1,7 @@
-use codespan_reporting::diagnostic::{Diagnostic, Label};
 use typst::syntax::{FileId, VirtualPath, package::PackageSpec};
 use typst::syntax::{RootedPath, VirtualRoot};
 
+use crate::check::diagnostics::{Code, Diagnostic, Label};
 use crate::github::git;
 use crate::workspace::Workspace;
 
@@ -14,14 +14,13 @@ pub fn check(diags: &mut Diagnostics, workspace: &Workspace, spec: &PackageSpec)
             VirtualPath::new("typst.toml").ok()?,
         ));
 
-        diags.emit(
-                Diagnostic::warning()
-                    .with_labels(vec![Label::primary(manifest, 0..0)])
-                    .with_message(
-                        "The authors of this version are not the same as those of the previous one (according to Git)."
-                    )
-                    .with_code("authors/changed")
-            );
+        Diagnostic::warn(Code::AuthorsChanged)
+            .with_message(
+                "The authors of this version are not the same as those \
+                 of the previous one (according to Git).",
+            )
+            .with_label(Label::new(manifest, 0..0))
+            .emit(diags);
     }
 
     Some(())
@@ -31,7 +30,7 @@ pub fn commit_for_previous_version(workspace: &Workspace, spec: &PackageSpec) ->
     let prev_version = workspace.find_previous_version(spec)?;
     let last_manifest = workspace.path_in_repo(&prev_version).join("typst.toml");
 
-    let repo = git::GitRepo::open(&workspace.repo_dir()).ok()?;
+    let repo = git::GitRepo::open(workspace.repo_dir()).ok()?;
 
     repo.commit_for_file(&last_manifest)
 }
@@ -41,7 +40,7 @@ pub fn authors_are_differents(workspace: &Workspace, spec: &PackageSpec) -> Opti
     let last_manifest = workspace.path_in_repo(&prev_version).join("typst.toml");
     let new_manifest = workspace.path_in_repo(spec).join("typst.toml");
 
-    let repo = git::GitRepo::open(&workspace.repo_dir()).ok()?;
+    let repo = git::GitRepo::open(workspace.repo_dir()).ok()?;
 
     let last_authors = repo.authors_of(&last_manifest)?;
     let new_authors = repo.authors_of(&new_manifest)?;

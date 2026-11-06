@@ -1,11 +1,6 @@
 use std::path::PathBuf;
 
-use codespan_reporting::diagnostic::Label;
-use typst::syntax::DiagSpan;
-use typst::{
-    WorldExt,
-    syntax::{FileId, package::PackageSpec},
-};
+use typst::syntax::package::PackageSpec;
 
 use crate::check::manifest::{Manifest, Worlds};
 use crate::check::readme::Readme;
@@ -14,7 +9,7 @@ use crate::world::SystemWorld;
 
 pub mod authors;
 mod compile;
-mod diagnostics;
+pub mod diagnostics;
 mod files;
 mod imports;
 mod kebab_case;
@@ -82,10 +77,4 @@ pub fn offline_checks(
     diags.sort();
 
     Ok((worlds, manifest, readme, diags))
-}
-
-/// Create a label for a span.
-fn label(world: &SystemWorld, span: impl Into<DiagSpan>) -> Option<Label<FileId>> {
-    let span = span.into();
-    Some(Label::primary(span.id()?, world.range(span)?))
 }

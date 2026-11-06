@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use codespan_reporting::term;
 use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, Source};
@@ -21,18 +23,22 @@ pub fn print_diagnostics(
     // contents.
     let mut world = world.exclude(Exclude::empty());
 
-    for diagnostic in diags.all().rev() {
-        if json {
-            json::emit(&mut std::io::stdout(), &mut world, diagnostic)?;
-        } else {
-            term::emit_to_write_style(
-                &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Auto),
-                &config,
-                &world,
-                diagnostic,
-            )?;
+    let buf = if json {
+        let mut buf = Vec::new();
+        for diagnostic in diags.all().rev() {
+            json::emit(&mut buf, &mut world, diagnostic)?;
         }
-    }
+        buf
+    } else {
+        let mut buf =
+            term::termcolor::BufferWriter::stdout(term::termcolor::ColorChoice::Auto).buffer();
+        for diagnostic in diags.all().rev() {
+            term::emit_to_write_style(&mut buf, &config, &world, &diagnostic.into())?;
+        }
+        buf.into_inner()
+    };
+
+    std::io::stdout().write_all(&buf)?;
 
     Ok(())
 }
@@ -107,19 +113,21 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
 mod json {
     use std::io::Write;
 
-    use codespan_reporting::diagnostic::{Diagnostic, Severity};
     use serde::Serialize;
+    use typst::syntax::FileId;
 
+    use crate::check::diagnostics::{Diagnostic, Severity};
     use crate::cli::CodespanResult;
 
     #[derive(Serialize)]
     struct JsonDiagnostic<'a> {
         kind: &'a str,
         message: &'a str,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        hints: Vec<&'a str>,
         #[serde(skip_serializing_if = "Option::is_none")]
         location: Option<Location>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        code: Option<&'a str>,
+        code: &'a str,
     }
 
     #[derive(Serialize)]
@@ -135,42 +143,42 @@ mod json {
         column: usize,
     }
 
-    pub fn emit<'a, F: Copy + std::fmt::Debug>(
+    pub fn emit<'a>(
         w: &mut impl Write,
-        files: &'a mut impl codespan_reporting::files::Files<'a, FileId = F>,
-        diag: &Diagnostic<F>,
+        files: &'a mut impl codespan_reporting::files::Files<'a, FileId = FileId>,
+        diag: &Diagnostic,
     ) -> CodespanResult<()> {
-        let location = if diag.labels.is_empty() {
-            None
-        } else {
-            let file_id = diag.labels[0].file_id;
-            let start_line = files.line_index(file_id, diag.labels[0].range.start)?;
-            let end_line = files.line_index(file_id, diag.labels[0].range.end)?;
+        let location = if let Some(label) = &diag.label {
+            let file_id = label.file;
+            let start_line = files.line_index(file_id, label.range.start)?;
+            let end_line = files.line_index(file_id, label.range.end)?;
 
             Some(Location {
                 file: files.name(file_id)?.to_string(),
                 from: LineCol {
                     line: files.line_number(file_id, start_line)?,
-                    column: files.column_number(file_id, start_line, diag.labels[0].range.start)?,
+                    column: files.column_number(file_id, start_line, label.range.start)?,
                 },
                 to: LineCol {
                     line: files.line_number(file_id, end_line)?,
-                    column: files.column_number(file_id, end_line, diag.labels[0].range.end)?,
+                    column: files.column_number(file_id, end_line, label.range.end)?,
                 },
             })
+        } else {
+            None
         };
-        let code = diag.code.as_deref();
         serde_json::to_writer(
             &mut *w,
             &JsonDiagnostic {
                 kind: match diag.severity {
-                    Severity::Help | Severity::Note => "note",
+                    Severity::Note => "note",
                     Severity::Warning => "warning",
-                    Severity::Error | Severity::Bug => "error",
+                    Severity::Error => "error",
                 },
                 location,
                 message: &diag.message,
-                code,
+                hints: diag.hints().collect(),
+                code: diag.code.as_str(),
             },
         )
         .unwrap();
