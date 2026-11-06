@@ -1,1 +1,2 @@
-Fatal error: Packages must specify an `entrypoint` in their manifest
+Fatal error [manifest/package/entrypoint/missing]: Missing `package.entrypoint`, which is required.
+= See: https://github.com/typst/packages/blob/main/docs/manifest.md

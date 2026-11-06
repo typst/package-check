@@ -3,4 +3,6 @@ warning[manifest/package/compiler/patch]: The `compiler` field is a minimum vers
   │
 4 │ compiler = "0.15.1"
   │            ^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 

@@ -6,6 +6,7 @@ use std::process::{Command, Output, Stdio};
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 
+use crate::check::diagnostics::Code;
 use crate::check::{Result, TryExt};
 use crate::workspace::Workspace;
 
@@ -49,7 +50,7 @@ impl<'a> GitRepo<'a> {
             ])?
             .stdout,
         )
-        .error("git/touched-by/utf-8", "Invalid UTF-8 output from Git")?;
+        .error(Code::GitUtf8, "Invalid UTF-8 output from Git")?;
 
         debug!("Done");
 
@@ -84,7 +85,7 @@ impl<'a> GitRepo<'a> {
     pub fn dir(&self) -> Result<&str> {
         self.dir
             .to_str()
-            .error("git/dir/utf-8", "Directory name is not valid unicode")
+            .error(Code::GitUtf8, "Directory name is not valid UTF-8")
     }
 
     pub fn has_previous_version(&self, package: &PackageSpec) -> Result<bool> {
@@ -92,17 +93,19 @@ impl<'a> GitRepo<'a> {
             .join("packages")
             .join(package.namespace.as_str())
             .join(package.name.as_str());
-        let mut all_versions =
-            std::fs::read_dir(package_dir).error("io/list-versions", "Failed to list versions")?;
+        let mut all_versions = std::fs::read_dir(package_dir)
+            .error(Code::ListVersionsIo, "Failed to list versions")?;
         while let Some(Ok(version)) = all_versions.next() {
             if version.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                let version: PackageVersion = version
+                let version = version
                     .file_name()
                     .to_str()
-                    .error("utf-8", "Can't convert directory name to string")?
-                    .parse()
-                    .ok()
-                    .error("fs/version/invalid", "Invalid version number")?;
+                    .error(
+                        Code::ListVersionsUtf8,
+                        "Can't convert directory name to string",
+                    )?
+                    .parse::<PackageVersion>()
+                    .error(Code::ListVersionsInvalid, "Invalid version number")?;
 
                 if version < package.version {
                     return Ok(true);
@@ -121,9 +124,9 @@ fn traced_git<'a>(args: impl IntoIterator<Item = &'a str> + std::fmt::Debug) -> 
         .stderr(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
-        .error("io", "Failed to spawn git subprocess")?
+        .error(Code::GitIo, "Failed to spawn git subprocess")?
         .wait_with_output()
-        .error("io", "Failed to read git output")?;
+        .error(Code::GitIo, "Failed to read git output")?;
 
     if let Ok(stderr) = std::str::from_utf8(&out.stderr) {
         debug!(stderr = stderr)

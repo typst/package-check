@@ -1,46 +1,61 @@
-use codespan_reporting::diagnostic::{Diagnostic, Label};
-use reqwest::StatusCode;
+use reqwest::{Response, StatusCode};
 use typst::syntax::FileId;
 
 use crate::check::Diagnostics;
+use crate::check::diagnostics::{Code, Diagnostic, Label};
 use crate::check::manifest::{Manifest, Spanned, manifest_id};
 
 pub async fn check(diags: &mut Diagnostics, manifest: &Manifest) {
+    // Run request in parallel.
+    let mut tasks = Vec::new();
+
     if let Some(homepage) = &manifest.package.homepage {
-        check_url(diags, manifest_id(), homepage, "homepage").await;
+        tasks.push(check_url(
+            manifest_id(),
+            Code::ManifestPackageHomepageUnreachable,
+            homepage.clone(),
+            "homepage",
+        ));
     }
     if let Some(repo) = &manifest.package.repository {
-        check_url(diags, manifest_id(), repo, "repository").await;
+        tasks.push(check_url(
+            manifest_id(),
+            Code::ManifestPackageRepoUnreachable,
+            repo.clone(),
+            "repository",
+        ));
+    }
+
+    for task in tasks {
+        if let Err(diag) = task.await.unwrap() {
+            diags.emit(diag);
+        }
     }
 }
 
-async fn check_url(
-    diags: &mut Diagnostics,
+fn check_url(
     file_id: FileId,
-    field: &Spanned<String>,
+    code: Code,
+    field: Spanned<String>,
     name: &'static str,
-) {
-    if let Err(e) = reqwest::get(&field.val)
-        .await
-        .and_then(|res| res.error_for_status())
-    {
-        let kind = if matches!(
-            e.status(),
-            Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
-        ) {
-            "private"
-        } else {
-            "unreachable"
-        };
+) -> tokio::task::JoinHandle<Result<Response, Diagnostic>> {
+    tokio::task::spawn(async move {
+        reqwest::get(&field.val)
+            .await
+            .and_then(|res| res.error_for_status())
+            .map_err(|err| {
+                let kind = if matches!(
+                    err.status(),
+                    Some(StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN)
+                ) {
+                    "private"
+                } else {
+                    "unreachable"
+                };
 
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(file_id, field.span()))
-                .with_code(format!("manifest/package/{}/{}", name, kind))
-                .with_message(format!(
-                    "We could not fetch this URL.\n\nDetails: {:#?}",
-                    e.without_url()
-                )),
-        )
-    }
+                Diagnostic::error(code)
+                    .with_message(format!("The `{name}` URL is {kind} ({err})",))
+                    .with_label(Label::new(file_id, field.span()))
+            })
+    })
 }

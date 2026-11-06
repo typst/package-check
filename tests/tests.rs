@@ -163,13 +163,12 @@ fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<
             };
             let mut output = String::new();
             for diagnostic in diags.all().rev() {
-                term::emit_to_string(&mut output, &config, &worlds.package, diagnostic).unwrap();
+                term::emit_to_string(&mut output, &config, &worlds.package, &diagnostic.into())
+                    .unwrap();
             }
             output
         }
-        Err(e) => {
-            format!("Fatal error: {}\n", e.message)
-        }
+        Err(e) => e.format_fatal_error(),
     };
 
     // Write to output file.

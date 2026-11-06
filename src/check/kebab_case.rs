@@ -1,6 +1,5 @@
 use std::collections::HashSet;
 
-use codespan_reporting::diagnostic::{Diagnostic, Severity};
 use comemo::Track;
 use typst::syntax::{RootedPath, VirtualRoot};
 use typst::{
@@ -12,9 +11,10 @@ use typst::{
     },
 };
 
+use crate::check::diagnostics::{Code, Diagnostic, Label};
 use crate::world::SystemWorld;
 
-use super::{Diagnostics, label};
+use super::Diagnostics;
 
 // Check that all public identifiers are in kebab-case
 pub fn check(diags: &mut Diagnostics, world: &SystemWorld) -> Option<()> {
@@ -122,15 +122,13 @@ pub fn check_ast(
         }
 
         if name != &casbab::kebab(name) {
-            diags.emit(Diagnostic {
-                severity: codespan_reporting::diagnostic::Severity::Warning,
-                message:
-                    "This value seems to be public. It is recommended to use kebab-case names."
-                        .to_owned(),
-                labels: label(world, name_ident.span()).into_iter().collect(),
-                notes: Vec::new(),
-                code: Some("kebab-case/value".into()),
-            })
+            Diagnostic::warn(Code::KebabCaseValue)
+                .with_message(
+                    "This value seems to be public. \
+                         It is recommended to use kebab-case names.",
+                )
+                .with_label(Label::for_span(world, name_ident.span()))
+                .emit(diags);
         }
 
         if let Some(ast::Expr::Closure(func)) = binding.init() {
@@ -149,15 +147,13 @@ pub fn check_ast(
                 // all-uppercase names that may represent real-world
                 // acronyms.
                 if name != casbab::kebab(name) && name != casbab::screaming(name) {
-                    diags.emit(Diagnostic {
-                        severity: Severity::Warning,
-                        message: "This argument seems to be part of public function. \
-                            It is recommended to use kebab-case names."
-                            .to_owned(),
-                        labels: label(world, span).into_iter().collect(),
-                        notes: Vec::new(),
-                        code: Some("kebab-case/parameter".into()),
-                    })
+                    Diagnostic::warn(Code::KebabCaseParameter)
+                        .with_message(
+                            "This argument seems to be part of public function. \
+                                 It is recommended to use kebab-case names.",
+                        )
+                        .with_label(Label::for_span(world, span))
+                        .emit(diags);
                 }
             }
         }
@@ -174,13 +170,10 @@ pub fn check_ast(
             if let Some(func_name) = func_name {
                 let func_name = func_name.as_str();
                 if func_name != casbab::kebab(func_name) {
-                    diags.emit(Diagnostic {
-                        severity: Severity::Warning,
-                        message: "This function should have a kebab-case name.".to_owned(),
-                        labels: label(world, call.span()).into_iter().collect(),
-                        notes: Vec::new(),
-                        code: Some("kebab-case/value".into()),
-                    })
+                    Diagnostic::warn(Code::KebabCaseValue)
+                        .with_message("This function should have a kebab-case name.")
+                        .with_label(Label::for_span(world, call.span()))
+                        .emit(diags);
                 }
             }
 
@@ -191,13 +184,10 @@ pub fn check_ast(
             {
                 let arg_name = named_arg.name().as_str();
                 if arg_name != casbab::kebab(arg_name) {
-                    diags.emit(Diagnostic {
-                        severity: Severity::Warning,
-                        message: "This argument should have a kebab-case name.".to_owned(),
-                        labels: label(world, named_arg.name().span()).into_iter().collect(),
-                        notes: Vec::new(),
-                        code: Some("kebab-case/parameter".into()),
-                    })
+                    Diagnostic::warn(Code::KebabCaseParameter)
+                        .with_message("This argument should have a kebab-case name.")
+                        .with_label(Label::for_span(world, named_arg.name().span()))
+                        .emit(diags);
                 }
             }
         }
