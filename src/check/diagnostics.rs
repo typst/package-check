@@ -104,6 +104,10 @@ impl Diagnostics {
     pub fn warnings(&self) -> &[Diagnostic<FileId>] {
         &self.warnings
     }
+
+    pub fn all(&self) -> impl DoubleEndedIterator<Item = &Diagnostic<FileId>> {
+        self.errors.iter().chain(self.warnings.iter())
+    }
 }
 
 /// Prioritize diagnostics regarding the manifest and readme.

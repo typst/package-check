@@ -11,6 +11,7 @@ use typst::syntax::{FileId, PathError, RootedPath, VirtualPath};
 
 use crate::check::path::PackagePath;
 use crate::check::{Diagnostics, Result, TryExt, files};
+use crate::workspace::Workspace;
 use crate::world::{SystemWorld, WorldRoot};
 
 pub struct Worlds {
@@ -52,6 +53,7 @@ pub struct Template {
 }
 
 pub fn check(
+    workspace: &Workspace,
     package_dir: &Path,
     diags: &mut Diagnostics,
     package_spec: Option<&PackageSpec>,
@@ -133,11 +135,13 @@ pub fn check(
 
     let world = SystemWorld::new(
         package.entrypoint.val.clone(),
+        workspace.clone(),
         WorldRoot::Package(package_dir.to_owned()),
         package_spec.clone(),
     );
 
-    let template_world = world_for_template(package_dir, package_spec, &package, &template);
+    let template_world =
+        world_for_template(workspace, package_dir, package_spec, &package, &template);
 
     let manifest = Manifest { package, template };
     let worlds = Worlds {
@@ -704,6 +708,7 @@ fn path_error(
 }
 
 fn world_for_template(
+    workspace: &Workspace,
     package_dir: &Path,
     package_spec: Option<PackageSpec>,
     package: &Spanned<Package>,
@@ -719,7 +724,12 @@ fn world_for_template(
         template: template_dir.full().to_owned(),
     };
 
-    let world = SystemWorld::new(main.val.clone(), root, Some(package_spec));
+    let world = SystemWorld::new(
+        main.val.clone(),
+        workspace.clone(),
+        root,
+        Some(package_spec),
+    );
 
     Some(world.exclude(package.exclude.val.clone()))
 }
