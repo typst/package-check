@@ -85,7 +85,7 @@ pub async fn run_github_check(
     previous_check_run: Option<CheckRun>,
     pr: Option<PullRequest>,
 ) -> Result<()> {
-    let git_repo = GitRepo::open(&workspace.packages_repo_dir)?;
+    let git_repo = GitRepo::open(workspace.repo_dir())?;
     let touched_files = git_repo.files_touched_by("HEAD")?;
 
     let mut touches_outside_of_packages = false;

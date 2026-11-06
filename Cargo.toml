@@ -23,7 +23,6 @@ comemo = "0.5.0"
 comrak = { version = "0.49.0", default-features = false }
 dirs = "6.0.0"
 dotenvy = "0.15.7"
-fontdb = "0.23.0"
 html5ever = "0.38.0"
 markup5ever_rcdom = "0.38.0"
 ignore = "0.4.25"
@@ -41,13 +40,12 @@ tokio = { version = "1.48.0", features = ["rt-multi-thread", "process", "fs", "m
 toml_edit = "0.23"
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter"] }
-# NOTE: Update this along with the output of `Commands::TypstVersion`
 typst = "0.15.0"
 typst-assets = { version = "0.15.0", features = [ "fonts" ] }
 typst-eval = "0.15.0"
 typst-utils = "0.15.0"
 typst-layout = "0.15.0"
-typst-kit = {version = "0.15.0", features = ["datetime"]}
+typst-kit = {version = "0.15.0", features = ["datetime", "embedded-fonts", "scan-fonts"]}
 url = "2.5.7"
 walkdir = "2.5.0"
 
