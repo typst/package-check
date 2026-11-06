@@ -31,7 +31,7 @@ pub fn commit_for_previous_version(workspace: &Workspace, spec: &PackageSpec) ->
     let prev_version = workspace.find_previous_version(spec)?;
     let last_manifest = workspace.path_in_repo(&prev_version).join("typst.toml");
 
-    let repo = git::GitRepo::open(&workspace.packages_repo_dir).ok()?;
+    let repo = git::GitRepo::open(&workspace.repo_dir()).ok()?;
 
     repo.commit_for_file(&last_manifest)
 }
@@ -41,7 +41,7 @@ pub fn authors_are_differents(workspace: &Workspace, spec: &PackageSpec) -> Opti
     let last_manifest = workspace.path_in_repo(&prev_version).join("typst.toml");
     let new_manifest = workspace.path_in_repo(spec).join("typst.toml");
 
-    let repo = git::GitRepo::open(&workspace.packages_repo_dir).ok()?;
+    let repo = git::GitRepo::open(&workspace.repo_dir()).ok()?;
 
     let last_authors = repo.authors_of(&last_manifest)?;
     let new_authors = repo.authors_of(&new_manifest)?;

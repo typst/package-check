@@ -5,10 +5,8 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::OnceLock,
 };
 
-use fontdb::Database;
 use parking_lot::Mutex;
 use tracing::{Level, debug, span};
 use typst::foundations::Duration;
@@ -18,7 +16,7 @@ use typst::{
     diag::{FileError, FileResult, PackageError, PackageResult},
     foundations::{Bytes, Datetime},
     syntax::{FileId, Source, VirtualPath, package::PackageSpec},
-    text::{Font, FontBook, FontInfo},
+    text::{Font, FontBook},
     utils::LazyHash,
 };
 use typst_kit::files::FsRoot;
@@ -36,10 +34,6 @@ pub struct SystemWorld {
     main: FileId,
     /// Typst's standard library.
     library: LazyHash<Library>,
-    /// Metadata about discovered fonts.
-    book: LazyHash<FontBook>,
-    /// Locations of and storage for lazily loaded fonts.
-    fonts: Vec<FontSlot>,
     /// Maps file ids to source files and buffers.
     slots: Mutex<HashMap<FileId, FileSlot>>,
     /// The current datetime if requested. This is stored here to ensure it is
@@ -64,16 +58,11 @@ impl SystemWorld {
 
         let library = Library::default();
 
-        let mut searcher = FontSearcher::new();
-        searcher.search(&[]);
-
         Self {
             workspace,
             root,
             main,
             library: LazyHash::new(library),
-            book: LazyHash::new(searcher.book),
-            fonts: searcher.fonts,
             slots: Mutex::new(HashMap::new()),
             now: typst_kit::datetime::Time::system(),
             package_spec,
@@ -116,7 +105,7 @@ impl World for SystemWorld {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        &self.book
+        self.workspace.fonts().book()
     }
 
     fn main(&self) -> FileId {
@@ -146,7 +135,7 @@ impl World for SystemWorld {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.fonts[index].get()
+        self.workspace.fonts().font(index)
     }
 
     fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
@@ -425,17 +414,17 @@ fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<FsRoot>
 
 /// Try to find a pacakge in current git directory or in the on-disk cache.
 fn find_in_repo_or_cache(workspace: &Workspace, spec: &PackageSpec) -> PackageResult<FsRoot> {
-    if let Some(root) = workspace.packages.obtain(spec) {
+    if let Some(root) = workspace.packages().obtain(spec) {
         return Ok(root);
     }
 
-    if let Some(data) = &workspace.system.data
+    if let Some(data) = &workspace.system().data
         && let Some(root) = data.obtain(spec)
     {
         return Ok(root);
     }
 
-    if let Some(cache) = &workspace.system.cache
+    if let Some(cache) = &workspace.system().cache
         && let Some(root) = cache.obtain(spec)
     {
         return Ok(root);
@@ -464,98 +453,4 @@ fn decode_utf8(buf: &[u8]) -> FileResult<&str> {
     Ok(std::str::from_utf8(
         buf.strip_prefix(b"\xef\xbb\xbf").unwrap_or(buf),
     )?)
-}
-
-/// Searches for fonts.
-pub struct FontSearcher {
-    /// Metadata about all discovered fonts.
-    pub book: FontBook,
-    /// Slots that the fonts are loaded into.
-    pub fonts: Vec<FontSlot>,
-}
-
-/// Holds details about the location of a font and lazily the font itself.
-pub struct FontSlot {
-    /// The path at which the font can be found on the system.
-    path: PathBuf,
-    /// The index of the font in its collection. Zero if the path does not point
-    /// to a collection.
-    index: u32,
-    /// The lazily loaded font.
-    font: OnceLock<Option<Font>>,
-}
-
-impl FontSlot {
-    /// Get the font for this slot.
-    pub fn get(&self) -> Option<Font> {
-        self.font
-            .get_or_init(|| {
-                let data = Bytes::new(std::fs::read(&self.path).ok()?);
-                Font::new(data, self.index)
-            })
-            .clone()
-    }
-}
-
-impl FontSearcher {
-    /// Create a new, empty system searcher.
-    pub fn new() -> Self {
-        Self {
-            book: FontBook::new(),
-            fonts: vec![],
-        }
-    }
-
-    /// Search everything that is available.
-    pub fn search(&mut self, font_paths: &[PathBuf]) {
-        let mut db = Database::new();
-
-        // Font paths have highest priority.
-        for path in font_paths {
-            db.load_fonts_dir(path);
-        }
-
-        // System fonts have second priority.
-        db.load_system_fonts();
-
-        for face in db.faces() {
-            let path = match &face.source {
-                fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path,
-                // We never add binary sources to the database, so there
-                // shouln't be any.
-                fontdb::Source::Binary(_) => continue,
-            };
-
-            let info = db
-                .with_face_data(face.id, FontInfo::new)
-                .expect("database must contain this font");
-
-            if let Some(info) = info {
-                self.book.push(info);
-                self.fonts.push(FontSlot {
-                    path: path.clone(),
-                    index: face.index,
-                    font: OnceLock::new(),
-                });
-            }
-        }
-
-        // Embedded fonts have lowest priority.
-        self.add_embedded();
-    }
-
-    /// Add fonts that are embedded in the binary.
-    fn add_embedded(&mut self) {
-        for data in typst_assets::fonts() {
-            let buffer = typst::foundations::Bytes::new(data);
-            for (i, font) in Font::iter(buffer).enumerate() {
-                self.book.push(font.info().clone());
-                self.fonts.push(FontSlot {
-                    path: PathBuf::new(),
-                    index: i as u32,
-                    font: OnceLock::from(Some(font)),
-                });
-            }
-        }
-    }
 }

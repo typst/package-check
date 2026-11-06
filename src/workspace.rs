@@ -1,40 +1,60 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock};
 
 use typst::syntax::package::{PackageSpec, PackageVersion};
+use typst_kit::fonts::FontStore;
 use typst_kit::packages::FsPackages;
 
 /// Relevant workspace directories.
 #[derive(Clone)]
-pub struct Workspace {
-    /// The path of the `typst/packages` repository, which is used to resolve
-    /// package imports, among other things this.
-    pub packages_repo_dir: PathBuf,
-    /// The path of containing all the packages: `typst/packages/packages`.
-    pub packages: FsPackages,
-    /// System wide installed packages.
-    pub system: SystemPackages,
+pub struct Workspace(Arc<WorkspaceInner>);
+
+struct WorkspaceInner {
+    repo_dir: PathBuf,
+    packages: FsPackages,
+    system: SystemPackages,
+    fonts: LazyLock<FontStore, Box<dyn Fn() -> FontStore + Send + Sync>>,
 }
 
 impl Workspace {
-    pub fn new(packages_repo_dir: PathBuf, system: SystemPackages) -> Self {
-        Self {
-            packages: FsPackages::new(packages_repo_dir.join("packages")),
-            packages_repo_dir,
+    pub fn new(repo_dir: PathBuf, system: SystemPackages) -> Self {
+        Self(Arc::new(WorkspaceInner {
+            packages: FsPackages::new(repo_dir.join("packages")),
+            repo_dir,
             system,
-        }
+            fonts: LazyLock::new(Box::new(|| discover_fonts())),
+        }))
+    }
+    /// The path of the `typst/packages` repository, which is used to resolve
+    /// package imports, among other things this.
+    pub fn repo_dir(&self) -> &Path {
+        &self.0.repo_dir
+    }
+
+    /// The path of containing all the packages: `typst/packages/packages`.
+    pub fn packages(&self) -> &FsPackages {
+        &self.0.packages
+    }
+
+    /// System wide installed packages.
+    pub fn system(&self) -> &SystemPackages {
+        &self.0.system
+    }
+
+    /// Metadata about discovered fonts and lazily loaded fonts.
+    pub fn fonts(&self) -> &FontStore {
+        &self.0.fonts
     }
 
     /// Returns the path of the spec inside [`Self::packages`].
     pub fn path_in_repo(&self, spec: &PackageSpec) -> PathBuf {
         let relative_path = format!("{}/{}/{}", spec.namespace, spec.name, spec.version);
-        self.packages.path().join(&relative_path)
+        self.0.packages.path().join(&relative_path)
     }
 
     /// Resolves the previous version of the package inside [`Self::packages`].
     pub fn find_previous_version(&self, spec: &PackageSpec) -> Option<PackageSpec> {
-        let all_versions_dir = self
-            .packages
-            .path()
+        let all_versions_dir = (self.0.packages.path())
             .join(spec.namespace.as_str())
             .join(spec.name.as_str());
 
@@ -94,4 +114,12 @@ impl Default for SystemPackages {
             cache: dirs::cache_dir().map(FsPackages::new),
         }
     }
+}
+
+fn discover_fonts() -> FontStore {
+    let mut fonts = FontStore::new();
+    fonts.extend(typst_kit::fonts::embedded());
+    // TODO: Should we not include system fonts here?
+    fonts.extend(typst_kit::fonts::system());
+    fonts
 }
