@@ -1,12 +1,13 @@
 warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
-
-More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
   ┌─ typst.toml:7:14
   │
 7 │ description = "Render tetris fumen in typst."
   │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
-error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
+error[compile/error]: The following error was reported by the Typst compiler:
+failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ mino.typ:1:8
   │
 1 │ #import "@preview/jogs:0.2.1": compile-js, call-js-function
