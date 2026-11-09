@@ -2,12 +2,13 @@ use codespan_reporting::diagnostic::{Diagnostic, Label};
 use typst::syntax::{FileId, VirtualPath, package::PackageSpec};
 use typst::syntax::{RootedPath, VirtualRoot};
 
-use crate::{github::git, package::PackageExt};
+use crate::github::git;
+use crate::workspace::Workspace;
 
 use super::Diagnostics;
 
-pub fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
-    if authors_are_differents(spec).unwrap_or(false) {
+pub fn check(diags: &mut Diagnostics, workspace: &Workspace, spec: &PackageSpec) -> Option<()> {
+    if authors_are_differents(workspace, spec).unwrap_or(false) {
         let manifest = FileId::new(RootedPath::new(
             VirtualRoot::Project,
             VirtualPath::new("typst.toml").ok()?,
@@ -26,27 +27,21 @@ pub fn check(diags: &mut Diagnostics, spec: &PackageSpec) -> Option<()> {
     Some(())
 }
 
-pub fn commit_for_previous_version(spec: &PackageSpec) -> Option<String> {
-    let last_manifest = spec
-        .previous_version()?
-        .path_in_git_repo()
-        .join("typst.toml");
+pub fn commit_for_previous_version(workspace: &Workspace, spec: &PackageSpec) -> Option<String> {
+    let prev_version = workspace.find_previous_version(spec)?;
+    let last_manifest = workspace.path_in_repo(&prev_version).join("typst.toml");
 
-    let repo = git::repo_dir();
-    let repo = git::GitRepo::open(&repo).ok()?;
+    let repo = git::GitRepo::open(workspace.repo_dir()).ok()?;
 
     repo.commit_for_file(&last_manifest)
 }
 
-pub fn authors_are_differents(spec: &PackageSpec) -> Option<bool> {
-    let last_manifest = spec
-        .previous_version()?
-        .path_in_git_repo()
-        .join("typst.toml");
-    let new_manifest = spec.path_in_git_repo().join("typst.toml");
+pub fn authors_are_differents(workspace: &Workspace, spec: &PackageSpec) -> Option<bool> {
+    let prev_version = workspace.find_previous_version(spec)?;
+    let last_manifest = workspace.path_in_repo(&prev_version).join("typst.toml");
+    let new_manifest = workspace.path_in_repo(spec).join("typst.toml");
 
-    let repo = git::repo_dir();
-    let repo = git::GitRepo::open(&repo).ok()?;
+    let repo = git::GitRepo::open(workspace.repo_dir()).ok()?;
 
     let last_authors = repo.authors_of(&last_manifest)?;
     let new_authors = repo.authors_of(&new_manifest)?;

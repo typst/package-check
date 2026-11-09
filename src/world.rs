@@ -5,10 +5,8 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::OnceLock,
 };
 
-use fontdb::Database;
 use parking_lot::Mutex;
 use tracing::{Level, debug, span};
 use typst::foundations::Duration;
@@ -18,25 +16,24 @@ use typst::{
     diag::{FileError, FileResult, PackageError, PackageResult},
     foundations::{Bytes, Datetime},
     syntax::{FileId, Source, VirtualPath, package::PackageSpec},
-    text::{Font, FontBook, FontInfo},
+    text::{Font, FontBook},
     utils::LazyHash,
 };
+use typst_kit::files::FsRoot;
 
 use crate::check::Exclude;
-use crate::package::PackageExt;
+use crate::workspace::Workspace;
 
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
+    /// The workspace in which the package is checked.
+    workspace: Workspace,
     /// The root relative to which absolute paths are resolved.
     root: WorldRoot,
     /// The input path.
     main: FileId,
     /// Typst's standard library.
     library: LazyHash<Library>,
-    /// Metadata about discovered fonts.
-    book: LazyHash<FontBook>,
-    /// Locations of and storage for lazily loaded fonts.
-    fonts: Vec<FontSlot>,
     /// Maps file ids to source files and buffers.
     slots: Mutex<HashMap<FileId, FileSlot>>,
     /// The current datetime if requested. This is stored here to ensure it is
@@ -51,20 +48,21 @@ pub struct SystemWorld {
 
 impl SystemWorld {
     /// Create a new system world.
-    pub fn new(input: VirtualPath, root: WorldRoot, package_spec: Option<PackageSpec>) -> Self {
+    pub fn new(
+        input: VirtualPath,
+        workspace: Workspace,
+        root: WorldRoot,
+        package_spec: Option<PackageSpec>,
+    ) -> Self {
         let main = FileId::new(RootedPath::new(VirtualRoot::Project, input));
 
         let library = Library::default();
 
-        let mut searcher = FontSearcher::new();
-        searcher.search(&[]);
-
         Self {
+            workspace,
             root,
             main,
             library: LazyHash::new(library),
-            book: LazyHash::new(searcher.book),
-            fonts: searcher.fonts,
             slots: Mutex::new(HashMap::new()),
             now: typst_kit::datetime::Time::system(),
             package_spec,
@@ -107,7 +105,7 @@ impl World for SystemWorld {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        &self.book
+        self.workspace.fonts().book()
     }
 
     fn main(&self) -> FileId {
@@ -116,18 +114,28 @@ impl World for SystemWorld {
 
     fn source(&self, id: FileId) -> FileResult<Source> {
         self.slot(id, |slot| {
-            slot.source(&self.root, self.package_spec.as_ref(), &self.exclude)
+            slot.source(
+                &self.workspace,
+                &self.root,
+                self.package_spec.as_ref(),
+                &self.exclude,
+            )
         })
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
         self.slot(id, |slot| {
-            slot.file(&self.root, self.package_spec.as_ref(), &self.exclude)
+            slot.file(
+                &self.workspace,
+                &self.root,
+                self.package_spec.as_ref(),
+                &self.exclude,
+            )
         })
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.fonts[index].get()
+        self.workspace.fonts().font(index)
     }
 
     fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
@@ -219,12 +227,13 @@ impl FileSlot {
     /// Retrieve the source for this file.
     fn source(
         &mut self,
+        workspace: &Workspace,
         root: &WorldRoot,
         override_spec: Option<&PackageSpec>,
         exclude: &Exclude,
     ) -> FileResult<Source> {
         self.source.get_or_init(
-            || read(root, override_spec, exclude, self.id),
+            || read(workspace, root, override_spec, exclude, self.id),
             |data, prev| {
                 let text = decode_utf8(&data)?;
                 if let Some(mut prev) = prev {
@@ -256,12 +265,13 @@ impl FileSlot {
     /// Retrieve the file's bytes.
     fn file(
         &mut self,
+        workspace: &Workspace,
         root: &WorldRoot,
         override_spec: Option<&PackageSpec>,
         exclude: &Exclude,
     ) -> FileResult<Bytes> {
         self.file.get_or_init(
-            || read(root, override_spec, exclude, self.id),
+            || read(workspace, root, override_spec, exclude, self.id),
             |data, _| Ok(Bytes::new(data)),
         )
     }
@@ -321,17 +331,19 @@ impl<T: Clone> SlotCell<T> {
 
 /// Reads a file from a `FileId`.
 fn read(
+    workspace: &Workspace,
     root: &WorldRoot,
     override_spec: Option<&PackageSpec>,
     exclude: &Exclude,
     id: FileId,
 ) -> FileResult<Vec<u8>> {
-    let resolved = resolve_system_path(root, override_spec, exclude, id)?;
+    let resolved = resolve_system_path(workspace, root, override_spec, exclude, id)?;
     read_from_disk(&resolved)
 }
 
 /// Resolves the path of a file id on the system.
 fn resolve_system_path(
+    workspace: &Workspace,
     root: &WorldRoot,
     override_spec: Option<&PackageSpec>,
     exclude: &Exclude,
@@ -349,19 +361,19 @@ fn resolve_system_path(
             // directly, otherwise try to find the package:
             // 1. relative to the current world's package dir.
             // 2. inside the current git directory.
-            // 3. in the global package cache.
+            // 3. in the system wide package cache.
             if Some(spec) == override_spec {
                 root.package_dir()
-            } else if let Some(dir) = find_relative_package(root, spec) {
-                resolved.insert(dir)
+            } else if let Some(root) = find_relative_package(root, spec) {
+                resolved.insert(root).path()
             } else {
-                let dir = find_in_git_repo_or_cache(spec).map_err(FileError::Package)?;
-                resolved.insert(dir)
+                let root = find_in_repo_or_cache(workspace, spec).map_err(FileError::Package)?;
+                resolved.insert(root).path()
             }
         }
     };
 
-    let realized_path = id.vpath().realize(root).or(Err(FileError::AccessDenied))?;
+    let realized_path = id.vpath().realize(root).map_err(FileError::from)?;
 
     // FIXME: To be fully correct, we would need to read the exclude globs
     // of the imported package and filter out files that are imported but
@@ -381,7 +393,7 @@ fn resolve_system_path(
 }
 
 // Try to find a package relative to the one that is being checked by the world.
-fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<PathBuf> {
+fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<FsRoot> {
     let dir = root.all_packages()?;
     let mut buf = dir.to_path_buf();
 
@@ -397,40 +409,32 @@ fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<PathBuf
         return None;
     }
 
-    Some(buf)
+    Some(FsRoot::new(buf))
 }
 
 /// Try to find a pacakge in current git directory or in the on-disk cache.
-fn find_in_git_repo_or_cache(spec: &PackageSpec) -> PackageResult<PathBuf> {
-    let git_package_dir = spec.path_in_git_repo();
-    if git_package_dir.exists() {
-        return Ok(git_package_dir);
+fn find_in_repo_or_cache(workspace: &Workspace, spec: &PackageSpec) -> PackageResult<FsRoot> {
+    if let Some(root) = workspace.packages().obtain(spec) {
+        return Ok(root);
     }
 
-    let subdir = format!(
-        "typst/packages/{}/{}/{}",
-        spec.namespace, spec.name, spec.version
-    );
-
-    if let Some(data_dir) = dirs::data_dir() {
-        let dir = data_dir.join(&subdir);
-        if dir.exists() {
-            return Ok(dir);
-        }
+    if let Some(data) = &workspace.system().data
+        && let Some(root) = data.obtain(spec)
+    {
+        return Ok(root);
     }
 
-    if let Some(cache_dir) = dirs::cache_dir() {
-        let dir = cache_dir.join(&subdir);
-        if dir.exists() {
-            return Ok(dir);
-        }
-
-        return Err(PackageError::NetworkFailed(Some(
-            "All packages are supposed to be present in the `packages` repository, or in the local cache.".into(),
-        )));
+    if let Some(cache) = &workspace.system().cache
+        && let Some(root) = cache.obtain(spec)
+    {
+        return Ok(root);
     }
 
-    Err(PackageError::NotFound(spec.clone()))
+    Err(PackageError::NetworkFailed(Some(
+        "All packages are supposed to be present in the \
+         `packages` repository, or in the local cache."
+            .into(),
+    )))
 }
 
 /// Read a file from disk.
@@ -449,98 +453,4 @@ fn decode_utf8(buf: &[u8]) -> FileResult<&str> {
     Ok(std::str::from_utf8(
         buf.strip_prefix(b"\xef\xbb\xbf").unwrap_or(buf),
     )?)
-}
-
-/// Searches for fonts.
-pub struct FontSearcher {
-    /// Metadata about all discovered fonts.
-    pub book: FontBook,
-    /// Slots that the fonts are loaded into.
-    pub fonts: Vec<FontSlot>,
-}
-
-/// Holds details about the location of a font and lazily the font itself.
-pub struct FontSlot {
-    /// The path at which the font can be found on the system.
-    path: PathBuf,
-    /// The index of the font in its collection. Zero if the path does not point
-    /// to a collection.
-    index: u32,
-    /// The lazily loaded font.
-    font: OnceLock<Option<Font>>,
-}
-
-impl FontSlot {
-    /// Get the font for this slot.
-    pub fn get(&self) -> Option<Font> {
-        self.font
-            .get_or_init(|| {
-                let data = Bytes::new(std::fs::read(&self.path).ok()?);
-                Font::new(data, self.index)
-            })
-            .clone()
-    }
-}
-
-impl FontSearcher {
-    /// Create a new, empty system searcher.
-    pub fn new() -> Self {
-        Self {
-            book: FontBook::new(),
-            fonts: vec![],
-        }
-    }
-
-    /// Search everything that is available.
-    pub fn search(&mut self, font_paths: &[PathBuf]) {
-        let mut db = Database::new();
-
-        // Font paths have highest priority.
-        for path in font_paths {
-            db.load_fonts_dir(path);
-        }
-
-        // System fonts have second priority.
-        db.load_system_fonts();
-
-        for face in db.faces() {
-            let path = match &face.source {
-                fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => path,
-                // We never add binary sources to the database, so there
-                // shouln't be any.
-                fontdb::Source::Binary(_) => continue,
-            };
-
-            let info = db
-                .with_face_data(face.id, FontInfo::new)
-                .expect("database must contain this font");
-
-            if let Some(info) = info {
-                self.book.push(info);
-                self.fonts.push(FontSlot {
-                    path: path.clone(),
-                    index: face.index,
-                    font: OnceLock::new(),
-                });
-            }
-        }
-
-        // Embedded fonts have lowest priority.
-        self.add_embedded();
-    }
-
-    /// Add fonts that are embedded in the binary.
-    fn add_embedded(&mut self) {
-        for data in typst_assets::fonts() {
-            let buffer = typst::foundations::Bytes::new(data);
-            for (i, font) in Font::iter(buffer).enumerate() {
-                self.book.push(font.info().clone());
-                self.fonts.push(FontSlot {
-                    path: PathBuf::new(),
-                    index: i as u32,
-                    font: OnceLock::from(Some(font)),
-                });
-            }
-        }
-    }
 }

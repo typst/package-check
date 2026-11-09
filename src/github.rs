@@ -11,14 +11,12 @@ use codespan_reporting::{
 use jwt_simple::prelude::*;
 use pr::{PullRequest, PullRequestUpdate};
 use tracing::{debug, warn};
-use typst::syntax::VirtualRoot;
-use typst::syntax::{FileId, package::PackageSpec};
+use typst::syntax::package::PackageSpec;
+use typst::syntax::{FileId, VirtualRoot};
 
-use crate::{
-    check::{self, Diagnostics, Result, TryExt},
-    package::PackageExt,
-    world::SystemWorld,
-};
+use crate::check::{self, Diagnostics, Result, TryExt};
+use crate::workspace::{SystemPackages, Workspace};
+use crate::world::SystemWorld;
 
 use api::{check::CheckRun, *};
 
@@ -37,7 +35,7 @@ const MAX_ANNOTATIONS: usize = 50;
 pub struct AppState {
     private_key: String,
     app_id: String,
-    pub git_dir: String,
+    pub workspace: Workspace,
 }
 
 impl AppState {
@@ -48,9 +46,14 @@ impl AppState {
                 .replace('&', "\n"),
             app_id: std::env::var("GITHUB_APP_IDENTIFIER")
                 .expect("GITHUB_APP_IDENTIFIER is not set."),
-            git_dir: std::env::var("PACKAGES_DIR")
-                .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
-                .expect("PACKAGES_DIR is not set."),
+            workspace: Workspace::new(
+                std::env::var("PACKAGES_DIR")
+                    .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
+                    .expect("PACKAGES_DIR is not set.")
+                    .into(),
+                // Ignore system wide installed packages.
+                SystemPackages::empty(),
+            ),
         }
     }
 
@@ -75,14 +78,14 @@ impl AppState {
 }
 
 pub async fn run_github_check(
-    git_dir: &String,
+    workspace: &Workspace,
     head_sha: String,
     api_client: GitHub<AuthInstallation>,
     repository: Repository,
     previous_check_run: Option<CheckRun>,
     pr: Option<PullRequest>,
 ) -> Result<()> {
-    let git_repo = GitRepo::open(Path::new(git_dir))?;
+    let git_repo = GitRepo::open(workspace.repo_dir())?;
     let touched_files = git_repo.files_touched_by("HEAD")?;
 
     let mut touches_outside_of_packages = false;
@@ -231,7 +234,9 @@ pub async fn run_github_check(
         // the previous version.
         if let Some(current_pr) = &pr {
             debug!("There is a current PR");
-            if let Some(previous_commit) = check::authors::commit_for_previous_version(package) {
+            if let Some(previous_commit) =
+                check::authors::commit_for_previous_version(workspace, package)
+            {
                 debug!("Found previous commit: {previous_commit}");
                 if let Ok(Some(previous_pr)) = api_client
                     .prs_for_commit(repository.owner(), repository.name(), previous_commit)
@@ -275,13 +280,13 @@ pub async fn run_github_check(
                                     will not be merged.",
                                     previous_pr.user.login,
                                     package.name,
-                                    package
-                                        .previous_version()
+                                    workspace
+                                        .find_previous_version(package)
                                         .expect(
                                             "If there is no previous version, \
                                             this branch should not be reached"
                                         )
-                                        .version
+                                        .version,
                                 ),
                             )
                             .await;
@@ -294,6 +299,7 @@ pub async fn run_github_check(
         }
 
         let (world, diags) = match check::all_checks(
+            workspace,
             Some(package),
             PathBuf::new()
                 .join("packages")
