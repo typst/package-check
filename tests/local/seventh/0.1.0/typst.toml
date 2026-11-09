@@ -5,3 +5,8 @@ description = "Useless package"
 authors = ["Some Person"]
 entrypoint = "lib.typ"
 license = "MIT"
+
+[template]
+thumbnail = "missing.png"
+path = "/template"
+entrypoint = "src/../../main.typ"

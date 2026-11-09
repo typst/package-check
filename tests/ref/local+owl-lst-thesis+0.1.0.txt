@@ -1,0 +1,6 @@
+error[manifest/template/thumbnail/missing]: Thumbnails are required for templates.
+   ┌─ typst.toml:26:0
+   │
+26 │ [template]
+   │ ^^^^^^^^^^
+
