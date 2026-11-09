@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, anyhow, bail};
+use clap::Parser;
 use codespan_reporting::term;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use typst::ecow::EcoString;
@@ -20,6 +21,36 @@ impl Snapshot {
         let file_name = spec_to_snapshot_name(&self.spec);
         PathBuf::from_iter(["tests", "out", &file_name])
     }
+
+    fn ref_path(&self) -> PathBuf {
+        let file_name = spec_to_snapshot_name(&self.spec);
+        PathBuf::from_iter(["tests", "ref", &file_name])
+    }
+}
+
+#[derive(clap::Parser)]
+struct Args {
+    /// Update snapshots of failed tests.
+    ///
+    /// Either update `all` or get asked for a `choice` for each failing test.
+    #[arg(
+        long,
+        default_missing_value = "all",
+        num_args = 0..=1,
+        require_equals = true,
+    )]
+    update: Option<Update>,
+    /// Filter tests by name.
+    ///
+    /// Any test containing one of the filter strings will be run.
+    #[arg()]
+    filters: Vec<String>,
+}
+
+#[derive(Copy, Clone, clap::ValueEnum)]
+enum Update {
+    All,
+    Choice,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -30,7 +61,7 @@ fn main() -> anyhow::Result<()> {
 
     prepare()?;
 
-    let filters = std::env::args().skip(1).collect::<Vec<_>>();
+    let args = Args::parse();
 
     let mut snapshots = std::fs::read_dir("tests/ref")?
         .map(|entry| {
@@ -44,12 +75,12 @@ fn main() -> anyhow::Result<()> {
 
     let all = snapshots.len();
     snapshots.retain(|s| {
-        if filters.is_empty() {
+        if args.filters.is_empty() {
             return true;
         }
 
         let spec = s.spec.to_string();
-        filters.iter().any(|f| spec.contains(f))
+        args.filters.iter().any(|f| spec.contains(f))
     });
     let filtered = all - snapshots.len();
 
@@ -65,17 +96,31 @@ fn main() -> anyhow::Result<()> {
 
     eprintln!("\n=== Results ===");
     let mut passed = 0;
+    let mut updated = 0;
     for (snapshot, res) in results {
         match res {
             TestResult::Passed => passed += 1,
-            TestResult::Failed { diff } => {
-                eprintln!("[ERROR] {}:\n{diff}", snapshot.spec);
+            TestResult::Failed { diff, output } => {
+                eprintln!("\x1b[31m[ERROR]\x1b[0m \x1b[33m{}\x1b[0m:\n{diff}", snapshot.spec);
+
+                if should_update(args.update)? {
+                    std::fs::write(snapshot.ref_path(), &output).context("updating reference")?;
+                    eprintln!("updated snapshot");
+                    updated += 1;
+                }
             }
         }
     }
 
-    let failed = all - passed - filtered;
-    eprintln!("{passed} passed, {failed} failed, {filtered} filtered out");
+    let failed = all - passed - filtered - updated;
+    eprint!("{passed} passed, {failed} failed");
+    if updated > 0 {
+        eprint!(", {updated} updated");
+    }
+    if filtered > 0 {
+        eprint!(", {filtered} filtered out");
+    }
+    eprintln!();
 
     Ok(())
 }
@@ -95,7 +140,7 @@ fn prepare() -> anyhow::Result<()> {
 
 enum TestResult {
     Passed,
-    Failed { diff: String },
+    Failed { diff: String, output: String },
 }
 
 fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<TestResult> {
@@ -131,10 +176,36 @@ fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<
     // Generate diff.
     if output != snapshot.output {
         let diff = pretty_assertions::StrComparison::new(&snapshot.output, &output).to_string();
-        return Ok(TestResult::Failed { diff });
+        return Ok(TestResult::Failed { diff, output });
     }
 
     Ok(TestResult::Passed)
+}
+
+fn should_update(update: Option<Update>) -> anyhow::Result<bool> {
+    let Some(update) = update else {
+        return Ok(false);
+    };
+
+    let should_update = match update {
+        Update::All => true,
+        Update::Choice => {
+            eprintln!("update snapshot [y/N]?");
+            loop {
+                let mut buf = String::new();
+                std::io::stdin()
+                    .read_line(&mut buf)
+                    .context("reading user input")?;
+                buf.make_ascii_lowercase();
+                match buf.trim() {
+                    "y" | "yes" => break true,
+                    "" | "n" | "no" => break false,
+                    _ => (),
+                }
+            }
+        }
+    };
+    Ok(should_update)
 }
 
 fn spec_to_snapshot_name(
