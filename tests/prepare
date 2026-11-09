@@ -1,4 +1,4 @@
-#!/bin/env bash
+#!/usr/bin/env bash
 
 # Do a sparse checkout fo the packages repo and copy the local packages into it.
 
