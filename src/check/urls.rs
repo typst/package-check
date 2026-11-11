@@ -2,8 +2,10 @@ use reqwest::{Response, StatusCode};
 use typst::syntax::FileId;
 
 use crate::check::Diagnostics;
-use crate::check::diagnostics::{Code, Diagnostic, Label};
-use crate::check::manifest::{Manifest, Spanned, manifest_id};
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Label};
+use crate::check::manifest::{Manifest, manifest_id};
+use crate::check::toml::Spanned;
 
 pub async fn check(diags: &mut Diagnostics, manifest: &Manifest) {
     // Run request in parallel.

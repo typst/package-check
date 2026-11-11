@@ -5,7 +5,7 @@ use typst::syntax::{FileId, PathError, RootedPath, VirtualPath};
 
 /// A path inside a package that allows either retrieving the full or the
 /// package-relative path.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub struct PackagePath<T = PathBuf> {
     offset: usize,
     full_path: T,
@@ -69,8 +69,27 @@ impl<T: AsRef<Path>> PackagePath<T> {
     pub fn file_id(&self) -> FileId {
         FileId::new(RootedPath::new(
             typst::syntax::VirtualRoot::Project,
-            VirtualPath::new(self.relative().to_str().unwrap()).unwrap(),
+            self.virtual_path(),
         ))
+    }
+
+    /// Create a virtual path from [`Self::relative()`].
+    pub fn virtual_path(&self) -> VirtualPath {
+        VirtualPath::new(self.relative().to_str().unwrap()).unwrap()
+    }
+
+    pub fn to_owned(&self) -> PackagePath<PathBuf> {
+        PackagePath {
+            offset: self.offset,
+            full_path: self.full_path.as_ref().to_owned(),
+        }
+    }
+
+    pub fn as_ref(&self) -> PackagePath<&Path> {
+        PackagePath {
+            offset: self.offset,
+            full_path: self.full_path.as_ref(),
+        }
     }
 }
 

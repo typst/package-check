@@ -24,4 +24,6 @@ error[manifest/package/homepage/redundant]: Use the homepage field only if there
   │
 9 │ homepage = "https://github.com/Enter-tainer/mino"
   │            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 

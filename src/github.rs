@@ -11,7 +11,8 @@ use tracing::{debug, warn};
 use typst::syntax::VirtualRoot;
 use typst::syntax::package::PackageSpec;
 
-use crate::check::diagnostics::{Code, Diagnostic, Severity};
+use crate::check::codes::{self, Code};
+use crate::check::diagnostics::{Diagnostic, Severity};
 use crate::check::{self, Diagnostics, Result, TryExt};
 use crate::workspace::{SystemPackages, Workspace};
 use crate::world::SystemWorld;
@@ -302,7 +303,7 @@ pub async fn run_github_check(
             }
         }
 
-        let (world, diags) = match check::all_checks(
+        let res = check::all_checks(
             workspace,
             Some(package),
             PathBuf::new()
@@ -312,30 +313,31 @@ pub async fn run_github_check(
                 .join(package.version.to_string()),
             false,
         )
-        .await
-        {
-            Ok(x) => x,
-            Err(e) => {
-                api_client
-                    .update_check_run(
-                        repository.owner(),
-                        repository.name(),
-                        check_run.id,
-                        false,
-                        CheckRunOutput {
-                            title: &format!("Fatal error [{}]", e.code),
-                            summary: &format!(
-                                "The following error was encountered:\n\n{}",
-                                e.format_message_with_hints()
-                            ),
-                            annotations: &[],
-                        },
-                    )
-                    .await
-                    .error(Code::GithubApiCheckRunFatal, "Failed to report fatal error")?;
-                return Err(e);
-            }
-        };
+        .await;
+
+        if let Err(err) = &res {
+            api_client
+                .update_check_run(
+                    repository.owner(),
+                    repository.name(),
+                    check_run.id,
+                    false,
+                    CheckRunOutput {
+                        title: &format!("Fatal error [{}]", err.code.ty()),
+                        summary: &format!(
+                            "The following error was encountered:\n\n{}",
+                            err.format_message_with_hints()
+                        ),
+                        annotations: &[],
+                    },
+                )
+                .await
+                .error(Code::GithubApiCheckRunFatal, "Failed to report fatal error")?;
+        }
+
+        let (checks, mut diags) = res?;
+
+        let ignored = codes::override_diagnostics(&checks, &mut diags);
 
         // Diagnostics that can't be attached to a file (for instance because
         // they have no label or point to a directory) are listed in the
@@ -343,7 +345,7 @@ pub async fn run_github_check(
         let mut annotations = Vec::new();
         let mut unplaced = Vec::new();
         for diag in diags.all() {
-            match diagnostic_to_annotation(&world, package, diag) {
+            match diagnostic_to_annotation(&checks.worlds.package, package, diag) {
                 Some(annotation) => annotations.push(annotation),
                 None => unplaced.push(diag),
             }
@@ -376,7 +378,7 @@ pub async fn run_github_check(
                             acc
                         })
                     },
-                    summary: &summary(package, &diags, suppressed, &unplaced),
+                    summary: &summary(package, &diags, suppressed, &unplaced, &ignored),
                     annotations: &annotations,
                 },
             )
@@ -440,6 +442,7 @@ fn summary(
     diags: &Diagnostics,
     suppressed: usize,
     unplaced: &[&Diagnostic],
+    ignored: &[Diagnostic],
 ) -> String {
     let errors = diags.errors().len();
     let warnings = diags.warnings().len();
@@ -476,51 +479,60 @@ fn summary(
     summary.push_str("A human being will soon review your package, too.");
 
     if !unplaced.is_empty() {
-        summary.push_str("\n\n");
-        write_unplaced_summary(&mut summary, package, unplaced).unwrap();
+        summary.push_str(
+            "\n\nThere are a few diagnostics which we could \
+             not show inline with your changes. These are listed here:\n",
+        );
+        for diag in unplaced {
+            write_summary_diagnostic(&mut summary, package, diag).unwrap();
+        }
+    }
+
+    if !ignored.is_empty() {
+        writeln!(
+            summary,
+            "\n\n<details>\n\
+             <summary>{} diagnostic{} were ignored</summary>\n\n",
+            ignored.len(),
+            plural(ignored.len()),
+        )
+        .unwrap();
+        for diag in ignored {
+            write_summary_diagnostic(&mut summary, package, diag).unwrap();
+        }
+        summary.push_str("</details>\n");
     }
 
     summary
 }
 
 /// Emits diagnostics that could not be turned into annotations as part of the summary.
-fn write_unplaced_summary(
+fn write_summary_diagnostic(
     mut f: impl Write,
     package: &PackageSpec,
-    diags: &[&Diagnostic],
+    diag: &Diagnostic,
 ) -> fmt::Result {
-    writeln!(
-        f,
-        "There are a few diagnostics which we could \
-         not show inline with your changes. These are listed here:",
-    )?;
+    let severity = match diag.severity {
+        Severity::Error => "Error",
+        Severity::Warning => "Warning",
+        Severity::Note => "Note",
+    };
+    let code = diag.code.ty().as_str();
+    write!(f, "- **{severity}** [`{code}`]")?;
 
-    for diag in diags {
-        let severity = match diag.severity {
-            Severity::Error => "Error",
-            Severity::Warning => "Warning",
-            Severity::Note => "Note",
+    if let Some(label) = diag.label {
+        let file_package = match label.file.root() {
+            VirtualRoot::Package(p) => p,
+            VirtualRoot::Project => package,
         };
-        let code = diag.code.as_str();
-        write!(f, "- **{severity}** [`{code}`]")?;
-
-        if let Some(label) = diag.label {
-            let file_package = match label.file.root() {
-                VirtualRoot::Package(p) => p,
-                VirtualRoot::Project => package,
-            };
-            let path = label.file.vpath().get_without_slash();
-            if file_package == package {
-                write!(f, " in `{path}`")?;
-            } else {
-                write!(f, " in `{file_package}/{path}`")?;
-            }
+        let path = label.file.vpath().get_without_slash();
+        if file_package == package {
+            write!(f, " in `{path}`")?;
+        } else {
+            write!(f, " in `{file_package}/{path}`")?;
         }
-        write!(f, ": {}", diag.message)?;
-
-        writeln!(f)?;
     }
-
+    writeln!(f, ": {}", diag.message)?;
     Ok(())
 }
 
@@ -570,7 +582,7 @@ fn diagnostic_to_annotation(
             Severity::Warning => AnnotationLevel::Warning,
             Severity::Error => AnnotationLevel::Failure,
         },
-        title: Some(diag.code.to_string()),
+        title: Some(diag.code.ty().to_string()),
         message,
     })
 }

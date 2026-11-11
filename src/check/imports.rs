@@ -2,12 +2,14 @@ use std::path::Path;
 use std::str::FromStr;
 
 use typst::World;
+use typst::ecow::eco_format;
 use typst::syntax::VirtualPath;
 use typst::syntax::ast::{self, AstNode, ModuleImport};
 use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
 use walkdir::WalkDir;
 
-use crate::check::diagnostics::{Code, Diagnostic, Label, Severity};
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Label};
 use crate::check::path::PackagePath;
 use crate::check::{Diagnostics, TryExt};
 use crate::world::SystemWorld;
@@ -82,16 +84,20 @@ pub fn check_ast(
             // Generate an error if an old version of the package is imported.
             // For other packages this usually isn't an issue, so only notify
             // package authors.
-            let (severity, code) = match world.package_spec() {
+            match world.package_spec() {
                 Some(spec) if import_spec.versionless() == spec.versionless() => {
-                    (Severity::Error, Code::ImportOutdatedSelf)
+                    Diagnostic::error(Code::ImportOutdatedSelf)
+                        .with_message("This import seems to use an older version of the package.")
+                        .with_label(Label::for_span(world, import.span()))
+                        .emit(diags);
                 }
-                _ => (Severity::Note, Code::ImportOutdatedDependency),
-            };
-            Diagnostic::new(severity, code)
-                .with_message("This import seems to use an older version of the package.")
-                .with_label(Label::for_span(world, import.span()))
-                .emit(diags);
+                _ => {
+                    Diagnostic::note(Code::ImportOutdatedDependency(eco_format!("{import_spec}")))
+                        .with_message("This import seems to use an older version of the package.")
+                        .with_label(Label::for_span(world, import.span()))
+                        .emit(diags);
+                }
+            }
         }
     }
 }

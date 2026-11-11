@@ -1,7 +1,8 @@
 use typst::diag::{Severity, SourceDiagnostic};
 use typst_layout::PagedDocument;
 
-use crate::check::diagnostics::{Code, Diagnostic, Label};
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Label};
 use crate::world::SystemWorld;
 
 use super::Diagnostics;
@@ -29,7 +30,7 @@ fn convert_diagnostics<'a>(
             let severity = diagnostic.severity.into();
             let code = match diagnostic.severity {
                 Severity::Error => Code::CompileError,
-                Severity::Warning => Code::CompileWarning,
+                Severity::Warning => Code::CompileWarning(diagnostic.message.clone()),
             };
 
             Diagnostic::new(severity, code)

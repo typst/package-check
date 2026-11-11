@@ -10,7 +10,8 @@ use typst::foundations::Bytes;
 use typst::syntax::{FileId, RootedPath, VirtualPath};
 use url::Url;
 
-use crate::check::diagnostics::{Code, Diagnostic, Docs, Label};
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Docs, Label};
 use crate::check::path::PackagePath;
 use crate::{
     check::{Diagnostics, TryExt, imports, kebab_case},
@@ -239,9 +240,6 @@ fn check_readme_link_url(
 
     let url_error = match Url::parse(url_text) {
         Ok(url) => {
-            // TODO: Should we fetch the URL here like for the `homepage` and
-            // `repository` manifest fields, to check it can be publicly accessed?
-
             check_repo_file_url(diags, readme, sourcepos, url.as_str());
 
             return;
@@ -310,7 +308,7 @@ const DEFAULT_BRANCHES: [&str; 2] = ["main", "master"];
 
 fn check_repo_file_url(diags: &mut Diagnostics, readme: &Readme, sourcepos: Sourcepos, url: &str) {
     static GITHUB_URL: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https://github.com/([^/]+)/([^/]+)/(?:blob|tree)/([^/]+)/(.+)").unwrap()
+        Regex::new(r"^https://github.com/([^/]+)/([^/]+)/(?:blob|tree)/([^/]+)/(.+)$").unwrap()
     });
     static GITHUB_RAW_URL: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
@@ -319,10 +317,12 @@ fn check_repo_file_url(diags: &mut Diagnostics, readme: &Readme, sourcepos: Sour
         .unwrap()
     });
     static GITLAB_URL: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https://gitlab.com/([^/]+)/([^/]+)/-/(?:raw|blob|tree)/([^/]+)/(.+)").unwrap()
+        Regex::new(r"^https://gitlab.com/([^/]+)/([^/]+)/-/(?:raw|blob|tree)/([^/]+)/(.+)$")
+            .unwrap()
     });
     static CODEBERG_URL: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"https://codeberg.org/([^/]+)/([^/]+)/(?:raw|src)/branch/([^/]+)/(.+)").unwrap()
+        Regex::new(r"^https://codeberg.org/([^/]+)/([^/]+)/(?:raw|src)/branch/([^/]+)/(.+)$")
+            .unwrap()
     });
 
     enum Host {
@@ -364,7 +364,7 @@ fn check_repo_file_url(diags: &mut Diagnostics, readme: &Readme, sourcepos: Sour
         Host::Codeberg => format!("https://codeberg.org/{user}/{repo}/src/branch/{branch}/{path}"),
     };
 
-    Diagnostic::warn(Code::ReadmeLinkRepoDefaultBranch)
+    Diagnostic::warn(Code::ReadmeLinkRepoDefaultBranch(url.into()))
         .with_message(format!(
             "{name} URL links to default branch: `{url}`.\n\n\
              Consider using a link to a specific tag/release or a permalink to a \
@@ -402,7 +402,7 @@ fn check_image_alternative_description(
             .with_label(readme_label(readme, sourcepos))
             .emit(diags);
     } else if SINGLE_WORD.is_match(alt) || SINGLE_LETTER.is_match(alt) {
-        Diagnostic::warn(Code::ReadmeImageInadequateAlt)
+        Diagnostic::warn(Code::ReadmeImageInadequateAlt(alt.into()))
             .with_message(format!(
                 "Possibly inadequate alternative description for image: `{alt}`. \
                  Please add a short description to make this image more accessible."
