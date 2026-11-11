@@ -5,6 +5,8 @@ use std::range::Range;
 use typst::WorldExt;
 use typst::syntax::{DiagSpan, FileId, RootedPath, VirtualPath, VirtualRoot};
 
+use crate::check::codes::Code;
+use crate::check::toml::TomlPath;
 use crate::world::SystemWorld;
 
 pub type Result<T> = std::result::Result<T, Diagnostic>;
@@ -93,10 +95,36 @@ impl Diagnostics {
         }
     }
 
-    pub fn emit_many(&mut self, ds: impl Iterator<Item = Diagnostic>) {
+    pub fn emit_many(&mut self, ds: impl IntoIterator<Item = Diagnostic>) {
         for d in ds {
             self.emit(d)
         }
+    }
+
+    pub fn split_off<F>(&mut self, mut f: F) -> Vec<Diagnostic>
+    where
+        F: FnMut(&Diagnostic) -> bool,
+    {
+        let mut split_off = Vec::new();
+
+        let mut split = |diags: &mut Vec<Diagnostic>| {
+            *diags = std::mem::take(diags)
+                .into_iter()
+                .filter_map(|diag| match f(&diag) {
+                    false => Some(diag),
+                    true => {
+                        split_off.push(diag);
+                        None
+                    }
+                })
+                .collect();
+        };
+
+        split(&mut self.errors);
+        split(&mut self.warnings);
+        split(&mut self.notes);
+
+        split_off
     }
 
     pub fn extend(&mut self, mut other: Self, dir_prefix: &Path) {
@@ -156,8 +184,11 @@ pub struct Diagnostic {
     pub code: Code,
     pub label: Option<Label>,
     pub message: String,
+    /// The hints and doc links.
+    /// Any doc links are stored at the end of the list.
     hints: Vec<String>,
-    pub docs_link: Option<String>,
+    /// The index of the first hint that is a docs link.
+    docs_links_start: usize,
 }
 
 impl Diagnostic {
@@ -168,7 +199,7 @@ impl Diagnostic {
             label: None,
             message: String::new(),
             hints: Vec::new(),
-            docs_link: None,
+            docs_links_start: 0,
         }
     }
 
@@ -181,7 +212,7 @@ impl Diagnostic {
     }
 
     pub fn note(code: Code) -> Self {
-        Self::new(Severity::Warning, code)
+        Self::new(Severity::Note, code)
     }
 
     pub fn with_message(mut self, message: impl Into<String>) -> Self {
@@ -195,26 +226,32 @@ impl Diagnostic {
     }
 
     pub fn with_hints(mut self, hints: impl IntoIterator<Item = String>) -> Self {
-        self.hints.extend(hints);
+        for hint in hints {
+            self.hints.insert(self.docs_links_start, hint);
+            self.docs_links_start += 1;
+        }
         self
     }
 
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
-        self.hints.push(hint.into());
+        self.hints.insert(self.docs_links_start, hint.into());
+        self.docs_links_start += 1;
         self
     }
 
     pub fn with_docs_link(mut self, link: &'static str) -> Self {
-        self.docs_link = Some(format!("See: {link}"));
+        self.hints.push(format!("See: {link}"));
         self
     }
 
-    /// Returns an iterator over the hints and the any [`Self::docs_link`].
+    /// Whether the hints contain any doc links.
+    pub fn has_docs_links(&self) -> bool {
+        self.docs_links_start < self.hints.len()
+    }
+
+    /// Returns an iterator over the hints and any [`Self::docs_links`].
     pub fn hints(&self) -> impl Iterator<Item = &str> {
-        self.hints
-            .iter()
-            .map(String::as_str)
-            .chain(self.docs_link.as_deref())
+        self.hints.iter().map(String::as_str)
     }
 
     pub fn emit(self, diags: &mut Diagnostics) {
@@ -225,12 +262,12 @@ impl Diagnostic {
     pub fn format_fatal_error(&self) -> String {
         format!(
             "Fatal error [{}]: {}",
-            self.code,
+            self.code.ty(),
             self.format_message_with_hints()
         )
     }
 
-    /// Format this as a fatal error.
+    /// Combine the message and hints.
     pub fn format_message_with_hints(&self) -> String {
         let mut buf = format!("{}\n", self.message);
         for hint in self.hints() {
@@ -245,7 +282,7 @@ impl std::cmp::Ord for Diagnostic {
         self.severity
             .cmp(&other.severity)
             .then_with(|| self.label.cmp(&other.label))
-            .then_with(|| self.code.cmp(&other.code))
+            .then_with(|| self.code.ty().cmp(&other.code.ty()))
             .then_with(|| self.message.cmp(&other.message))
     }
 }
@@ -260,7 +297,7 @@ impl From<&Diagnostic> for codespan_reporting::diagnostic::Diagnostic<FileId> {
     fn from(diag: &Diagnostic) -> Self {
         codespan_reporting::diagnostic::Diagnostic {
             severity: diag.severity.into(),
-            code: Some(diag.code.to_string()),
+            code: Some(diag.code.ty().to_string()),
             message: diag.message.clone(),
             labels: diag
                 .label
@@ -308,191 +345,6 @@ impl From<Severity> for codespan_reporting::diagnostic::Severity {
     }
 }
 
-macro_rules! codes {
-    (
-        $(
-            [Overridable::$overridable:ident]
-            $($name:ident = $str:literal)+
-        )+
-    ) => {
-        #[derive(Debug, Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
-        pub enum Code {
-            $($($name,)+)+
-        }
-
-        impl Code {
-            pub fn as_str(self) -> &'static str {
-                match self {
-                    $($(Self::$name => $str,)+)+
-                }
-            }
-
-            pub fn overridable(self) -> Overridable {
-                match self {
-                    $($(| Self::$name)+ => Overridable::$overridable,)+
-                }
-            }
-
-            pub fn variants() -> &'static [Code] {
-                &[
-                    $($(Self::$name,)+)+
-                ]
-            }
-        }
-    };
-}
-
-codes! {
-    [Overridable::Never]
-    Io = "io"
-
-    ManifestIo = "manifest/io"
-    ManifestTomlSyntax = "manifest/toml-syntax"
-
-    // === Package ===
-    ManifestPackageMissing = "manifest/package/missing"
-    ManifestPackageType = "manifest/package/type"
-    // Entrypoint
-    ManifestPackageEntrypointMissing = "manifest/package/entrypoint/missing"
-    ManifestPackageEntrypointType = "manifest/package/entrypoint/type"
-    ManifestPackageEntrypointInvalid = "manifest/package/entrypoint/invalid"
-    // Name
-    ManifestPackageNameMissing = "manifest/package/name/missing"
-    ManifestPackageNameType = "manifest/package/name/type"
-    ManifestPackageNameKebabCase = "manifest/package/name/kebab-case"
-    ManifestPackageNameMismatch = "manifest/package/name/mismatch"
-    // Version
-    ManifestPackageVersionMissing = "manifest/package/version/missing"
-    ManifestPackageVersionType = "manifest/package/version/type"
-    ManifestPackageVersionInvalid = "manifest/package/version/invalid"
-    ManifestPackageVersionMismatch = "manifest/package/version/mismatch"
-    // Compiler
-    ManifestPackageCompilerType = "manifest/package/compiler/type"
-    ManifestPackageCompilerInvalid = "manifest/package/compiler/invalid"
-    // License
-    ManifestPackageLicenseMissing = "manifest/package/license/missing"
-    ManifestPackageLicenseType = "manifest/package/license/type"
-    ManifestPackageLicenseInvalid = "manifest/package/license/invalid"
-    ManifestPackageLicenseOsi = "manifest/package/license/osi"
-    // Description
-    ManifestPackageDescMissing = "manifest/package/description/missing"
-    ManifestPackageDescType = "manifest/package/description/type"
-    // Authors
-    ManifestPackageAuthorsMissing = "manifest/package/authors/missing"
-    ManifestPackageAuthorsType = "manifest/package/authors/type"
-    // Homepage
-    ManifestPackageHomepageType = "manifest/package/homepage/type"
-    ManifestPackageHomepageRedundant = "manifest/package/homepage/redundant"
-    ManifestPackageHomepageUnreachable = "manifest/package/homepage/unreachable"
-    // Repository
-    ManifestPackageRepoType = "manifest/package/repository/type"
-    ManifestPackageRepoUnreachable = "manifest/package/repository/unreachable"
-    // Exclude
-    ManifestPackageExcludeType = "manifest/package/exclude/type"
-    ManifestPackageExcludeInvalid = "manifest/package/exclude/invalid"
-    ManifestPackageExcludeLeadingDot = "manifest/package/exclude/leading-dot"
-
-    // === Template ===
-    ManifestTemplateType = "manifest/template/type"
-    // Path
-    ManifestTemplatePathMissing = "manifest/template/path/missing"
-    ManifestTemplatePathType = "manifest/template/path/type"
-    ManifestTemplatePathInvalid = "manifest/template/path/invalid"
-    // Entrypoint
-    ManifestTemplateEntrypointMissing = "manifest/template/entrypoint/missing"
-    ManifestTemplateEntrypointType = "manifest/template/entrypoint/type"
-    ManifestTemplateEntrypointInvalid = "manifest/template/entrypoint/invalid"
-    // Thumbnail
-    ManifestTemplateThumbnailMissing = "manifest/template/thumbnail/missing"
-    ManifestTemplateThumbnailType = "manifest/template/thumbnail/type"
-    ManifestTemplateThumbnailInvalid = "manifest/template/thumbnail/invalid"
-    ManifestTemplateThumbnailNotFound = "manifest/template/thumbnail/not-found"
-    ManifestTemplateThumbnailFormat = "manifest/template/thumbnail/format"
-    ManifestTemplateThumbnailLocation = "manifest/template/thumbnail/location"
-
-    ExcludeLicense = "exclude/license"
-    ExcludeReadme = "exclude/readme"
-    ExcludeThumbnail = "exclude/thumbnail"
-    ExcludeTemplate = "exclude/template"
-
-    FilesIgnored = "files/ignored"
-    FilesLicenseName = "files/license/name"
-    FilesReadmeName = "files/readme/name"
-    FilesFonts = "files/fonts"
-    FilesManualUnlinked =  "files/manual/unlinked"
-    FilesCompilationArtifact = "files/compilation-artifact"
-
-    ReadmeIo = "readme/io"
-    ReadmeSyntax = "readme/syntax"
-    ReadmeUnsupportedExtensionAlert = "readme/unsupported-extension/alert"
-    ReadmeUnsupportedExtensionTasklist = "readme/unsupported-extension/tasklist"
-    ReadmeLinkInvalidUrl = "readme/link/invalid-url"
-    ReadmeLinkInvalidPath = "readme/link/invalid-path"
-    ReadmeLinkFileNotFound = "readme/link/file-not-found"
-    ReadmeImageMissingAlt = "readme/image/missing-alt"
-
-    ImportRelative = "import/relative"
-    ImportOutdatedSelf = "import/outdated/self"
-
-    CompileError = "compile/error"
-    CompileWarning = "compile/warning"
-
-    AuthorsChanged = "author/changed"
-
-    ListVersionsIo = "list-versions/io"
-    ListVersionsUtf8 = "list-versions/utf-8"
-    ListVersionsInvalid = "list-versions/invalid"
-
-    GitIo = "git/io"
-    GitUtf8 = "git/utf-8"
-
-    GithubApiPullUpdate = "github/api/pull/update"
-    GithubApiCheckRunCreate = "github/api/check-run/create"
-    GithubApiCheckRunCancel = "github/api/check-run/cancel"
-    GithubApiCheckRunFatal = "github/api/check-run/fatal"
-    GithubApiCheckRunFinalize = "github/api/check-run/finalize"
-    GithubActionsEventIo = "github/actions/event/io"
-    GithubActionsEventInvalid = "github/actions/event/invalid"
-
-    [Overridable::Staff]
-    SizeExtraLarge = "size/extra-large"
-
-
-    [Overridable::User]
-    KebabCaseValue = "kebab-case/value"
-    KebabCaseParameter = "kebab-case/parameter"
-    // TODO: Hints shouldn't need be overriden.
-    ImportOutdatedDependency = "import/outdated/dependency"
-
-    ManifestPackageNameTypst = "manifest/package/name/typst"
-    ManifestPackageDescTypst = "manifest/package/description/typst"
-    ManifestPackageCompilerPatch = "manifest/package/compiler/patch"
-
-    ReadmeLinkRepoDefaultBranch = "readme/link/repo/default-branch"
-    ReadmeImageInadequateAlt = "readme/image/inadequate-alt"
-
-    ExcludeExample = "exclude/example"
-    ExcludeTest = "exclude/test"
-
-    SizeLarge = "size/large"
-}
-
-impl std::fmt::Display for Code {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub enum Overridable {
-    /// Lint cannot be overriden.
-    Never,
-    /// Lint can be overriden by staff members.
-    Staff,
-    /// Lint can be overriden by users.
-    User,
-}
-
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct Label {
     pub file: FileId,
@@ -516,8 +368,8 @@ impl Label {
 
 impl std::cmp::Ord for Label {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        PrioritzedFile::from(&self.file)
-            .cmp(&PrioritzedFile::from(&other.file))
+        PrioritizedFile::from(&self.file)
+            .cmp(&PrioritizedFile::from(&other.file))
             .then_with(|| self.range.start.cmp(&other.range.start))
     }
 }
@@ -556,34 +408,24 @@ impl Docs {
     pub const NAMING_RULES: &str = "https://github.com/typst/packages/blob/main/docs/manifest.md#naming-rules";
     pub const DESCRIPTION: &str = "https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description";
     pub const TEMPLATE: &str = "https://github.com/typst/packages/blob/main/docs/manifest.md#templates";
+    pub const THIRD_PARTY_META:  &str = "https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata";
     pub const WHAT_TO_EXCLUDE: &str = "https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude";
     pub const LICENSE: &str = "https://github.com/typst/packages/blob/main/docs/licensing.md";
     pub const DOCS: &str = "https://github.com/typst/packages/blob/main/docs/documentation.md";
     pub const DOCS_GFM: &str = "https://github.com/typst/packages/blob/main/docs/documentation.md#differences-from-standard-markdown";
     pub const FONTS_NOT_ALLOWED: &str = "https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages";
+    // TODO: Update docs.
+    pub const SIZE: &str = "TODO";
 }
 
 impl Docs {
-    pub fn for_manifest_key(parent: Option<&str>) -> &'static str {
-        match parent {
-            Some("package") => Docs::PACKAGE,
-            Some(_) => Docs::TEMPLATE,
-            None => Docs::MANIFEST,
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashSet;
-
-    use crate::check::diagnostics::Code;
-
-    #[test]
-    fn unique_code_string() {
-        let mut set = HashSet::new();
-        for code in Code::variants() {
-            assert!(set.insert(code.as_str()), "{code}");
+    pub fn for_manifest_path(path: &TomlPath) -> &'static str {
+        match path.root() {
+            "package" => Docs::PACKAGE,
+            "template" => Docs::TEMPLATE,
+            // TODO: Change to package-check lint docs.
+            "tool" => Docs::THIRD_PARTY_META,
+            _ => Docs::MANIFEST,
         }
     }
 }

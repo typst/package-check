@@ -178,7 +178,7 @@ mod json {
                 location,
                 message: &diag.message,
                 hints: diag.hints().collect(),
-                code: diag.code.as_str(),
+                code: diag.code.ty().as_str(),
             },
         )
         .unwrap();

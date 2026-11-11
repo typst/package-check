@@ -23,6 +23,7 @@ comemo = "0.5.0"
 comrak = { version = "0.49.0", default-features = false }
 dirs = "6.0.0"
 dotenvy = "0.15.7"
+globset = "0.4.21"
 html5ever = "0.38.0"
 markup5ever_rcdom = "0.38.0"
 ignore = "0.4.25"
@@ -31,7 +32,9 @@ jwt-simple = { version = "0.12", default-features = false, features = [
 ] }
 parking_lot = "0.12.5"
 percent-encoding = "2.3.2"
-regex = "1.12.3"
+regex = "1.13.2"
+regex-automata = "0.4.19"
+regex-syntax = "0.8.12"
 reqwest = { version = "0.12", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

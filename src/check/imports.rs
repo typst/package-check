@@ -7,7 +7,8 @@ use typst::syntax::ast::{self, AstNode, ModuleImport};
 use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
 use walkdir::WalkDir;
 
-use crate::check::diagnostics::{Code, Diagnostic, Label, Severity};
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Label, Severity};
 use crate::check::path::PackagePath;
 use crate::check::{Diagnostics, TryExt};
 use crate::world::SystemWorld;

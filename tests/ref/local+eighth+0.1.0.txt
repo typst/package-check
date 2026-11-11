@@ -1,0 +1,81 @@
+--- ignored diagnostics ---
+
+warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Repo`. Please add a short description to make this image more accessible.
+  ┌─ README.md:3:0
+  │
+3 │ ![Repo](https://badgen.net/static/GitHub/Repo/blue?icon=github)
+  │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+--- regular diagnostics ---
+
+warning[unused/lint/override/regex]: This regex doesn't match any diagnostics
+   ┌─ typst.toml:17:78
+   │
+17 │ "readme/image/inadequate-alt" = { allow-matches = ["Repo", "(GitHub|License", "License"] }
+   │                                                                               ^^^^^^^^^
+
+warning[unused/lint/override]: This text selector doesn't match any diagnostics
+   ┌─ typst.toml:16:54
+   │
+16 │ "readme/link/repo/default-branch" = { allow-matches = [true] }
+   │                                                       ^^^^^^
+
+warning[lint/selector/files/unexpected]: unexpected key
+   ┌─ typst.toml:14:17
+   │
+14 │ "size/large" = { flies = ["examples/*"] }
+   │                  ^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+
+warning[manifest/tool/package-check/lints/unknown]: Unknown lint code `wat?`
+   ┌─ typst.toml:10:0
+   │
+10 │ "wat?" = "allow"
+   │ ^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+
+error[lint/selector/text/regex]: regex parse error:
+    (GitHub|License
+    ^
+error: unclosed group
+   ┌─ typst.toml:17:59
+   │
+17 │ "readme/image/inadequate-alt" = { allow-matches = ["Repo", "(GitHub|License", "License"] }
+   │                                                            ^^^^^^^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+
+error[lint/selector/text/type]: `tool.package-check.lints."readme/link/repo/default-branch".allow-matches[0]` should be a string
+   ┌─ typst.toml:16:55
+   │
+16 │ "readme/link/repo/default-branch" = { allow-matches = [true] }
+   │                                                        ^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+
+error[lint/selector/files/invalid]: Missing required field `tool.package-check.lints."size/large".allow-files`
+   ┌─ typst.toml:14:15
+   │
+14 │ "size/large" = { flies = ["examples/*"] }
+   │                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+
+error[lint/selector/project/invalid]: a project level selector must be `"allow"`
+   ┌─ typst.toml:12:32
+   │
+12 │ "manifest/package/name/typst" = "deny"
+   │                                 ^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+
+error[lint/ignorable]: `files/fonts` cannot be overriden
+   ┌─ typst.toml:11:16
+   │
+11 │ "files/fonts" = "allow"
+   │                 ^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+

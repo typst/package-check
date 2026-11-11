@@ -1,2 +1,2 @@
-Fatal error [manifest/package/entrypoint/missing]: Missing `package.entrypoint`, which is required.
-= See: https://github.com/typst/packages/blob/main/docs/manifest.md
+Fatal error [manifest/package/entrypoint/missing]: Missing required field `package.entrypoint`
+= See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata

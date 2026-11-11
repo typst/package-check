@@ -1,3 +1,15 @@
+--- ignored diagnostics ---
+
+warning[exclude/example]: This file seems to be an example, and should probably be added to `exclude` in your `typst.toml`.
+  ┌─ src/example.typ:1:0
+  │
+1 │ #let add = (a, b) => a + b
+  │ ^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
+
+--- regular diagnostics ---
+
 note[import/outdated/dependency]: This import seems to use an older version of the package.
   ┌─ lib.typ:2:1
   │
@@ -29,29 +41,29 @@ error[manifest/template/thumbnail/not-found]: This file does not exist.
   │
   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
-error[manifest/package/authors/missing]: Missing `package.authors`, which is required.
+error[manifest/package/authors/missing]: Missing required field `package.authors`
   ┌─ typst.toml:1:0
   │
 1 │ [package]
   │ ^^^^^^^^^
   │
-  = See: https://github.com/typst/packages/blob/main/docs/manifest.md
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
-error[manifest/package/description/missing]: Missing `package.description`, which is required.
+error[manifest/package/description/missing]: Missing required field `package.description`
   ┌─ typst.toml:1:0
   │
 1 │ [package]
   │ ^^^^^^^^^
   │
-  = See: https://github.com/typst/packages/blob/main/docs/manifest.md
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
-error[manifest/package/license/missing]: Missing `package.license`, which is required.
+error[manifest/package/license/missing]: Missing required field `package.license`
   ┌─ typst.toml:1:0
   │
 1 │ [package]
   │ ^^^^^^^^^
   │
-  = See: https://github.com/typst/packages/blob/main/docs/manifest.md
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
 error[readme/io]: Failed to read README.md
 

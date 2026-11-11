@@ -6,10 +6,39 @@ use typst::syntax::{FileId, RootedPath, VirtualPath};
 use walkdir::WalkDir;
 
 use crate::check::Diagnostics;
-use crate::check::diagnostics::{Code, Diagnostic, Docs, Label, Result, Severity};
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Docs, Label, Result};
 use crate::check::manifest::Manifest;
 use crate::check::path::PackagePath;
 use crate::check::readme::Readme;
+
+#[derive(Default)]
+pub struct Files {
+    pub ignored: HashSet<PackagePath>,
+    pub bundle_size: Size,
+    pub archive_size: Size,
+}
+
+/// A size in bytes.
+#[derive(Debug, Default, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Size(u64);
+
+impl Size {
+    pub const MAX_BUNDLE: Self = Self(15 * 1024 * 1024);
+    pub const MAX_ARCHIVE: Self = Self(2 * Self::MAX_BUNDLE.0);
+}
+
+impl std::fmt::Display for Size {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const KB: u64 = 1024;
+        const MB: u64 = 1024 * KB;
+        match self.0 {
+            ..KB => write!(f, "{}", self.0),
+            KB..MB => write!(f, "{}kb", self.0 / KB),
+            MB.. => write!(f, "{}mb", self.0 / MB),
+        }
+    }
+}
 
 /// Creates a directory iterator with the same settings as the package bundler.
 pub fn walk(dir: &Path) -> ignore::Walk {
@@ -32,7 +61,7 @@ pub fn check(
     package_dir: &Path,
     manifest: &Manifest,
     readme: &Option<Readme>,
-) {
+) -> Files {
     let res = check_special_files(diags, package_dir);
     diags.maybe_emit(res);
 
@@ -44,6 +73,7 @@ pub fn check(
         .filter_map(|ch| ch.file_type()?.is_file().then(|| ch.into_path()))
         .collect::<HashSet<_>>();
 
+    let mut files = Files::default();
     for ch in WalkDir::new(package_dir).into_iter().flatten() {
         let Ok(metadata) = ch.metadata() else {
             continue;
@@ -52,16 +82,56 @@ pub fn check(
             continue;
         }
 
-        let file_path = PackagePath::from_full(package_dir, ch.path());
+        let file_path = PackagePath::from_full(package_dir, ch.into_path());
         let excluded = manifest.package.exclude.matches_file(&file_path);
         let ignored = !without_ignored.contains(file_path.full());
 
-        warn_ignored_files(diags, file_path, excluded, ignored);
-        forbid_font_files(diags, file_path);
-        exclude_large_files(diags, file_path, excluded, metadata.len());
-        exclude_examples_and_tests(diags, manifest, file_path, excluded);
-        link_manuals(diags, readme, file_path, excluded);
+        files.archive_size.0 += metadata.len();
+        if !excluded && !ignored {
+            files.bundle_size.0 += metadata.len();
+        }
+
+        warn_ignored_files(diags, file_path.as_ref(), excluded, ignored);
+        forbid_font_files(diags, file_path.as_ref());
+        exclude_large_files(diags, file_path.as_ref(), excluded, metadata.len());
+        exclude_examples_and_tests(diags, manifest, file_path.as_ref(), excluded);
+        link_manuals(diags, readme, file_path.as_ref(), excluded);
+
+        if ignored {
+            files.ignored.insert(file_path);
+        }
     }
+
+    if files.archive_size > Size::MAX_ARCHIVE {
+        Diagnostic::error(Code::SizeArchive(()))
+            .with_message(format!(
+                "The package archive is too large ({}).",
+                files.archive_size
+            ))
+            .with_hint(
+                "The archive contains all submitted files, \
+                also the ones in the `exclude` list.",
+            )
+            .with_docs_link(Docs::SIZE)
+            .emit(diags);
+    }
+    if files.bundle_size > Size::MAX_BUNDLE {
+        Diagnostic::error(Code::SizeBundle(()))
+            .with_message(format!(
+                "The package bundle is too large ({}).",
+                files.bundle_size
+            ))
+            .with_hint(
+                "Bundle files are the submitted files \
+                without the ones in the `exclude` list.",
+            )
+            .with_hint("Consider using the `exclude` list to reduce the size of the bundle")
+            .with_docs_link(Docs::SIZE)
+            .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+            .emit(diags);
+    }
+
+    files
 }
 
 fn warn_ignored_files(
@@ -120,14 +190,7 @@ fn exclude_large_files(
     excluded: bool,
     size: u64,
 ) {
-    // TODO: Adjust limits and add execptions for package exceeding the limit.
-    /// Size (in bytes) after which a file is considered large.
     const LARGE: u64 = 1024 * 1024; // 1 MB
-    const REALLY_LARGE: u64 = 50 * 1024 * 1024; // 50 MB
-
-    if size < LARGE {
-        return;
-    }
 
     if path.extension().is_some_and(|ext| ext == "wasm") {
         // Don't suggest to exclude WASM files, they are generally necessary
@@ -135,36 +198,19 @@ fn exclude_large_files(
         return;
     }
 
-    let (severity, code, message) = if size > REALLY_LARGE {
-        (
-            Severity::Error,
-            Code::SizeExtraLarge,
-            format!(
-                "This file is really large ({size}MB). \
-                 If possible, do not include it in this repository at all.",
-                size = size / 1024 / 1024
-            ),
-        )
-    } else if !excluded {
-        (
-            Severity::Warning,
-            Code::SizeLarge,
-            format!(
-                "This file is quite large ({size}MB). \
-                 If it is not required to use the package \
-                 (i.e. it is a documentation file, or part of an example), \
+    if size >= LARGE && !excluded {
+        let mb = size / 1024 / 1024;
+        Diagnostic::warn(Code::SizeLarge(path.virtual_path()))
+            .with_message(format!("This file is quite large ({mb}MB).",))
+            .with_hint(
+                "If it is not required to use the package, \
+                 i.e. it is a documentation file, or part of an example, \
                  it should be added to `exclude` in your `typst.toml`.",
-                size = size / 1024 / 1024
-            ),
-        )
-    } else {
-        return;
-    };
-
-    Diagnostic::new(severity, code)
-        .with_label(Label::new(path.file_id(), 0..0))
-        .with_message(message)
-        .emit(diags);
+            )
+            .with_label(Label::new(path.file_id(), 0..0))
+            .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+            .emit(diags);
+    }
 }
 
 fn exclude_examples_and_tests(
@@ -190,15 +236,19 @@ fn exclude_examples_and_tests(
             .emit(diags)
     };
     if file_name.contains("example") {
-        file_diag(Diagnostic::warn(Code::ExcludeExample).with_message(
-            "This file seems to be an example, \
-             and should probably be added to `exclude` in your `typst.toml`.",
-        ));
+        file_diag(
+            Diagnostic::warn(Code::ExcludeExample(path.virtual_path())).with_message(
+                "This file seems to be an example, and should probably \
+                 be added to `exclude` in your `typst.toml`.",
+            ),
+        );
     } else if file_name.contains("test") {
-        file_diag(Diagnostic::warn(Code::ExcludeTest).with_message(
-            "This file seems to be a test, \
-             and should probably be added to `exclude` in your `typst.toml`.",
-        ));
+        file_diag(
+            Diagnostic::warn(Code::ExcludeTest(path.virtual_path())).with_message(
+                "This file seems to be a test, and should probably \
+                 be added to `exclude` in your `typst.toml`.",
+            ),
+        );
     }
 }
 
@@ -241,7 +291,7 @@ fn link_manuals(
         let hint = (!excluded)
             .then(|| "It should also be added to `exclude` in your `typst.toml`.".into());
 
-        Diagnostic::warn(Code::FilesManualUnlinked)
+        Diagnostic::warn(Code::FilesManualUnlinked(path.virtual_path()))
             .with_message(
                 "This file seems to be a manual/documentation, but isn't linked in the readme. \
                  It will be inacessible on Typst Universe.",

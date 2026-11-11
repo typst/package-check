@@ -1,7 +1,8 @@
 use typst::diag::{Severity, SourceDiagnostic};
 use typst_layout::PagedDocument;
 
-use crate::check::diagnostics::{Code, Diagnostic, Label};
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Label};
 use crate::world::SystemWorld;
 
 use super::Diagnostics;

@@ -11,7 +11,8 @@ use typst::{
     },
 };
 
-use crate::check::diagnostics::{Code, Diagnostic, Label};
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Label};
 use crate::world::SystemWorld;
 
 use super::Diagnostics;
@@ -110,7 +111,7 @@ pub fn check_ast(
             continue;
         }
 
-        let name = &name_ident.as_str();
+        let name = name_ident.get();
         if name.starts_with('_') {
             // This is exported but considered private.
             continue;
@@ -122,10 +123,10 @@ pub fn check_ast(
         }
 
         if name != &casbab::kebab(name) {
-            Diagnostic::warn(Code::KebabCaseValue)
+            Diagnostic::warn(Code::SrcKebabCase(name.clone()))
                 .with_message(
                     "This value seems to be public. \
-                         It is recommended to use kebab-case names.",
+                     It is recommended to use kebab-case names.",
                 )
                 .with_label(Label::for_span(world, name_ident.span()))
                 .emit(diags);
@@ -134,9 +135,9 @@ pub fn check_ast(
         if let Some(ast::Expr::Closure(func)) = binding.init() {
             for param in func.params().children() {
                 let (name, span) = match param {
-                    ast::Param::Named(named) => (named.name().as_str(), named.span()),
+                    ast::Param::Named(named) => (named.name().get(), named.span()),
                     ast::Param::Pos(ast::Pattern::Normal(ast::Expr::Ident(i))) => {
-                        (i.as_str(), i.span())
+                        (i.get(), i.span())
                     }
                     // Spread params can safely be ignored, their name is only
                     // exposed to the body of the function, not the caller.
@@ -146,11 +147,11 @@ pub fn check_ast(
                 // We recommend kebab-style names but do not warn on
                 // all-uppercase names that may represent real-world
                 // acronyms.
-                if name != casbab::kebab(name) && name != casbab::screaming(name) {
-                    Diagnostic::warn(Code::KebabCaseParameter)
+                if name != &casbab::kebab(name) && name != &casbab::screaming(name) {
+                    Diagnostic::warn(Code::SrcKebabCase(name.clone()))
                         .with_message(
                             "This argument seems to be part of public function. \
-                                 It is recommended to use kebab-case names.",
+                             It is recommended to use kebab-case names.",
                         )
                         .with_label(Label::for_span(world, span))
                         .emit(diags);
@@ -168,9 +169,9 @@ pub fn check_ast(
             };
 
             if let Some(func_name) = func_name {
-                let func_name = func_name.as_str();
-                if func_name != casbab::kebab(func_name) {
-                    Diagnostic::warn(Code::KebabCaseValue)
+                let func_name = func_name.get();
+                if func_name != &casbab::kebab(func_name) {
+                    Diagnostic::warn(Code::SrcKebabCase(func_name.clone()))
                         .with_message("This function should have a kebab-case name.")
                         .with_label(Label::for_span(world, call.span()))
                         .emit(diags);
@@ -182,9 +183,9 @@ pub fn check_ast(
                 .items()
                 .filter_map(|f| f.to_untyped().cast::<ast::Named>())
             {
-                let arg_name = named_arg.name().as_str();
-                if arg_name != casbab::kebab(arg_name) {
-                    Diagnostic::warn(Code::KebabCaseParameter)
+                let arg_name = named_arg.name().get();
+                if arg_name != &casbab::kebab(arg_name) {
+                    Diagnostic::warn(Code::SrcKebabCase(arg_name.clone()))
                         .with_message("This argument should have a kebab-case name.")
                         .with_label(Label::for_span(world, named_arg.name().span()))
                         .emit(diags);

@@ -6,7 +6,7 @@ use std::process::{Command, Output, Stdio};
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 
-use crate::check::diagnostics::Code;
+use crate::check::codes::Code;
 use crate::check::{Result, TryExt};
 use crate::workspace::Workspace;
 

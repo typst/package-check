@@ -5,7 +5,7 @@ use clap::Parser;
 use tracing::error;
 use tracing_subscriber::EnvFilter;
 use typst::syntax::package::PackageSpec;
-use typst_package_check::check::diagnostics::Code;
+use typst_package_check::check::codes::{Code, override_diagnostics};
 use typst_package_check::check::{TryExt, all_checks};
 use typst_package_check::cli;
 use typst_package_check::github::api::pr::PullRequestEvent;
@@ -115,14 +115,21 @@ async fn run_cli(packages: &[String], json_output: bool, offline: bool) {
 
         let res = all_checks(&workspace, package_spec.as_ref(), package_dir, offline).await;
         match res {
-            Ok((world, diags)) => {
-                if let Err(err) = cli::print_diagnostics(world, &diags, json_output) {
+            Ok((checks, mut diags)) => {
+                let ignored = override_diagnostics(&checks, &mut diags);
+
+                if let Err(err) = cli::print_diagnostics(checks.worlds.package, &diags, json_output)
+                {
                     error!("failed to print diagnostics ({err})");
                     error!(
                         "Raw diagnostics: {:#?}\n{:#?}",
                         diags.errors(),
                         diags.warnings()
                     );
+                }
+
+                if !ignored.is_empty() {
+                    // TODO: Add flag to print ignored diagnostics.
                 }
 
                 if !diags.errors().is_empty() {

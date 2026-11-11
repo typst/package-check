@@ -1,8 +1,8 @@
-error[manifest/template/thumbnail/missing]: Missing `template.thumbnail`, which is required.
+error[manifest/template/thumbnail/missing]: Missing required field `template.thumbnail`
    ┌─ typst.toml:26:0
    │
 26 │ [template]
    │ ^^^^^^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
