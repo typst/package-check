@@ -125,6 +125,10 @@ fn main() -> anyhow::Result<()> {
     }
     eprintln!();
 
+    if failed > 0 {
+        std::process::exit(1);
+    }
+
     Ok(())
 }
 
