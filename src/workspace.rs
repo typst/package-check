@@ -10,8 +10,7 @@ use typst_kit::packages::FsPackages;
 pub struct Workspace(Arc<WorkspaceInner>);
 
 struct WorkspaceInner {
-    repo_dir: PathBuf,
-    packages: FsPackages,
+    repo: PackagesRepo,
     system: SystemPackages,
     fonts: LazyLock<FontStore, Box<dyn Fn() -> FontStore + Send + Sync>>,
 }
@@ -19,21 +18,15 @@ struct WorkspaceInner {
 impl Workspace {
     pub fn new(repo_dir: PathBuf, system: SystemPackages) -> Self {
         Self(Arc::new(WorkspaceInner {
-            packages: FsPackages::new(repo_dir.join("packages")),
-            repo_dir,
+            repo: PackagesRepo::new(repo_dir),
             system,
             fonts: LazyLock::new(Box::new(discover_fonts)),
         }))
     }
-    /// The path of the `typst/packages` repository, which is used to resolve
-    /// package imports, among other things this.
-    pub fn repo_dir(&self) -> &Path {
-        &self.0.repo_dir
-    }
 
-    /// The path of containing all the packages: `typst/packages/packages`.
-    pub fn packages(&self) -> &FsPackages {
-        &self.0.packages
+    /// The local `typst/packages` repository.
+    pub fn repo(&self) -> &PackagesRepo {
+        &self.0.repo
     }
 
     /// System wide installed packages.
@@ -45,16 +38,43 @@ impl Workspace {
     pub fn fonts(&self) -> &FontStore {
         &self.0.fonts
     }
+}
+
+/// The local `typst/packages` repository.
+#[derive(Clone)]
+pub struct PackagesRepo {
+    repo_dir: PathBuf,
+    packages: FsPackages,
+}
+
+impl PackagesRepo {
+    pub fn new(repo_dir: PathBuf) -> Self {
+        Self {
+            packages: FsPackages::new(repo_dir.join("packages")),
+            repo_dir,
+        }
+    }
+
+    /// The path of the `typst/packages` repository, which is used to resolve
+    /// package imports, among other things this.
+    pub fn dir(&self) -> &Path {
+        &self.repo_dir
+    }
+
+    /// The path of containing all the packages: `typst/packages/packages`.
+    pub fn packages(&self) -> &FsPackages {
+        &self.packages
+    }
 
     /// Returns the path of the spec inside [`Self::packages`].
-    pub fn path_in_repo(&self, spec: &PackageSpec) -> PathBuf {
+    pub fn path_of(&self, spec: &PackageSpec) -> PathBuf {
         let relative_path = format!("{}/{}/{}", spec.namespace, spec.name, spec.version);
-        self.0.packages.path().join(&relative_path)
+        self.packages.path().join(&relative_path)
     }
 
     /// Resolves the previous version of the package inside [`Self::packages`].
     pub fn find_previous_version(&self, spec: &PackageSpec) -> Option<PackageSpec> {
-        let all_versions_dir = (self.0.packages.path())
+        let all_versions_dir = (self.packages.path())
             .join(spec.namespace.as_str())
             .join(spec.name.as_str());
 

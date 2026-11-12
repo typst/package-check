@@ -12,7 +12,6 @@ use crate::check::readme::Readme;
 use crate::workspace::Workspace;
 use crate::world::SystemWorld;
 
-pub mod authors;
 mod compile;
 mod diagnostics;
 mod files;
@@ -30,11 +29,9 @@ pub async fn all_checks(
     workspace: &Workspace,
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
-    check_authors: bool,
     offline: bool,
 ) -> Result<(SystemWorld, Diagnostics)> {
-    let (worlds, manifest, _, mut diags) =
-        offline_checks(workspace, package_spec, package_dir, check_authors)?;
+    let (worlds, manifest, _, mut diags) = offline_checks(workspace, package_spec, package_dir)?;
     if !offline {
         urls::check(&mut diags, &manifest).await;
     }
@@ -48,7 +45,6 @@ pub fn offline_checks(
     workspace: &Workspace,
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
-    check_authors: bool,
 ) -> Result<(Worlds, Manifest, Option<Readme>, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
@@ -74,10 +70,6 @@ pub fn offline_checks(
 
     let res = imports::check(&mut diags, &package_dir, &worlds.package);
     diags.maybe_emit(res);
-
-    if let Some(spec) = package_spec.filter(|_| check_authors) {
-        authors::check(&mut diags, workspace, spec);
-    }
 
     diags.sort();
 

@@ -414,7 +414,7 @@ fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<FsRoot>
 
 /// Try to find a pacakge in current git directory or in the on-disk cache.
 fn find_in_repo_or_cache(workspace: &Workspace, spec: &PackageSpec) -> PackageResult<FsRoot> {
-    if let Some(root) = workspace.packages().obtain(spec) {
+    if let Some(root) = workspace.repo().packages().obtain(spec) {
         return Ok(root);
     }
 
