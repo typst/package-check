@@ -293,7 +293,26 @@ fn check_compiler_version(diags: &mut Diagnostics, package: Spanned<&Table>) -> 
         return None;
     };
 
-    if PackageVersion::from_str(&compiler).is_err() {
+    if let Ok(version) = PackageVersion::from_str(&compiler) {
+        if version.patch > 0 {
+            let zeroed = PackageVersion {
+                patch: 0,
+                ..version
+            };
+            diags.emit(
+                Diagnostic::warning()
+                    .with_label(Label::primary(manifest_id(), compiler.span()))
+                    .with_code("manifest/package/compiler/patch")
+                    .with_message(format!(
+                        "The `compiler` field is a minimum version. \
+                        Unless you explicitly require the latest patch release, \
+                        changing it to `{}` will allow using this package with \
+                        a slightly outdated compiler.",
+                        zeroed
+                    )),
+            );
+        }
+    } else {
         diags.emit(
             Diagnostic::error()
                 .with_label(Label::primary(manifest_id(), compiler.span()))

@@ -1,0 +1,6 @@
+warning[manifest/package/compiler/patch]: The `compiler` field is a minimum version. Unless you explicitly require the latest patch release, changing it to `0.15.0` will allow using this package with a slightly outdated compiler.
+  ┌─ typst.toml:4:11
+  │
+4 │ compiler = "0.15.1"
+  │            ^^^^^^^^
+

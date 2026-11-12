@@ -40,12 +40,12 @@ tokio = { version = "1.48.0", features = ["rt-multi-thread", "process", "fs", "m
 toml_edit = "0.23"
 tracing = "0.1.43"
 tracing-subscriber = { version = "0.3.22", features = ["json", "env-filter"] }
-typst = "0.15.0"
-typst-assets = { version = "0.15.0", features = [ "fonts" ] }
-typst-eval = "0.15.0"
-typst-utils = "0.15.0"
-typst-layout = "0.15.0"
-typst-kit = {version = "0.15.0", features = ["datetime", "embedded-fonts", "scan-fonts"]}
+typst = "0.15.1"
+typst-assets = { version = "0.15.1", features = [ "fonts" ] }
+typst-eval = "0.15.1"
+typst-utils = "0.15.1"
+typst-layout = "0.15.1"
+typst-kit = {version = "0.15.1", features = ["datetime", "embedded-fonts", "scan-fonts"]}
 url = "2.5.7"
 walkdir = "2.5.0"
 
