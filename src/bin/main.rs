@@ -107,20 +107,12 @@ async fn run_cli(packages: &[String], json_output: bool, offline: bool) {
     for spec_or_path in packages {
         let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
         let package_dir = if let Some(ref package_spec) = package_spec {
-            workspace.path_in_repo(package_spec)
+            workspace.repo().path_of(package_spec)
         } else {
             PathBuf::from(spec_or_path)
         };
 
-        let res = all_checks(
-            &workspace,
-            package_spec.as_ref(),
-            package_dir,
-            true,
-            offline,
-        )
-        .await;
-
+        let res = all_checks(&workspace, package_spec.as_ref(), package_dir, offline).await;
         match res {
             Ok((world, diags)) => {
                 if let Err(err) = cli::print_diagnostics(world, &diags, json_output) {

@@ -1,16 +1,13 @@
 //! Wrapper around the `git` command line.
 
-use std::process::Command;
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-    process::{Output, Stdio},
-};
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
 
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 
 use crate::check::{Result, TryExt};
+use crate::workspace::Workspace;
 
 pub struct GitRepo<'a> {
     dir: &'a Path,
@@ -21,6 +18,16 @@ impl<'a> GitRepo<'a> {
         let repo = GitRepo { dir };
         traced_git(["config", "--global", "--add", "safe.directory", repo.dir()?])?;
         Ok(repo)
+    }
+
+    pub fn commit_for_previous_version(
+        &self,
+        workspace: &Workspace,
+        spec: &PackageSpec,
+    ) -> Option<String> {
+        let prev_version = workspace.repo().find_previous_version(spec)?;
+        let last_manifest = workspace.repo().path_of(&prev_version).join("typst.toml");
+        self.commit_for_file(&last_manifest)
     }
 
     pub fn files_touched_by(&self, sha: impl AsRef<str>) -> Result<Vec<PathBuf>> {
@@ -47,36 +54,6 @@ impl<'a> GitRepo<'a> {
         debug!("Done");
 
         Ok(parse_diff_tree_paths(&command_output))
-    }
-
-    pub fn authors_of(&self, file: &Path) -> Option<HashSet<String>> {
-        debug!("Listing authors of {}", file.display());
-
-        let output = String::from_utf8(
-            traced_git([
-                "-C",
-                self.dir.to_str()?,
-                "blame",
-                "--porcelain",
-                "--",
-                Path::new(".").canonicalize().ok()?.join(file).to_str()?,
-            ])
-            .ok()?
-            .stdout,
-        )
-        .ok()?;
-
-        let authors: HashSet<_> = output
-            .lines()
-            .filter(|l| l.starts_with("author "))
-            .map(|l| {
-                let prefix_len = "author ".len();
-                l[prefix_len..].to_owned()
-            })
-            .collect();
-
-        debug!("Done");
-        Some(authors)
     }
 
     pub fn commit_for_file(&self, file: &Path) -> Option<String> {

@@ -151,8 +151,7 @@ fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<
     let res = typst_package_check::check::offline_checks(
         workspace,
         Some(&snapshot.spec),
-        workspace.path_in_repo(&snapshot.spec),
-        true,
+        workspace.repo().path_of(&snapshot.spec),
     );
 
     // Format diagnostics.

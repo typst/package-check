@@ -85,7 +85,7 @@ pub async fn run_github_check(
     previous_check_run: Option<CheckRun>,
     pr: Option<PullRequest>,
 ) -> Result<()> {
-    let git_repo = GitRepo::open(workspace.repo_dir())?;
+    let git_repo = GitRepo::open(workspace.repo().dir())?;
     let touched_files = git_repo.files_touched_by("HEAD")?;
 
     let mut touches_outside_of_packages = false;
@@ -234,8 +234,7 @@ pub async fn run_github_check(
         // the previous version.
         if let Some(current_pr) = &pr {
             debug!("There is a current PR");
-            if let Some(previous_commit) =
-                check::authors::commit_for_previous_version(workspace, package)
+            if let Some(previous_commit) = git_repo.commit_for_previous_version(workspace, package)
             {
                 debug!("Found previous commit: {previous_commit}");
                 if let Ok(Some(previous_pr)) = api_client
@@ -281,6 +280,7 @@ pub async fn run_github_check(
                                     previous_pr.user.login,
                                     package.name,
                                     workspace
+                                        .repo()
                                         .find_previous_version(package)
                                         .expect(
                                             "If there is no previous version, \
@@ -306,7 +306,6 @@ pub async fn run_github_check(
                 .join(package.namespace.as_str())
                 .join(package.name.as_str())
                 .join(package.version.to_string()),
-            false,
             false,
         )
         .await
