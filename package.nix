@@ -13,7 +13,7 @@ rustPlatform.buildRustPackage {
   src = ./.;
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [ openssl ];
-  cargoHash = "sha256-7lpmevoAZ0pRTdpSx17IhhwdqhcVVsvoqHUci+Makf8=";
+  cargoHash = "sha256-ux/5X6Ew39/6vX6bNPwtbhb2cQ3u9Hqq3xszKNMD5fc=";
   # Don't run `cargo test`, as there are no tests to run.
   doCheck = false;
 }
