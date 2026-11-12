@@ -1,11 +1,8 @@
 //! Wrapper around the `git` command line.
 
-use std::process::Command;
-use std::{
-    collections::HashSet,
-    path::{Path, PathBuf},
-    process::{Output, Stdio},
-};
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
 
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
@@ -66,14 +63,14 @@ impl<'a> GitRepo<'a> {
         )
         .ok()?;
 
-        let authors: HashSet<_> = output
+        let authors = output
             .lines()
-            .filter(|l| l.starts_with("author "))
-            .map(|l| {
-                let prefix_len = "author ".len();
-                l[prefix_len..].to_owned()
+            .filter_map(|l| {
+                l.strip_prefix("author ")
+                    .or_else(|| l.strip_prefix("author-mail "))
+                    .map(String::from)
             })
-            .collect();
+            .collect::<HashSet<_>>();
 
         debug!("Done");
         Some(authors)
