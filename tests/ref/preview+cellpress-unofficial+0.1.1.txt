@@ -1,3 +1,11 @@
+[overridable] warning[src/kebab-case]: `y_pad` is not in kebab-case
+   ┌─ src/lib.typ:68:7
+   │
+68 │       let y_pad = 3pt
+   │           ^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
 warning[files/ignored]: This file won't be present in the bundled package because of an ignore file, such as `.gitignore` or `.ignore`.
   ┌─ inc/cell_press_logo.pdf:1:0
   │
@@ -24,5 +32,5 @@ warning[exclude/thumbnail]: The template thumbnail is automatically excluded
   │
   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
-0 errors, 3 warnings, and 0 notes
+0 errors, 4 warnings, and 0 notes
 

@@ -1,3 +1,67 @@
+[allowed] warning[src/kebab-case]: `beTter_suPreSs_ThIs` is not in kebab-case
+  ┌─ lib.typ:9:5
+  │
+9 │ #let beTter_suPreSs_ThIs = "please don't"
+  │      ^^^^^^^^^^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+[overridable] warning[src/kebab-case]: `UPPER-KEBAB-CASE_` is not in kebab-case
+   ┌─ lib.typ:13:5
+   │
+13 │ #let UPPER-KEBAB-CASE_ = "not allowed"
+   │      ^^^^^^^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+[overridable] warning[src/kebab-case]: `_kebab-case` is not in kebab-case
+   ┌─ lib.typ:12:5
+   │
+12 │ #let _kebab-case = "not allowed"
+   │      ^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+[overridable] warning[src/kebab-case]: `_private` is not in kebab-case
+   ┌─ lib.typ:11:5
+   │
+11 │ #let _private = "not allowed"
+   │      ^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+[overridable] warning[src/kebab-case]: `PascalCase` is not in kebab-case
+  ┌─ lib.typ:7:5
+  │
+7 │ #let PascalCase = "not allowed"
+  │      ^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+[overridable] warning[src/kebab-case]: `camelCase` is not in kebab-case
+  ┌─ lib.typ:6:5
+  │
+6 │ #let camelCase = "not allowed"
+  │      ^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+[overridable] warning[src/kebab-case]: `UPPER_SNAKE_CASE` is not in kebab-case
+  ┌─ lib.typ:5:5
+  │
+5 │ #let UPPER_SNAKE_CASE = "not allowed"
+  │      ^^^^^^^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+[overridable] warning[src/kebab-case]: `snake_case` is not in kebab-case
+  ┌─ lib.typ:4:5
+  │
+4 │ #let snake_case = "not allowed"
+  │      ^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
 warning[unused/lint/override]: This lint does not need to be allowed
    ┌─ typst.toml:15:0
    │
@@ -12,5 +76,6 @@ error[manifest/template/thumbnail/not-found]: This file does not exist.
    │
    = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
-1 error, 1 warning, and 0 notes
+1 error, 8[+1 allowed] warnings, and 0 notes
+hint: Some diagnostics are overridable. See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

@@ -61,17 +61,18 @@ pub fn offline_checks(
     let files = files::check(&mut diags, &package_dir, &manifest, &readme);
 
     compile::check(&mut diags, &worlds.package);
+    kebab_case::check_project(&worlds.package, &mut diags);
     if let Some(template_world) = &worlds.template {
         let mut template_diags = Diagnostics::default();
         compile::check(&mut template_diags, template_world);
+        kebab_case::check_project(template_world, &mut template_diags);
+
         let template_dir = template_world
             .root()
             .relative_template_dir()
             .expect("Template should be in a subfolder of the package");
         diags.extend(template_diags, template_dir);
     }
-
-    kebab_case::check(&mut diags, &worlds.package);
 
     let res = imports::check(&mut diags, &package_dir, &worlds.package);
     diags.maybe_emit(res);

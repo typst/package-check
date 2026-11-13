@@ -1,7 +1,7 @@
 use std::io::Cursor;
+use std::ops::Range;
 use std::path::Path;
 use std::sync::LazyLock;
-use std::{collections::HashSet, ops::Range};
 
 use comrak::nodes::{LineColumn, NodeList, NodeValue as MdNode, Sourcepos};
 use html5ever::tendril::TendrilSink;
@@ -151,7 +151,7 @@ fn check_readme_code_block(
             .emit(diags);
     }
 
-    kebab_case::check_ast(world, diags, &HashSet::new(), source.root(), true);
+    kebab_case::check_ast(world, diags, source.root(), true);
 
     imports::check_ast(diags, world, source.root(), Path::new("README.md"));
 }
