@@ -110,8 +110,8 @@ impl SystemPackages {
 impl Default for SystemPackages {
     fn default() -> Self {
         Self {
-            data: dirs::data_dir().map(FsPackages::new),
-            cache: dirs::cache_dir().map(FsPackages::new),
+            data: dirs::data_dir().map(|path| FsPackages::new(path.join("typst/packages"))),
+            cache: dirs::cache_dir().map(|path| FsPackages::new(path.join("typst/packages"))),
         }
     }
 }
