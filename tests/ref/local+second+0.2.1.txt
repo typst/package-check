@@ -6,11 +6,13 @@
   │
   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
-[overridable] warning[src/kebab-case]: This value seems to be public. It is recommended to use kebab-case names.
+[overridable] warning[src/kebab-case]: `Tick` is not in kebab-case
   ┌─ lib.typ:1:5
   │
 1 │ #let Tick(t) = calc.rem(t + 1, 60)
   │      ^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
 
 warning[exclude/readme]: Your README.md file should not be excluded.
   ┌─ typst.toml:7:10

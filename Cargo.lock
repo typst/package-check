@@ -276,12 +276,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d71b6127be86fdcfddb610f7182ac57211d4b18a3e9c82eb2d17662f2227ad6a"
 
 [[package]]
-name = "casbab"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22eb83cefc03b7a090a8852801e667cf6c6c43089af0f95145bc01bd9f06b9a2"
-
-[[package]]
 name = "caseless"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4021,7 +4015,6 @@ name = "typst-package-check"
 version = "0.7.0"
 dependencies = [
  "anyhow",
- "casbab",
  "clap",
  "codespan-reporting",
  "comemo",

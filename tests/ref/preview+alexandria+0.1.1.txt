@@ -1,3 +1,11 @@
+[overridable] warning[src/kebab-case]: `_p` is not in kebab-case
+  ┌─ src/hayagriva.typ:1:5
+  │
+1 │ #let _p = plugin("alexandria.wasm")
+  │      ^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
 [overridable] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`, unless this package actually has to do with Typst itself or its ecosystem
    ┌─ typst.toml:11:14
    │
@@ -17,5 +25,5 @@ error[readme/image/missing-alt]: Missing alternative description for image. Plea
    │  
    = hint: See https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images
 
-1 error, 1 warning, and 0 notes
+1 error, 2 warnings, and 0 notes
 
