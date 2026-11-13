@@ -1,0 +1,16 @@
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+    ┌─ _tiling.typ:173:6
+    │
+173 │   let newDims = (
+    │       ^^^^^^^
+    │
+    = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+  ┌─ typst.toml:7:14
+  │
+7 │ description = "A typst package to design content like posters based on a tiling layout"
+  │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
+

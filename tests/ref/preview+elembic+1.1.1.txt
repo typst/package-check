@@ -1,8 +1,0 @@
-warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
-   ┌─ typst.toml:11:14
-   │
-11 │ description = "Framework for custom elements and types in Typst"
-   │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
-
