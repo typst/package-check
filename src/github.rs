@@ -355,30 +355,23 @@ pub async fn run_github_check(
                 check_run.id,
                 diags.errors().is_empty() && diags.warnings().is_empty(),
                 CheckRunOutput {
-                    title: &if !diags.errors().is_empty() {
-                        if diags.warnings().is_empty() {
-                            format!(
-                                "{} error{}",
-                                diags.errors().len(),
-                                plural(diags.errors().len())
-                            )
-                        } else {
-                            format!(
-                                "{} error{}, {} warning{}",
-                                diags.errors().len(),
-                                plural(diags.errors().len()),
-                                diags.warnings().len(),
-                                plural(diags.warnings().len())
-                            )
-                        }
-                    } else if diags.warnings().is_empty() {
+                    title: &if diags.all().next().is_none() {
                         "All good!".to_owned()
                     } else {
-                        format!(
-                            "{} warning{}",
-                            diags.warnings().len(),
-                            plural(diags.warnings().len())
-                        )
+                        [
+                            (diags.errors(), "error"),
+                            (diags.warnings(), "warning"),
+                            (diags.infos(), "note"),
+                        ]
+                        .iter()
+                        .map(|(diags, kind)| {
+                            format!("{} {}{}", diags.len(), kind, plural(diags.len()))
+                        })
+                        .fold(String::new(), |mut acc, x| {
+                            acc.push_str(", ");
+                            acc.push_str(&x);
+                            acc
+                        })
                     },
                     summary: &summary(package, &diags, suppressed, &unplaced),
                     annotations: &annotations,

@@ -34,6 +34,7 @@ impl<T> TryExt<T> for Option<T> {
 pub struct Diagnostics {
     warnings: Vec<Diagnostic<FileId>>,
     errors: Vec<Diagnostic<FileId>>,
+    infos: Vec<Diagnostic<FileId>>,
 }
 
 impl Diagnostics {
@@ -49,10 +50,10 @@ impl Diagnostics {
 
     pub fn emit(&mut self, d: Diagnostic<FileId>) {
         tracing::debug!("Emitting: {:?}", &d);
-        if d.severity == Severity::Warning {
-            self.warnings.push(d)
-        } else {
-            self.errors.push(d)
+        match d.severity {
+            Severity::Warning => self.warnings.push(d),
+            Severity::Note | Severity::Help => self.infos.push(d),
+            Severity::Error | Severity::Bug => self.errors.push(d),
         }
     }
 
@@ -84,6 +85,9 @@ impl Diagnostics {
 
         other.warnings.iter_mut().for_each(fix_labels);
         self.warnings.extend(other.warnings);
+
+        other.infos.iter_mut().for_each(fix_labels);
+        self.infos.extend(other.infos);
     }
 
     /// Sort diagnostics by file path and position.
@@ -95,6 +99,7 @@ impl Diagnostics {
         };
         self.errors.sort_by_key(diag_pos);
         self.warnings.sort_by_key(diag_pos);
+        self.infos.sort_by_key(diag_pos);
     }
 
     pub fn errors(&self) -> &[Diagnostic<FileId>] {
@@ -105,8 +110,15 @@ impl Diagnostics {
         &self.warnings
     }
 
+    pub fn infos(&self) -> &[Diagnostic<FileId>] {
+        &self.infos
+    }
+
     pub fn all(&self) -> impl DoubleEndedIterator<Item = &Diagnostic<FileId>> {
-        self.errors.iter().chain(self.warnings.iter())
+        self.errors
+            .iter()
+            .chain(self.warnings.iter())
+            .chain(self.infos.iter())
     }
 }
 
