@@ -337,7 +337,7 @@ pub async fn run_github_check(
 
         let (checks, mut diags) = res?;
 
-        let ignored = codes::override_diagnostics(&checks, &mut diags);
+        let ignored = codes::filter_diagnostics(&checks, &mut diags);
 
         // Diagnostics that can't be attached to a file (for instance because
         // they have no label or point to a directory) are listed in the
@@ -442,7 +442,7 @@ fn summary(
     diags: &Diagnostics,
     suppressed: usize,
     unplaced: &[&Diagnostic],
-    ignored: &[Diagnostic],
+    allowed: &[Diagnostic],
 ) -> String {
     let errors = diags.errors().len();
     let warnings = diags.warnings().len();
@@ -488,16 +488,16 @@ fn summary(
         }
     }
 
-    if !ignored.is_empty() {
+    if !allowed.is_empty() {
         writeln!(
             summary,
             "\n\n<details>\n\
-             <summary>{} diagnostic{} were ignored</summary>\n\n",
-            ignored.len(),
-            plural(ignored.len()),
+             <summary>{} diagnostic{} were allowed</summary>\n\n",
+            allowed.len(),
+            plural(allowed.len()),
         )
         .unwrap();
-        for diag in ignored {
+        for diag in allowed {
             write_summary_diagnostic(&mut summary, package, diag).unwrap();
         }
         summary.push_str("</details>\n");

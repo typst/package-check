@@ -2,6 +2,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use typst::World;
+use typst::ecow::eco_format;
 use typst::syntax::VirtualPath;
 use typst::syntax::ast::{self, AstNode, ModuleImport};
 use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
@@ -87,7 +88,10 @@ pub fn check_ast(
                 Some(spec) if import_spec.versionless() == spec.versionless() => {
                     (Severity::Error, Code::ImportOutdatedSelf)
                 }
-                _ => (Severity::Note, Code::ImportOutdatedDependency),
+                _ => (
+                    Severity::Note,
+                    Code::ImportOutdatedDependency(eco_format!("{import_spec}")),
+                ),
             };
             Diagnostic::new(severity, code)
                 .with_message("This import seems to use an older version of the package.")

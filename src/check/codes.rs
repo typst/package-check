@@ -8,9 +8,9 @@ use crate::check::manifest::{Lint, Selector, manifest_label};
 use crate::check::toml::Spanned;
 use crate::check::{Checks, Diagnostics};
 
-/// Split off diagnostics that are ignored due to the
-/// [`Manifest::package_check`] section.
-pub fn override_diagnostics(checks: &Checks, diags: &mut Diagnostics) -> Vec<Diagnostic> {
+/// Filter out diagnostics that have been allowed in the
+/// `tool.package-check.lint` configuration.
+pub fn filter_diagnostics(checks: &Checks, diags: &mut Diagnostics) -> Vec<Diagnostic> {
     let package_check = checks.manifest.package_check.as_ref();
     let Some(lints) = package_check.and_then(|p| p.lints.as_ref()) else {
         return Vec::new();
@@ -19,7 +19,7 @@ pub fn override_diagnostics(checks: &Checks, diags: &mut Diagnostics) -> Vec<Dia
     // Stores which selectors have been matched.
     let mut matched = HashSet::new();
 
-    let ignored = diags.split_off(|diag| {
+    let allowed = diags.split_off(|diag| {
         let Some(lint) = lints.get(&diag.code.ty()) else {
             return false;
         };
@@ -60,7 +60,7 @@ pub fn override_diagnostics(checks: &Checks, diags: &mut Diagnostics) -> Vec<Dia
     check_unused_lint_overrides(diags, lints, matched);
     diags.sort();
 
-    ignored
+    allowed
 }
 
 fn check_unused_lint_overrides(
@@ -286,7 +286,7 @@ codes! {
     ManifestToolPackageCheckLintsUnknown = "manifest/tool/package-check/lints/unknown"
     ManifestToolPackageCheckLintsType = "manifest/tool/package-check/lints/type"
 
-    LintIgnorable = "lint/ignorable"
+    LintOverridable = "lint/overridable"
     LintSelectorProjectType = "lint/selector/project/type"
     LintSelectorProjectInvalid = "lint/selector/project/invalid"
     LintSelectorFilesType = "lint/selector/files/type"
@@ -345,9 +345,6 @@ codes! {
     GithubActionsEventIo = "github/actions/event/io"
     GithubActionsEventInvalid = "github/actions/event/invalid"
 
-    // These are just notes. They don't need to be overriden.
-    ImportOutdatedDependency = "import/outdated/dependency"
-
 
     [Overridable::Staff(Project)]
     SizeBundle = "size/bundle"
@@ -370,6 +367,7 @@ codes! {
     SrcKebabCase = "src/kebab-case"
     ReadmeLinkRepoDefaultBranch = "readme/link/repo/default-branch"
     ReadmeImageInadequateAlt = "readme/image/inadequate-alt"
+    ImportOutdatedDependency = "import/outdated/dependency"
 }
 
 impl std::fmt::Display for CodeType {

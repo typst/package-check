@@ -258,15 +258,6 @@ impl Diagnostic {
         diags.emit(self);
     }
 
-    /// Format this as a fatal error.
-    pub fn format_fatal_error(&self) -> String {
-        format!(
-            "Fatal error [{}]: {}",
-            self.code.ty(),
-            self.format_message_with_hints()
-        )
-    }
-
     /// Combine the message and hints.
     pub fn format_message_with_hints(&self) -> String {
         let mut buf = format!("{}\n", self.message);
@@ -316,13 +307,19 @@ pub enum Severity {
     Note,
 }
 
-impl std::fmt::Display for Severity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
+impl Severity {
+    pub fn as_str(self) -> &'static str {
+        match self {
             Severity::Error => "error",
             Severity::Warning => "warning",
             Severity::Note => "note",
-        })
+        }
+    }
+}
+
+impl std::fmt::Display for Severity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

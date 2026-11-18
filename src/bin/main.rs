@@ -1,17 +1,18 @@
 use std::env;
+use std::ops::DerefMut;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::Parser;
-use tracing::error;
 use tracing_subscriber::EnvFilter;
 use typst::syntax::package::PackageSpec;
-use typst_package_check::check::codes::{Code, override_diagnostics};
-use typst_package_check::check::{TryExt, all_checks};
-use typst_package_check::cli;
+use typst_package_check::check::codes::{Code, filter_diagnostics};
+use typst_package_check::check::{Exclude, TryExt, all_checks};
 use typst_package_check::github::api::pr::PullRequestEvent;
 use typst_package_check::github::api::{Installation, Repository};
 use typst_package_check::github::{AppState, run_github_check};
 use typst_package_check::workspace::{SystemPackages, Workspace};
+use typst_package_check::{cli, json};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -23,21 +24,7 @@ struct Cli {
 enum Commands {
     /// Check a local package at the specified version. To be run in
     /// typst/packages/packages or your own repository.
-    Check {
-        /// Packages to check. Either the name of a directory with a typst.toml
-        /// manifest (to run in your own repository), or a package specification
-        /// in the @preview/name:version format (to run in the packages
-        /// directory of typst/packages).
-        packages: Vec<String>,
-
-        /// Whether to output diagnostics in JSON.
-        #[clap(long, default_value_t = false)]
-        json: bool,
-
-        /// Skip lints that require network access.
-        #[clap(long, default_value_t = false)]
-        offline: bool,
-    },
+    Check(CheckCommand),
     /// Output the version of Typst bundled with this application.
     TypstVersion,
     /// Output the version of this application.
@@ -51,8 +38,89 @@ enum Commands {
     Action,
 }
 
+/// Check a local package at the specified version. To be run in
+/// typst/packages/packages or your own repository.
+#[derive(clap::Args, Clone)]
+struct CheckCommand {
+    /// Packages to check. Either the name of a directory with a typst.toml
+    /// manifest (to run in your own repository), or a package specification
+    /// in the @preview/name:version format (to run in the packages
+    /// directory of typst/packages).
+    packages: Vec<String>,
+
+    /// Skip lints that require network access.
+    #[clap(long)]
+    offline: bool,
+
+    /// Filter the list of printed diagnostics.
+    #[clap(long, value_enum, default_value_t)]
+    show: Show,
+
+    /// Coloring.
+    #[clap(long, value_enum, default_value_t)]
+    color: clap::ColorChoice,
+
+    /// Whether to generate JSON(L) output.
+    ///
+    /// The output is an object on one line per package with the following keys:
+    ///   - "denied": [Diagnostic] // regular emitted diagnostics
+    ///   - "allowed": [Diagnostic] // diagnostics that have been
+    ///
+    /// `Diagnostic` has the following keys:
+    ///   - "kind": "error"|"warning"|"note"
+    ///   - "code": str
+    ///   - "message": str
+    ///   - "hints": [str]?
+    ///   - "location": Location?
+    ///
+    /// `Location` has the following keys:
+    ///   - "file": str
+    ///   - "from": LineCol
+    ///   - "to": LineCol
+    ///
+    /// `LineCol` has the following keys:
+    ///   - "line": int // 1-indexed
+    ///   - "column": int  // 1-indexed character (not byte) count
+    ///
+    /// In case checking a package fails with a fatal error, another object with
+    /// the following keys is written:
+    ///   - "fatal": FatalError
+    ///
+    /// `FatalError` has the following keys:
+    ///   - "code": str
+    ///   - "message": str
+    #[clap(long, verbatim_doc_comment)]
+    json: bool,
+
+    /// Don't exit immediately after one package emits a warning or error.
+    #[clap(long)]
+    keep_going: bool,
+}
+
+#[derive(clap::ValueEnum, Default, Copy, Clone, Eq, PartialEq)]
+enum Show {
+    /// These are the regular emitted diagnostics.
+    #[default]
+    Denied,
+    /// These are the diagnostics that were supressed due to the
+    /// `[tool.package-check.lint]` configuration.
+    Allowed,
+    /// Print all diagonstics, including ones that were allowed.
+    All,
+}
+
+impl From<Show> for cli::Show {
+    fn from(value: Show) -> Self {
+        match value {
+            Show::Denied => cli::Show::Denied,
+            Show::Allowed => cli::Show::Allowed,
+            Show::All => cli::Show::All,
+        }
+    }
+}
+
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
     if env::var("IGNORE_DOTENV").is_err() {
         dotenvy::dotenv().ok();
     }
@@ -70,17 +138,7 @@ async fn main() {
 
     let args = Cli::parse();
     match args.command {
-        Commands::Check {
-            mut packages,
-            json,
-            offline,
-        } => {
-            if packages.is_empty() {
-                packages.push(".".into());
-            }
-
-            run_cli(&packages, json, offline).await
-        }
+        Commands::Check(cmd) => return run_cli(cmd).await,
         Commands::TypstVersion => {
             let version = typst_utils::version();
             println!(
@@ -95,9 +153,15 @@ async fn main() {
         }
         Commands::Action => run_action().await,
     }
+
+    ExitCode::SUCCESS
 }
 
-async fn run_cli(packages: &[String], json_output: bool, offline: bool) {
+async fn run_cli(mut cmd: CheckCommand) -> ExitCode {
+    if cmd.packages.is_empty() {
+        cmd.packages.push(".".into());
+    }
+
     let packages_repo_dir = PathBuf::from(
         std::env::var("PACKAGES_DIR")
             .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
@@ -105,7 +169,15 @@ async fn run_cli(packages: &[String], json_output: bool, offline: bool) {
     );
     let workspace = Workspace::new(packages_repo_dir, SystemPackages::default());
 
-    for spec_or_path in packages {
+    let color = match cmd.color {
+        clap::ColorChoice::Auto => termcolor::ColorChoice::Auto,
+        clap::ColorChoice::Always => termcolor::ColorChoice::Always,
+        clap::ColorChoice::Never => termcolor::ColorChoice::Never,
+    };
+    let stdout = termcolor::BufferWriter::stdout(color);
+
+    let mut exit_code: Option<u8> = None;
+    for spec_or_path in cmd.packages.iter() {
         let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
         let package_dir = if let Some(ref package_spec) = package_spec {
             workspace.repo().path_of(package_spec)
@@ -113,39 +185,58 @@ async fn run_cli(packages: &[String], json_output: bool, offline: bool) {
             PathBuf::from(spec_or_path)
         };
 
-        let res = all_checks(&workspace, package_spec.as_ref(), package_dir, offline).await;
+        if !cmd.json {
+            let mut buf = stdout.buffer();
+            let mut buf = typst_utils::defer(&mut buf, |buf| stdout.print(buf).unwrap());
+            cli::write_header(buf.deref_mut(), &package_dir, cmd.show.into()).unwrap();
+        }
+
+        let mut buf = stdout.buffer();
+        let mut buf = typst_utils::defer(&mut buf, |buf| stdout.print(buf).unwrap());
+        let res = all_checks(&workspace, package_spec.as_ref(), package_dir, cmd.offline).await;
         match res {
             Ok((checks, mut diags)) => {
-                let ignored = override_diagnostics(&checks, &mut diags);
+                let allowed = filter_diagnostics(&checks, &mut diags);
 
-                if let Err(err) = cli::print_diagnostics(checks.worlds.package, &diags, json_output)
-                {
-                    error!("failed to print diagnostics ({err})");
-                    error!(
-                        "Raw diagnostics: {:#?}\n{:#?}",
-                        diags.errors(),
-                        diags.warnings()
-                    );
-                }
+                // Remove the exclude, so reading excluded files doesn't error.
+                // Otherwise printing some diagnostics might fail.
+                let world = checks.worlds.package.exclude(Exclude::empty());
 
-                if !ignored.is_empty() {
-                    // TODO: Add flag to print ignored diagnostics.
+                if cmd.json {
+                    json::write_output(buf.deref_mut(), &world, &diags, &allowed).unwrap();
+                } else {
+                    cli::write_output(buf.deref_mut(), &world, &diags, &allowed, cmd.show.into())
+                        .unwrap();
                 }
 
                 if !diags.errors().is_empty() {
-                    std::process::exit(1)
-                }
-
-                if !diags.warnings().is_empty() {
-                    std::process::exit(2)
+                    exit_code = Some(1);
+                } else if !diags.warnings().is_empty() {
+                    exit_code = exit_code.or(Some(2));
                 }
             }
-            Err(e) => {
-                print!("{}", e.format_fatal_error());
-                std::process::exit(1)
+            Err(err) => {
+                if cmd.json {
+                    json::write_fatal_error(buf.deref_mut(), &err).unwrap();
+                } else {
+                    cli::write_fatal_error(buf.deref_mut(), &err).unwrap();
+                }
+                exit_code = Some(1);
             }
         }
+
+        if !cmd.keep_going
+            && let Some(code) = exit_code
+        {
+            return ExitCode::from(code);
+        }
     }
+
+    if let Some(code) = exit_code {
+        return ExitCode::from(code);
+    }
+
+    ExitCode::SUCCESS
 }
 
 pub async fn run_action() {

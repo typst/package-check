@@ -1,46 +1,130 @@
-use std::io::Write;
+use std::path::Path;
 
 use codespan_reporting::term;
+use termcolor::{Color, ColorSpec, WriteColor};
+use tracing::error;
 use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, Source};
 
-use crate::check::{Diagnostics, Exclude};
+use crate::check::Diagnostics;
+use crate::check::diagnostics::Diagnostic;
 use crate::world::SystemWorld;
 
-/// Print diagnostic messages to the terminal.
-pub fn print_diagnostics(
-    world: SystemWorld,
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum Show {
+    Denied,
+    Allowed,
+    All,
+}
+
+impl Show {
+    fn allowed(self) -> bool {
+        match self {
+            Show::Allowed | Show::All => true,
+            Show::Denied => false,
+        }
+    }
+
+    fn denied(self) -> bool {
+        match self {
+            Show::Denied | Show::All => true,
+            Show::Allowed => false,
+        }
+    }
+}
+
+/// Print a check header for a package to the writer.
+pub fn write_header(mut w: impl WriteColor, package_dir: &Path, show: Show) -> std::io::Result<()> {
+    w.set_color(
+        ColorSpec::new()
+            .set_bold(true)
+            .set_intense(true)
+            .set_fg(Some(Color::Green)),
+    )?;
+    w.write_all(b"Checking ")?;
+    w.reset()?;
+    writeln!(w, "`{}`", package_dir.display())?;
+
+    if show == Show::Allowed {
+        w.set_color(
+            ColorSpec::new()
+                .set_intense(true)
+                .set_fg(Some(Color::Black)),
+        )?;
+        writeln!(w, "  (only showing allowed diagnostics)")?;
+        w.reset()?;
+    }
+
+    Ok(())
+}
+
+/// Print output to the writer.
+pub fn write_output(
+    mut w: impl WriteColor,
+    world: &SystemWorld,
     diags: &Diagnostics,
-    json: bool,
-) -> Result<(), codespan_reporting::files::Error> {
+    allowed: &[Diagnostic],
+    show: Show,
+) -> std::io::Result<()> {
+    if show.allowed() {
+        for diag in allowed.iter().rev() {
+            write_diagnostic(&mut w, world, diag, true)?;
+        }
+    }
+
+    if show.denied() {
+        for diag in diags.all().rev() {
+            write_diagnostic(&mut w, world, diag, false)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Print output to the writer.
+pub fn write_diagnostic(
+    mut w: impl WriteColor,
+    world: &SystemWorld,
+    diag: &Diagnostic,
+    allowed: bool,
+) -> std::io::Result<()> {
+    if allowed {
+        w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Cyan)))?;
+        w.write_all(b"[allowed] ")?;
+        w.reset()?;
+    }
+
     let config = term::Config {
         tab_width: 2,
         ..Default::default()
     };
 
-    // We should be able to print diagnostics even on excluded files. If we
-    // don't remove the exclusion, it will fail to read and display the file
-    // contents.
-    let mut world = world.exclude(Exclude::empty());
-
-    let buf = if json {
-        let mut buf = Vec::new();
-        for diagnostic in diags.all().rev() {
-            json::emit(&mut buf, &mut world, diagnostic)?;
+    let mut diag = diag.into();
+    if let Err(err) = term::emit_to_write_style(&mut w, &config, world, &diag) {
+        if let CodespanError::Io(io) = err {
+            return Err(io);
         }
-        buf
-    } else {
-        let mut buf =
-            term::termcolor::BufferWriter::stdout(term::termcolor::ColorChoice::Auto).buffer();
-        for diagnostic in diags.all().rev() {
-            term::emit_to_write_style(&mut buf, &config, &world, &diagnostic.into())?;
-        }
-        buf.into_inner()
-    };
 
-    std::io::stdout().write_all(&buf)?;
+        // Formatting diagnostics should only fail, if there was an
+        // issue reading the file or the span of inside the file.
+        error!("Failed to resolve label ({err}):\n{diag:#?}");
+        diag.labels.clear();
+        if let Err(CodespanError::Io(err)) =
+            term::emit_to_write_style(&mut w, &config, world, &diag)
+        {
+            return Err(err);
+        }
+    }
 
     Ok(())
+}
+
+/// Print this diagnostic as a fatal error to the writer.
+pub fn write_fatal_error(mut w: impl WriteColor, diag: &Diagnostic) -> std::io::Result<()> {
+    w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Red)))?;
+    write!(w, "fatal error [{}]", diag.code.ty())?;
+    w.reset()?;
+    writeln!(w, ": {}", diag.format_message_with_hints())
 }
 
 type CodespanResult<T> = Result<T, CodespanError>;
@@ -107,83 +191,5 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
                 CodespanError::IndexTooLarge { given, max }
             }
         })
-    }
-}
-
-mod json {
-    use std::io::Write;
-
-    use serde::Serialize;
-    use typst::syntax::FileId;
-
-    use crate::check::diagnostics::{Diagnostic, Severity};
-    use crate::cli::CodespanResult;
-
-    #[derive(Serialize)]
-    struct JsonDiagnostic<'a> {
-        kind: &'a str,
-        message: &'a str,
-        #[serde(skip_serializing_if = "Vec::is_empty")]
-        hints: Vec<&'a str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        location: Option<Location>,
-        code: &'a str,
-    }
-
-    #[derive(Serialize)]
-    struct Location {
-        file: String,
-        from: LineCol,
-        to: LineCol,
-    }
-
-    #[derive(Serialize)]
-    struct LineCol {
-        line: usize,
-        column: usize,
-    }
-
-    pub fn emit<'a>(
-        w: &mut impl Write,
-        files: &'a mut impl codespan_reporting::files::Files<'a, FileId = FileId>,
-        diag: &Diagnostic,
-    ) -> CodespanResult<()> {
-        let location = if let Some(label) = &diag.label {
-            let file_id = label.file;
-            let start_line = files.line_index(file_id, label.range.start)?;
-            let end_line = files.line_index(file_id, label.range.end)?;
-
-            Some(Location {
-                file: files.name(file_id)?.to_string(),
-                from: LineCol {
-                    line: files.line_number(file_id, start_line)?,
-                    column: files.column_number(file_id, start_line, label.range.start)?,
-                },
-                to: LineCol {
-                    line: files.line_number(file_id, end_line)?,
-                    column: files.column_number(file_id, end_line, label.range.end)?,
-                },
-            })
-        } else {
-            None
-        };
-        serde_json::to_writer(
-            &mut *w,
-            &JsonDiagnostic {
-                kind: match diag.severity {
-                    Severity::Note => "note",
-                    Severity::Warning => "warning",
-                    Severity::Error => "error",
-                },
-                location,
-                message: &diag.message,
-                hints: diag.hints().collect(),
-                code: diag.code.ty().as_str(),
-            },
-        )
-        .unwrap();
-        writeln!(w).unwrap();
-
-        Ok(())
     }
 }

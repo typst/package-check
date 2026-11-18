@@ -754,7 +754,7 @@ fn check_tool(manifest: &mut toml::File) -> Option<Spanned<PackageCheck>> {
                 },
                 |code, selector| {
                     let Some(selector_type) = code.overridable().selector_type() else {
-                        return Err(Diagnostic::error(Code::LintIgnorable)
+                        return Err(Diagnostic::error(Code::LintOverridable)
                             .with_message(format!("`{}` cannot be overriden", code.val)));
                     };
                     let allowed = parse_selector_type(selector, selector_type)?;
