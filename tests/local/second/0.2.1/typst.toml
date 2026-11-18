@@ -1,6 +1,6 @@
 [package]
 name = "second"
-license = "MIT"
+license = "MIT AND CC-BY-4.0"
 version = "0.2.1"
 entrypoint = "lib.typ"
 compiler = -inf

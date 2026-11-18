@@ -1,3 +1,14 @@
+[overridable] warning[manifest/package/license/cc/only]: This package is only licensed under a Creative Commons license.
+  ┌─ typst.toml:7:10
+  │
+7 │ license = "CC0-1.0"
+  │           ^^^^^^^^^
+  │
+  = Usually a Creative Commons license should not be used for source code. It's recommended to dual-license the package under an OSI approved license such as `MIT AND CC0-1.0`
+  = The complete package can use a Creative Commons license, if it has been derived from work that is licensed under a Creative Commons license.
+    In that case you should suppress this diagnostic.
+  = See: https://github.com/typst/packages/blob/main/docs/licensing.md
+
 error[files/readme/name]: This file should be named `README.md`, all uppercase and with the `.md` file extension.
   ┌─ README.txt:1:0
   │
@@ -42,5 +53,5 @@ error[manifest/template/thumbnail/not-found]: This file does not exist.
 
 error[readme/io]: Failed to read README.md
 
-6 errors, 0 warnings, and 0 notes
+6 errors, 1 warning, and 0 notes
 

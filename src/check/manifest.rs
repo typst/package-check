@@ -1,10 +1,12 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::range::Range;
+use std::sync::LazyLock;
 
 use ignore::overrides::{Override, OverrideBuilder};
 use regex_automata::meta::Regex;
 use regex_syntax::hir::{Hir, Look};
+use spdx::LicenseId;
 use toml_edit::{Item, TableLike};
 use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
@@ -292,16 +294,25 @@ fn check_license(package: &mut TableParser) -> Option<Spanned<spdx::Expression>>
         .parsed_with(|parser, license| {
             let license = license.parse::<spdx::Expression>().map_err(|err| {
                 Diagnostic::error(Code::ManifestPackageLicenseInvalid).with_message(format!(
-                    "The `license` field should be a valid SPDX-2 expression ({err})"
+                    "The `license` field should be a valid SPDX-2 expression:\n{err}"
                 ))
             })?;
 
+            let mut has_osi_approved = false;
+            let mut cc_license = None;
             for requirement in license.requirements() {
                 if let Some(id) = requirement.req.license.id() {
-                    // TODO: Allow creative commons licenses.
-                    if !id.is_osi_approved() {
-                        Diagnostic::error(Code::ManifestPackageLicenseOsi)
-                            .with_message("The `license` field should be OSI approved")
+                    if id.is_osi_approved() {
+                        has_osi_approved = true;
+                    } else if is_allowed_cc(id) {
+                        cc_license = Some(id);
+                    } else {
+                        Diagnostic::error(Code::ManifestPackageLicenseDisallowed)
+                            .with_message(format!(
+                                "The `license` field should be OSI approved \
+                                 or an allowed Creative Commons (CC) license {}",
+                                id.name
+                            ))
                             .emit_at(parser);
                     }
                 } else {
@@ -311,10 +322,39 @@ fn check_license(package: &mut TableParser) -> Option<Spanned<spdx::Expression>>
                 }
             }
 
+            if let Some(cc) = cc_license
+                && !has_osi_approved
+            {
+                Diagnostic::warn(Code::ManifestPackageLicenseCcOnly(()))
+                    .with_message("This package is only licensed under a Creative Commons license.")
+                    .with_hint(format!(
+                        "Usually a Creative Commons license should not be used for \
+                         source code. It's recommended to dual-license the package \
+                         under an OSI approved license such as `MIT AND {}`",
+                        cc.name
+                    ))
+                    .with_hint(
+                        "The complete package can use a Creative Commons license, \
+                         if it has been derived from work that is licensed under \
+                         a Creative Commons license.\n\
+                         In that case you should suppress this diagnostic.",
+                    )
+                    .with_docs_link(Docs::LICENSE)
+                    .emit_at(parser);
+            }
+
             Ok(license)
         })?;
 
     Some(license.item)
+}
+
+// Check that a license is any version of CC-BY, CC-BY-SA, or CC0.
+fn is_allowed_cc(license: LicenseId) -> bool {
+    static RE: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"^CC(-BY|-BY-SA|0)-[0-9]\.[0-9](-[A-Z]+)?$").unwrap());
+
+    RE.is_match(license.name)
 }
 
 fn check_description(package: &mut TableParser) -> Option<Spanned<String>> {
