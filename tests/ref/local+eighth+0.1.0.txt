@@ -1,12 +1,8 @@
---- ignored diagnostics ---
-
-warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Repo`. Please add a short description to make this image more accessible.
+[allowed] warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Repo`. Please add a short description to make this image more accessible.
   ┌─ README.md:3:0
   │
 3 │ ![Repo](https://badgen.net/static/GitHub/Repo/blue?icon=github)
   │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
---- regular diagnostics ---
 
 warning[unused/lint/override/regex]: This regex doesn't match any diagnostics
    ┌─ typst.toml:17:78
@@ -71,7 +67,7 @@ error[lint/selector/project/invalid]: a project level selector must be `"allow"`
    │
    = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
 
-error[lint/ignorable]: `files/fonts` cannot be overriden
+error[lint/overridable]: `files/fonts` cannot be overriden
    ┌─ typst.toml:11:16
    │
 11 │ "files/fonts" = "allow"

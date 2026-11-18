@@ -1,14 +1,10 @@
---- ignored diagnostics ---
-
-warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+[allowed] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
   ┌─ typst.toml:9:14
   │
 9 │ description = "Cool Typst package"
   │               ^^^^^^^^^^^^^^^^^^^^
   │
   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
-
---- regular diagnostics ---
 
 warning[src/kebab-case]: This value seems to be public. It is recommended to use kebab-case names.
   ┌─ lib.typ:1:5

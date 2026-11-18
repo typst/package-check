@@ -1,15 +1,15 @@
 use std::ffi::OsStr;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, anyhow, bail};
 use clap::Parser;
-use codespan_reporting::term;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use termcolor::ColorChoice;
 use typst::ecow::EcoString;
 use typst::syntax::package::{PackageSpec, PackageVersion};
-use typst_package_check::check::codes::override_diagnostics;
+use typst_package_check::check::codes::filter_diagnostics;
+use typst_package_check::cli::{self, Show};
 use typst_package_check::workspace::{SystemPackages, Workspace};
 
 #[derive(Debug)]
@@ -157,42 +157,16 @@ fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<
     );
 
     // Format diagnostics.
-    let output = match res {
+    let mut buf = termcolor::BufferWriter::stdout(ColorChoice::Never).buffer();
+    match res {
         Ok((checks, mut diags)) => {
-            let ignored = override_diagnostics(&checks, &mut diags);
-
-            let config = term::Config {
-                tab_width: 2,
-                ..Default::default()
-            };
-            let mut output = String::new();
-            if !ignored.is_empty() {
-                writeln!(output, "--- ignored diagnostics ---\n").ok();
-                for diagnostic in ignored.iter().rev() {
-                    term::emit_to_string(
-                        &mut output,
-                        &config,
-                        &checks.worlds.package,
-                        &diagnostic.into(),
-                    )
-                    .unwrap();
-                }
-                writeln!(output, "--- regular diagnostics ---\n").ok();
-            }
-
-            for diagnostic in diags.all().rev() {
-                term::emit_to_string(
-                    &mut output,
-                    &config,
-                    &checks.worlds.package,
-                    &diagnostic.into(),
-                )
-                .unwrap();
-            }
-            output
+            let world = &checks.worlds.package;
+            let allowed = filter_diagnostics(&checks, &mut diags);
+            cli::write_output(&mut buf, world, &diags, &allowed, Show::All).unwrap();
         }
-        Err(e) => e.format_fatal_error(),
+        Err(err) => cli::write_fatal_error(&mut buf, &err).unwrap(),
     };
+    let output = String::from_utf8(buf.into_inner()).expect("valid utf-8");
 
     // Write to output file.
     std::fs::write(snapshot.output_path(), &output).context("writing output")?;
