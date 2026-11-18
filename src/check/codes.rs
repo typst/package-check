@@ -282,7 +282,7 @@ codes! {
     ManifestPackageLicenseMissing = "manifest/package/license/missing"
     ManifestPackageLicenseType = "manifest/package/license/type"
     ManifestPackageLicenseInvalid = "manifest/package/license/invalid"
-    ManifestPackageLicenseOsi = "manifest/package/license/osi"
+    ManifestPackageLicenseDisallowed = "manifest/package/license/disallowed"
     // Description
     ManifestPackageDescMissing = "manifest/package/description/missing"
     ManifestPackageDescType = "manifest/package/description/type"
@@ -392,6 +392,7 @@ codes! {
     ManifestPackageNameTypst = "manifest/package/name/typst"
     ManifestPackageDescTypst = "manifest/package/description/typst"
     ManifestPackageCompilerPatch = "manifest/package/compiler/patch"
+    ManifestPackageLicenseCcOnly = "manifest/package/license/cc/only"
 
     [Overridable::User(File)]
     ExcludeExample = "exclude/example"
