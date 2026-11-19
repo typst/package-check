@@ -413,6 +413,7 @@ impl Docs {
     pub const FONTS_NOT_ALLOWED: &str = "https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages";
     // TODO: Update docs.
     pub const SIZE: &str = "TODO";
+    pub const CODE_STYLE: &str = "https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files";
 }
 
 impl Docs {

@@ -1,3 +1,75 @@
+[allowed] warning[src/kebab-case]: It's recommended to use kebab-case names.
+  ┌─ lib.typ:8:5
+  │
+8 │ #let beTter_suPreSs_ThIs = "please don't"
+  │      ^^^^^^^^^^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+   ┌─ lib.typ:21:5
+   │
+21 │ #let __both_ = "not allowed"
+   │      ^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+   ┌─ lib.typ:19:5
+   │
+19 │ #let table__ = "too many"
+   │      ^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+   ┌─ lib.typ:15:5
+   │
+15 │ #let UPPER-KEBAB-CASE__ = "too many"
+   │      ^^^^^^^^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+   ┌─ lib.typ:14:5
+   │
+14 │ #let ____UPPER_SNAKE_CASE = "too many"
+   │      ^^^^^^^^^^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+   ┌─ lib.typ:13:5
+   │
+13 │ #let ___private = "too many"
+   │      ^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+  ┌─ lib.typ:6:5
+  │
+6 │ #let PascalCase = "not allowed"
+  │      ^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+  ┌─ lib.typ:5:5
+  │
+5 │ #let cameCase = "not allowed"
+  │      ^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
+warning[src/kebab-case]: It's recommended to use kebab-case names.
+  ┌─ lib.typ:4:5
+  │
+4 │ #let snake_case = "not allowed"
+  │      ^^^^^^^^^^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
+
 warning[unused/lint/override]: This lint does not need to be allowed
    ┌─ typst.toml:15:0
    │

@@ -12,6 +12,7 @@ use typst::syntax::{FileId, RootedPath, VirtualPath};
 
 use crate::check::codes::{Code, CodeType, SelectorType};
 use crate::check::diagnostics::{Diagnostic, Docs, Label};
+use crate::check::kebab_case::is_lower_kebab_case;
 use crate::check::path::PackagePath;
 use crate::check::toml::{self, Spanned, TableLikeParser, TableParser, ValueParser};
 use crate::check::{Diagnostics, Result, TryExt, files};
@@ -190,7 +191,7 @@ fn check_name(
         .required_field("name", Code::ManifestPackageNameMissing)?
         .expected_str(Code::ManifestPackageNameType)?;
 
-    if name.item.val != casbab::kebab(name.item.val) {
+    if !is_lower_kebab_case(name.item.val) {
         Diagnostic::error(Code::ManifestPackageNameKebabCase)
             .with_message("Please use kebab-case for package names.")
             .with_docs_link(Docs::NAMING_RULES)
