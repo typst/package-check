@@ -1,39 +1,44 @@
-error[files/readme-name]: This file should be named `README.md`, all uppercase and with the `.md` file extension.
-
-More details: https://github.com/typst/packages/blob/main/docs/documentation.md
+error[files/readme/name]: This file should be named `README.md`, all uppercase and with the `.md` file extension.
   ┌─ README.txt:1:0
   │
 1 │ seventh is a package :)
   │ ^
   │
   = READMEs must be formatted in Markdown
+  = See: https://github.com/typst/packages/blob/main/docs/documentation.md
 
-error[files/license-name]: This file should be named `LICENSE`, all uppercase and without a file extension.
-
-More details: https://github.com/typst/packages/blob/main/docs/licensing.md
+error[files/license/name]: This file should be named `LICENSE`, all uppercase and without a file extension.
   ┌─ LICENSE.txt:1:0
   │
 1 │ totally an MIT license
   │ ^
+  │
+  = See: https://github.com/typst/packages/blob/main/docs/licensing.md
 
-error[manifest/template/entrypoint/invalid]: Invalid template entrypoint `src/../../main.typ` (path escapes project root)
+error[manifest/template/entrypoint/invalid]: `template.entrypoint` is invalid `src/../../main.typ` (path escapes project root)
    ┌─ typst.toml:12:13
    │
 12 │ entrypoint = "src/../../main.typ"
    │              ^^^^^^^^^^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
-error[manifest/template/path/invalid]: The template path is absolute `/template`.
-Use a relative path instead.
+error[manifest/template/path/invalid]: `template.path` is absolute `/template`
    ┌─ typst.toml:11:7
    │
 11 │ path = "/template"
    │        ^^^^^^^^^^^
+   │
+   = Use a relative path instead.
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
 error[manifest/template/thumbnail/not-found]: This file does not exist.
    ┌─ typst.toml:10:12
    │
 10 │ thumbnail = "missing.png"
    │             ^^^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
-error[io/readme]: Failed to read README.md
+error[readme/io]: Failed to read README.md
 

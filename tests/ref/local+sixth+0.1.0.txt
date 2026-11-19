@@ -1,6 +1,14 @@
+warning[unused/lint/override]: This lint does not need to be allowed
+   ┌─ typst.toml:15:0
+   │
+15 │ "manifest/package/description/typst" = "allow"
+   │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
 error[manifest/template/thumbnail/not-found]: This file does not exist.
    ┌─ typst.toml:10:12
    │
 10 │ thumbnail = "missing.png"
    │             ^^^^^^^^^^^^^
+   │
+   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 

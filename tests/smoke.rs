@@ -18,7 +18,8 @@ fn typst_check_with_path() {
         .arg("tests/local/second/0.2.1")
         .must_fail()
         .stdout
-        .must_contain("warning[exclude/readme]: Your README.md file should not be excluded.");
+        .must_contain("warning[exclude/readme]: Your README.md file should not be excluded.")
+        .must_not_contain("[allowed] warning[manifest/package/description/typst]");
 }
 
 #[test]
@@ -37,6 +38,40 @@ fn typst_check_with_spec() {
         .must_fail()
         .stdout
         .must_contain("warning[exclude/readme]: Your README.md file should not be excluded.");
+}
+
+#[test]
+fn typst_check_show_ignored() {
+    exec()
+        .check()
+        .arg("--show=allowed")
+        .arg("tests/local/second/0.2.1")
+        .must_fail()
+        .stdout
+        .must_contain("[allowed] warning[manifest/package/description/typst]");
+}
+
+#[test]
+fn typst_check_valid_json() {
+    let output = exec()
+        .check()
+        .arg("--json")
+        .arg("tests/local/second/0.2.1")
+        .arg("tests/local/fourth/0.1.1")
+        .must_fail()
+        .stdout;
+
+    for line in output.0.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
+        let json = serde_json::from_slice::<serde_json::Value>(line).expect("valid json output");
+        let obj = json.as_object().unwrap();
+        if let Some(error) = obj.get("fatal") {
+            assert!(error.get("code").is_some());
+            assert!(error.get("message").is_some());
+        } else {
+            assert!(!obj.get("denied").unwrap().as_array().unwrap().is_empty());
+            assert!(!obj.get("allowed").unwrap().as_array().unwrap().is_empty());
+        }
+    }
 }
 
 /// Executes a command with the Typst CLI.
@@ -102,6 +137,14 @@ impl<T: AsRef<[u8]>> Stream<T> {
         assert!(
             self.contains(data.as_ref()),
             "{self:?} did not contain {data:?}"
+        );
+        self
+    }
+
+    fn must_not_contain(&self, data: impl Debug + AsRef<[u8]>) -> &Self {
+        assert!(
+            !self.contains(data.as_ref()),
+            "{self:?} did contain {data:?}"
         );
         self
     }

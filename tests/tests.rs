@@ -1,13 +1,15 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
 use anyhow::{Context, anyhow, bail};
 use clap::Parser;
-use codespan_reporting::term;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use termcolor::ColorChoice;
 use typst::ecow::EcoString;
 use typst::syntax::package::{PackageSpec, PackageVersion};
+use typst_package_check::check::codes::filter_diagnostics;
+use typst_package_check::cli::{self, Show};
 use typst_package_check::workspace::{SystemPackages, Workspace};
 
 #[derive(Debug)]
@@ -53,7 +55,7 @@ enum Update {
     Choice,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<ExitCode> {
     // Make all paths relative to the workspace. That's nicer for IDEs when
     // clicking on paths printed to the terminal.
     let workspace_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -101,7 +103,7 @@ fn main() -> anyhow::Result<()> {
         match res {
             TestResult::Passed => passed += 1,
             TestResult::Failed { diff, output } => {
-                eprintln!(
+                eprint!(
                     "\x1b[31m[ERROR]\x1b[0m \x1b[33m{}\x1b[0m:\n{diff}",
                     snapshot.spec
                 );
@@ -125,7 +127,11 @@ fn main() -> anyhow::Result<()> {
     }
     eprintln!();
 
-    Ok(())
+    Ok(if failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 fn prepare() -> anyhow::Result<()> {
@@ -155,22 +161,16 @@ fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<
     );
 
     // Format diagnostics.
-    let output = match res {
-        Ok((worlds, _, _, diags)) => {
-            let config = term::Config {
-                tab_width: 2,
-                ..Default::default()
-            };
-            let mut output = String::new();
-            for diagnostic in diags.all().rev() {
-                term::emit_to_string(&mut output, &config, &worlds.package, diagnostic).unwrap();
-            }
-            output
+    let mut buf = termcolor::BufferWriter::stdout(ColorChoice::Never).buffer();
+    match res {
+        Ok((checks, mut diags)) => {
+            let world = &checks.worlds.package;
+            let allowed = filter_diagnostics(&checks, &mut diags);
+            cli::write_output(&mut buf, world, &diags, &allowed, Show::All).unwrap();
         }
-        Err(e) => {
-            format!("Fatal error: {}\n", e.message)
-        }
+        Err(err) => cli::write_fatal_error(&mut buf, &err).unwrap(),
     };
+    let output = String::from_utf8(buf.into_inner()).expect("valid utf-8");
 
     // Write to output file.
     std::fs::write(snapshot.output_path(), &output).context("writing output")?;

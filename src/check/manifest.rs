@@ -1,15 +1,19 @@
-use std::ops::Range;
+use std::collections::BTreeMap;
 use std::path::Path;
-use std::str::FromStr;
+use std::range::Range;
 
-use codespan_reporting::diagnostic::{Diagnostic, Label};
 use ignore::overrides::{Override, OverrideBuilder};
-use toml_edit::{Array, Item, Table};
-use tracing::{debug, warn};
+use regex_automata::meta::Regex;
+use regex_syntax::hir::{Hir, Look};
+use toml_edit::{Item, TableLike};
+use tracing::debug;
 use typst::syntax::package::{PackageSpec, PackageVersion};
-use typst::syntax::{FileId, PathError, RootedPath, VirtualPath};
+use typst::syntax::{FileId, RootedPath, VirtualPath};
 
+use crate::check::codes::{Code, CodeType, SelectorType};
+use crate::check::diagnostics::{Diagnostic, Docs, Label};
 use crate::check::path::PackagePath;
+use crate::check::toml::{self, Spanned, TableLikeParser, TableParser, ValueParser};
 use crate::check::{Diagnostics, Result, TryExt, files};
 use crate::workspace::Workspace;
 use crate::world::{SystemWorld, WorldRoot};
@@ -25,6 +29,7 @@ pub struct Manifest {
     pub package: Spanned<Package>,
     #[allow(unused)]
     pub template: Option<Spanned<Template>>,
+    pub package_check: Option<Spanned<PackageCheck>>,
 }
 
 impl Manifest {
@@ -52,6 +57,24 @@ pub struct Template {
     pub thumbnail: Option<Spanned<PackagePath>>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PackageCheck {
+    pub lints: Option<Spanned<BTreeMap<CodeType, Spanned<Lint>>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Lint {
+    pub code: Spanned<CodeType>,
+    pub allowed: Spanned<Selector>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Selector {
+    Project,
+    Files(Vec<Spanned<Glob>>),
+    Text(Vec<Spanned<Regex>>),
+}
+
 pub fn check(
     workspace: &Workspace,
     package_dir: &Path,
@@ -60,54 +83,58 @@ pub fn check(
 ) -> Result<(Manifest, Worlds)> {
     let manifest_path = package_dir.join("typst.toml");
     debug!("Reading manifest at {}", &manifest_path.display());
-    let manifest_contents = std::fs::read_to_string(&manifest_path).map_err(|e| {
-        Diagnostic::error()
-            .with_code("manifest/io")
+    let manifest_contents = std::fs::read_to_string(&manifest_path).map_err(|err| {
+        Diagnostic::error(Code::ManifestIo)
             .with_message(format!(
-                "Failed to read manifest contents (typst.toml). {e}"
+                "Failed to read manifest (typst.toml) contents ({err})"
             ))
+            .with_docs_link(Docs::PACKAGE)
     })?;
-    let manifest = toml_edit::Document::parse(&manifest_contents)
-        .error("manifest/toml-syntax", "Failed to parse manifest contents")?;
-
-    let Some(package) = manifest.get_table("package") else {
-        return Err(Diagnostic::error()
-            .with_label(Label::primary(manifest_id(), 0..0))
-            .with_message(
-                "All `typst.toml` manifests must contain a [package] section. \
-                 See the README.md file of this repository for details \
-                 about the manifest format.",
-            )
-            .with_code("manifest/package/missing"));
-    };
-
-    let entrypoint = package.get_str("entrypoint").error(
-        "manifest/package/entrypoint/missing",
-        "Packages must specify an `entrypoint` in their manifest",
-    )?;
-    let entrypoint = entrypoint.try_map(|path| {
-        VirtualPath::new(path).map_err(|err| {
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), entrypoint.span()))
-                .with_code("manifest/template/entrypoint/invalid")
-                .with_message(format_args!("Invalid entrypoint ({err})"))
-        })
+    let manifest = toml_edit::Document::parse(manifest_contents.as_str()).map_err(|err| {
+        Diagnostic::error(Code::ManifestTomlSyntax)
+            .with_message(format!(
+                "Failed to parse manifest as TOML ({})",
+                err.message()
+            ))
+            .with_docs_link(Docs::PACKAGE)
+            .with_label(manifest_label(err.span().unwrap_or(0..0)))
     })?;
 
-    let name = check_name(diags, package, package_spec);
-    let version = check_version(diags, package, package_spec);
-    let template = check_template(diags, &manifest, package_dir);
-    let exclude = check_exclude(diags, package_dir, package, &template)?;
+    let mut manifest = toml::file(diags, manifest_id(), &manifest);
 
-    check_compiler_version(diags, package);
-    check_universe_fields(diags, package);
-    let (homepage, repository) = check_urls(diags, package);
+    // Parse package
+    let mut package = manifest
+        .require_field("package", Code::ManifestPackageMissing)?
+        .expect_table(Code::ManifestPackageType)?;
+    let entrypoint = package
+        .require_field("entrypoint", Code::ManifestPackageEntrypointMissing)?
+        .expect_str(Code::ManifestPackageEntrypointType)?
+        .parse(|entry| {
+            VirtualPath::new(entry).map_err(|err| {
+                Diagnostic::error(Code::ManifestPackageEntrypointInvalid)
+                    .with_message(format!("Invalid `package.entrypoint` ({err})"))
+            })
+        })?
+        .item;
+    let name = check_name(&mut package, package_spec);
+    let version = check_version(&mut package, package_spec);
+    let exclude = check_exclude(package_dir, &mut package)
+        .unwrap_or_else(|| Spanned::new(OverrideBuilder::new(package_dir), package.item.span()));
+    check_compiler_version(&mut package);
+    check_license(&mut package);
+    check_description(&mut package);
+    check_authors(&mut package);
+    let (homepage, repository) = check_urls(&mut package);
+    let package = package.item;
 
-    let res = check_file_names(diags, package_dir);
-    diags.maybe_emit(res);
+    // Parse template
+    let template = check_template(&mut manifest, package_dir);
 
-    let res = dont_over_exclude(diags, &exclude);
-    diags.maybe_emit(res);
+    // Parse tool.package-check
+    let package_check = check_tool(&mut manifest);
+
+    let exclude = build_exclude(diags, exclude, &template);
+    dont_over_exclude(diags, &exclude);
 
     let package = package.map(|_| Package {
         entrypoint,
@@ -143,7 +170,11 @@ pub fn check(
     let template_world =
         world_for_template(workspace, package_dir, package_spec, &package, &template);
 
-    let manifest = Manifest { package, template };
+    let manifest = Manifest {
+        package,
+        template,
+        package_check,
+    };
     let worlds = Worlds {
         package: world,
         template: template_world,
@@ -152,372 +183,255 @@ pub fn check(
 }
 
 fn check_name(
-    diags: &mut Diagnostics,
-    package: Spanned<&Table>,
+    package: &mut TableParser,
     package_spec: Option<&PackageSpec>,
 ) -> Option<Spanned<String>> {
-    let Some(name) = package.get_spanned("name") else {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), 0..0))
-                .with_code("manifest/package/name/missing")
-                .with_message(
-                    "All `typst.toml` manifests must contain a `name` field. \
-                     See the README.md file of this repository for details \
-                     about the manifest format.",
-                ),
-        );
-        return None;
-    };
+    let mut name = package
+        .required_field("name", Code::ManifestPackageNameMissing)?
+        .expected_str(Code::ManifestPackageNameType)?;
 
-    let error = Diagnostic::error().with_label(Label::primary(manifest_id(), name.span()));
-    let warning = Diagnostic::warning().with_label(Label::primary(manifest_id(), name.span()));
-
-    let Some(name) = name.filter_map(Item::as_str) else {
-        diags.emit(
-            error
-                .with_code("manifest/package/name/type")
-                .with_message("`name` must be a string."),
-        );
-        return None;
-    };
-
-    if name.val != casbab::kebab(&name) {
-        diags.emit(
-            error
-                .clone()
-                .with_code("manifest/package/name/kebab-case")
-                .with_message("Please use kebab-case for package names."),
-        );
+    if name.item.val != casbab::kebab(name.item.val) {
+        Diagnostic::error(Code::ManifestPackageNameKebabCase)
+            .with_message("Please use kebab-case for package names.")
+            .with_docs_link(Docs::NAMING_RULES)
+            .emit_at(&mut name);
     }
 
-    if name.contains("typst") {
-        diags.emit(
-            warning
-                .with_code("manifest/package/name/typst")
-                .with_message("Package names should generally not include \"typst\"."),
-        );
+    if name.item.val.contains("typst") {
+        Diagnostic::warn(Code::ManifestPackageNameTypst(()))
+            .with_message("Package names should generally not include \"typst\".")
+            .with_docs_link(Docs::NAMING_RULES)
+            .emit_at(&mut name);
     }
 
     if let Some(package_spec) = package_spec
-        && name.val != package_spec.name
+        && name.item.val != package_spec.name
     {
-        diags.emit(
-            error
-                .with_code("manifest/package/name/mismatch")
-                .with_message(format!(
-                    "Unexpected package name. `{name}` was expected. \
-                     If you want to publish a new package, create a new \
-                     directory in `packages/{namespace}/`.",
-                    name = package_spec.name,
-                    namespace = package_spec.namespace,
-                )),
-        )
+        Diagnostic::error(Code::ManifestPackageNameMismatch)
+            .with_message(format!(
+                "Unexpected package name. `{name}` was expected. \
+                 If you want to publish a new package, create a new \
+                 directory in `packages/{namespace}/`.",
+                name = package_spec.name,
+                namespace = package_spec.namespace,
+            ))
+            .emit_at(&mut name);
     }
 
-    Some(name.to_owned())
+    Some(name.item.to_owned())
 }
 
 fn check_version(
-    diags: &mut Diagnostics,
-    package: Spanned<&Table>,
+    package: &mut TableParser,
     package_spec: Option<&PackageSpec>,
 ) -> Option<Spanned<PackageVersion>> {
-    let Some(version) = package.get_spanned("version") else {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), 0..0))
-                .with_code("manifest/package/version/missing")
-                .with_message(
-                    "All `typst.toml` manifests must contain a `version` field. \
-                     See the README.md file of this repository for details \
-                     about the manifest format.",
-                ),
-        );
-        return None;
-    };
-
-    let error = Diagnostic::error().with_label(Label::primary(manifest_id(), version.span()));
-
-    let Some(version) = version.filter_map(Item::as_str) else {
-        diags.emit(
-            error
-                .with_code("manifest/package/version/type")
-                .with_message("`version` must be a string."),
-        );
-        return None;
-    };
-
-    let Some(version) = version.filter_map(|v| v.parse::<PackageVersion>().ok()) else {
-        diags.emit(
-            error
-                .with_code("manifest/package/version/invalid")
-                .with_message(
-                    "`version` must be a valid semantic version \
-                     (i.e follow the `MAJOR.MINOR.PATCH` format).",
-                ),
-        );
-        return None;
-    };
+    let mut version = package
+        .required_field("version", Code::ManifestPackageVersionMissing)?
+        .expected_str(Code::ManifestPackageVersionType)?
+        .parsed(|v| {
+            v.parse::<PackageVersion>().error(
+                Code::ManifestPackageVersionInvalid,
+                "`version` must be a valid semantic version \
+                 (i.e follow the `MAJOR.MINOR.PATCH` format).",
+            )
+        })?;
 
     if let Some(package_spec) = package_spec
-        && version.val != package_spec.version
+        && version.item.val != package_spec.version
     {
-        diags.emit(
-            error
-                .with_code("manifest/package/version/mismatch")
-                .with_message(format!(
-                    "Unexpected version number. `{version}` was expected. \
-                     If you want to publish a new version, create a new \
-                     directory in `packages/{namespace}/{name}`.",
-                    version = package_spec.version,
-                    name = package_spec.name,
-                    namespace = package_spec.namespace,
-                )),
-        )
+        Diagnostic::error(Code::ManifestPackageVersionMismatch)
+            .with_message(format!(
+                "Unexpected version number. `{version}` was expected. \
+                 If you want to publish a new version, create a new \
+                 directory in `packages/{namespace}/{name}`.",
+                version = package_spec.version,
+                name = package_spec.name,
+                namespace = package_spec.namespace,
+            ))
+            .emit_at(&mut version);
     }
 
-    Some(version)
+    Some(version.item)
 }
 
-fn check_compiler_version(diags: &mut Diagnostics, package: Spanned<&Table>) -> Option<()> {
-    let compiler = package.get_spanned("compiler")?;
+fn check_compiler_version(package: &mut TableParser) -> Option<Spanned<PackageVersion>> {
+    let mut compiler = package
+        .optional_field("compiler")?
+        .expected_str(Code::ManifestPackageCompilerType)?
+        .parsed(|c| {
+            c.parse::<PackageVersion>().error(
+                Code::ManifestPackageCompilerInvalid,
+                "`compiler` version should be a valid semantic version, \
+                 with three components (for example `0.12.0`)",
+            )
+        })?;
 
-    let Some(compiler) = compiler.filter_map(Item::as_str) else {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), compiler.span()))
-                .with_code("manifest/package/compiler/type")
-                .with_message("Compiler version should be a string"),
-        );
-        return None;
-    };
-
-    if let Ok(version) = PackageVersion::from_str(&compiler) {
-        if version.patch > 0 {
-            let zeroed = PackageVersion {
-                patch: 0,
-                ..version
-            };
-            diags.emit(
-                Diagnostic::warning()
-                    .with_label(Label::primary(manifest_id(), compiler.span()))
-                    .with_code("manifest/package/compiler/patch")
-                    .with_message(format!(
-                        "The `compiler` field is a minimum version. \
-                        Unless you explicitly require the latest patch release, \
-                        changing it to `{}` will allow using this package with \
-                        a slightly outdated compiler.",
-                        zeroed
-                    )),
-            );
-        }
-    } else {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), compiler.span()))
-                .with_code("manifest/package/compiler/invalid")
-                .with_message("Compiler version should be a valid semantic version, with three components (for example `0.12.0`)"),
-        );
-        return None;
-    }
-
-    Some(())
-}
-
-fn dont_over_exclude(diags: &mut Diagnostics, exclude: &Spanned<Exclude>) -> Result<()> {
-    let warning = Diagnostic::warning().with_label(Label::primary(manifest_id(), exclude.span()));
-
-    if exclude.matches_relative_file("LICENSE") {
-        diags.emit(
-            warning
-                .clone()
-                .with_code("exclude/license")
-                .with_message("Your LICENSE file should not be excluded."),
-        );
-    }
-
-    if exclude.matches_relative_file("README.md") {
-        diags.emit(
-            warning
-                .with_code("exclude/readme")
-                .with_message("Your README.md file should not be excluded."),
-        );
-    }
-
-    Ok(())
-}
-
-fn check_file_names(diags: &mut Diagnostics, package_dir: &Path) -> Result<()> {
-    for ch in std::fs::read_dir(package_dir).error("io", "Failed to read package directory")? {
-        let error_for_file = |path: &Path, code: &str, message| {
-            let file_id = FileId::new(RootedPath::new(
-                typst::syntax::VirtualRoot::Project,
-                VirtualPath::new(path.to_str().unwrap()).unwrap(),
-            ));
-            Diagnostic::error()
-                .with_label(Label::primary(file_id, 0..0))
-                .with_code(code)
-                .with_message(message)
+    if compiler.item.val.patch > 0 {
+        let zeroed = PackageVersion {
+            patch: 0,
+            ..compiler.item.val
         };
-
-        let Ok(ch) = ch else {
-            continue;
-        };
-        let Ok(meta) = ch.metadata() else {
-            continue;
-        };
-        if !meta.is_file() {
-            continue;
-        }
-
-        let file_name = ch.file_name();
-        let file_path = Path::new(&file_name);
-        let stem = file_path
-            .file_stem()
-            .map(|s| s.to_string_lossy().into_owned());
-        let stem_uppercase = stem.as_ref().map(|s| s.to_uppercase());
-
-        if matches!(stem_uppercase.as_deref(), Some("LICENSE" | "LICENCE"))
-            && file_name != "LICENSE"
-        {
-            diags.emit(error_for_file(
-                file_path,
-                "files/license-name",
-                "This file should be named `LICENSE`, all uppercase and without a file extension.\n\n\
-                 More details: https://github.com/typst/packages/blob/main/docs/licensing.md",
-            ));
-        } else if stem_uppercase.as_deref() == Some("README") && file_name != "README.md" {
-            let mut diag = error_for_file(
-                file_path,
-                "files/readme-name",
-                "This file should be named `README.md`, all uppercase and with the `.md` file extension.\n\n\
-                 More details: https://github.com/typst/packages/blob/main/docs/documentation.md",
-            );
-            if file_path
-                .extension()
-                .is_none_or(|ext| !ext.eq_ignore_ascii_case("md"))
-            {
-                diag = diag.with_note("READMEs must be formatted in Markdown");
-            }
-            diags.emit(diag);
-        }
+        Diagnostic::warn(Code::ManifestPackageCompilerPatch(()))
+            .with_message(format!(
+                "The `compiler` field is a minimum version. \
+                 Unless you explicitly require the latest patch release, \
+                 changing it to `{zeroed}` will allow using this package with \
+                 a slightly outdated compiler.",
+            ))
+            .emit_at(&mut compiler);
     }
 
-    Ok(())
+    Some(compiler.item)
 }
 
-/// Some fields are optional for the bundler, but required to be published in Typst Universe.
-/// Check that they are present.
-fn check_universe_fields(diags: &mut Diagnostics, package: Spanned<&Table>) {
-    if let Some(license) = package.get_str("license") {
-        if let Ok(spdx_license) = spdx::Expression::parse(&license) {
-            for requirement in spdx_license.requirements() {
+fn check_license(package: &mut TableParser) -> Option<Spanned<spdx::Expression>> {
+    let license = package
+        .required_field("license", Code::ManifestPackageLicenseMissing)?
+        .expected_str(Code::ManifestPackageLicenseType)?
+        .parsed_with(|parser, license| {
+            let license = license.parse::<spdx::Expression>().map_err(|err| {
+                Diagnostic::error(Code::ManifestPackageLicenseInvalid).with_message(format!(
+                    "The `license` field should be a valid SPDX-2 expression ({err})"
+                ))
+            })?;
+
+            for requirement in license.requirements() {
                 if let Some(id) = requirement.req.license.id() {
+                    // TODO: Allow creative commons licenses.
                     if !id.is_osi_approved() {
-                        diags.emit(
-                            Diagnostic::error()
-                                .with_code("manifest/package/license/osi")
-                                .with_message("The `license` field should be OSI approved")
-                                .with_label(Label::primary(manifest_id(), license.span())),
-                        );
+                        Diagnostic::error(Code::ManifestPackageLicenseOsi)
+                            .with_message("The `license` field should be OSI approved")
+                            .emit_at(parser);
                     }
                 } else {
-                    diags.emit(
-                        Diagnostic::error()
-                            .with_code("manifest/package/license/invalid")
-                            .with_message("The `license` field should not contain a referencer")
-                            .with_label(Label::primary(manifest_id(), license.span())),
-                    );
+                    Diagnostic::error(Code::ManifestPackageLicenseInvalid)
+                        .with_message("The `license` field should not contain a referencer")
+                        .emit_at(parser);
                 }
             }
-        } else {
-            diags.emit(
-                Diagnostic::error()
-                    .with_code("manifest/package/license/invalid")
-                    .with_message("The `license` field should be a valid SPDX-2 expression")
-                    .with_label(Label::primary(manifest_id(), license.span())),
-            );
-        }
-    } else {
-        diags.emit(
-            Diagnostic::error()
-                .with_code("manifest/package/license/type")
-                .with_message("The `license` field should be a string")
-                .with_label(Label::primary(manifest_id(), package.span())),
-        );
-    }
 
-    if let Some(description) = package.get_str("description") {
-        if description.to_ascii_lowercase().contains("typst") {
-            diags.emit(
-                Diagnostic::warning()
-                    .with_code("manifest/package/description/typst")
-                    .with_message(
-                        "The `description` field should generally not contain the word `Typst`\n\n\
-                         More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description",
-                    )
-                    .with_label(Label::primary(manifest_id(), description.span())),
-            );
-        }
-    } else {
-        diags.emit(
-            Diagnostic::error()
-                .with_code("manifest/package/description/type")
-                .with_message("The `description` field should be a string")
-                .with_label(Label::primary(manifest_id(), package.span())),
-        );
-    }
+            Ok(license)
+        })?;
 
-    if package
-        .get_array("authors")
-        .is_none_or(|authors| authors.iter().any(|item| !item.is_str()))
-    {
-        diags.emit(
-            Diagnostic::error()
-                .with_code("manifest/package/authors/type")
-                .with_message("The `authors` field should be an array of strings")
-                .with_label(Label::primary(manifest_id(), package.span())),
-        );
-        // TODO: check that the format is correct?
-    }
+    Some(license.item)
 }
 
-fn check_urls(
-    diags: &mut Diagnostics,
-    package: Spanned<&Table>,
-) -> (Option<Spanned<String>>, Option<Spanned<String>>) {
-    let homepage = package.get_str("homepage").map(Spanned::to_owned);
-    let repo = package.get_str("repository").map(Spanned::to_owned);
+fn check_description(package: &mut TableParser) -> Option<Spanned<String>> {
+    let desc = package
+        .required_field("description", Code::ManifestPackageDescMissing)?
+        .expected_str(Code::ManifestPackageDescType)?
+        .parsed(|desc| {
+            if desc.to_ascii_lowercase().contains("typst") {
+                return Err(Diagnostic::warn(Code::ManifestPackageDescTypst(()))
+                    .with_message(
+                        "The `description` field should generally not contain the word `Typst`",
+                    )
+                    .with_docs_link(Docs::DESCRIPTION));
+            }
+            Ok(desc)
+        })?;
+
+    Some(desc.item.to_owned())
+}
+
+fn check_authors(package: &mut TableParser) -> Option<Spanned<Vec<Spanned<String>>>> {
+    let authors = package
+        .required_field("authors", Code::ManifestPackageAuthorsMissing)?
+        .expected_array(Code::ManifestPackageAuthorsType)?
+        .validate(|parser, authors| {
+            if authors.is_empty() {
+                Diagnostic::error(Code::ManifestPackageAuthorsMissing)
+                    .with_message("The `authors` list is empty")
+                    .emit_at(parser);
+            }
+        })
+        .parse_array(|author| {
+            let author = author.expect_str(Code::ManifestPackageAuthorsType)?;
+            Ok(author.item.to_owned())
+        });
+
+    Some(authors.item)
+}
+
+fn check_urls(package: &mut TableParser) -> (Option<Spanned<String>>, Option<Spanned<String>>) {
+    let homepage = package
+        .optional_field("homepage")
+        .and_then(|h| h.expected_str(Code::ManifestPackageHomepageType))
+        .map(|h| h.item.to_owned());
+    let repo = package
+        .optional_field("repository")
+        .and_then(|r| r.expected_str(Code::ManifestPackageRepoType))
+        .map(|r| r.item.to_owned());
 
     if let Some(repo) = &repo
         && let Some(homepage) = &homepage
         && repo.val == homepage.val
     {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), homepage.span()))
-                .with_code("manifest/package/homepage/redundant")
-                .with_message(
-                    "Use the homepage field only if there is a dedicated website. \
-                         Otherwise, prefer the `repository` field.",
-                ),
-        );
+        Diagnostic::error(Code::ManifestPackageHomepageRedundant)
+            .with_message(
+                "Use the homepage field only if there is a dedicated website. \
+                 Otherwise, prefer the `repository` field.",
+            )
+            .with_label(manifest_label(homepage.span()))
+            .emit_at(package);
     }
 
     (homepage, repo)
 }
 
-/// This function is fallible, because if exclude parsing fails, there might be
-/// a lot of false positives in other diagnostics.
 fn check_exclude(
-    diags: &mut Diagnostics,
     package_dir: &Path,
-    package: Spanned<&Table>,
-    template: &Option<Spanned<Template>>,
-) -> Result<Spanned<Exclude>> {
-    let mut exclude_globs = build_exclude_globs(diags, package_dir, package)?;
+    package: &mut TableParser,
+) -> Option<Spanned<OverrideBuilder>> {
+    let exclude = package
+        .optional_field("exclude")?
+        .expected_array(Code::ManifestPackageExcludeType)?
+        .parse_array(|exclusion| {
+            let exclusion = exclusion
+                .expect_str(Code::ManifestPackageExcludeType)?
+                .parse_with(|parser, str| {
+                    if str.starts_with('!') {
+                        return Err(Diagnostic::error(Code::ManifestPackageExcludeInvalid)
+                            .with_message("`exclude` globs starting with '!' are unsupported"));
+                    }
 
+                    let exclusion_str = str
+                        .strip_prefix("./")
+                        .inspect(|_| {
+                            Diagnostic::warn(Code::ManifestPackageExcludeLeadingDot)
+                                .with_message("Leading `./` of exclusions are trimmed.")
+                                .with_hint(
+                                    "Use an absolute path starting with `/` to \
+                                     avoid recursive matching.",
+                                )
+                                .emit_at(parser);
+                        })
+                        .unwrap_or(str);
+
+                    Ok(format!("!{exclusion_str}"))
+                })?;
+
+            Ok(exclusion.item)
+        })
+        .parsed(|exclude| {
+            let mut globs = OverrideBuilder::new(package_dir);
+            for glob in exclude {
+                globs.add(&glob.val).map_err(|err| {
+                    Diagnostic::error(Code::ManifestPackageExcludeInvalid)
+                        .with_message(format!("Invalid exclude `glob` ({err})"))
+                        .with_label(manifest_label(glob.span()))
+                })?;
+            }
+            Ok(globs)
+        })?;
+    Some(exclude.item)
+}
+
+fn build_exclude(
+    diags: &mut Diagnostics,
+    mut exclude_globs: Spanned<OverrideBuilder>,
+    template: &Option<Spanned<Template>>,
+) -> Spanned<Exclude> {
     let thumbnail_path = template.as_ref().and_then(|t| t.thumbnail.as_ref());
     if let Some(thumbnail_path) = thumbnail_path {
         // Check if the thumbnail is directly excluded, it's fine if a parent
@@ -525,12 +439,11 @@ fn check_exclude(
         if let Ok(exclude) = exclude_globs.build()
             && exclude.matched(thumbnail_path.full(), false).is_ignore()
         {
-            diags.emit(
-                Diagnostic::error()
-                    .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
-                    .with_code("manifest/template/thumbnail/exclude")
-                    .with_message("The template thumbnail is automatically excluded"),
-            );
+            Diagnostic::warn(Code::ExcludeThumbnail)
+                .with_message("The template thumbnail is automatically excluded")
+                .with_label(manifest_label(thumbnail_path.span()))
+                .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+                .emit(diags);
         }
 
         exclude_globs
@@ -538,52 +451,35 @@ fn check_exclude(
             .ok();
     }
 
-    let exclude = exclude_globs
-        .build()
-        .error("manifest/package/exclude/invalid", "Invalid exclude globs")?;
-    Ok(exclude_globs.map(|_| Exclude::new(exclude)))
-}
-
-fn build_exclude_globs(
-    diags: &mut Diagnostics,
-    package_dir: &Path,
-    package: Spanned<&Table>,
-) -> Result<Spanned<OverrideBuilder>> {
-    let mut exclude_globs = OverrideBuilder::new(package_dir);
-    let Some(exclude) = package.get_spanned("exclude") else {
-        return Ok(Spanned::new(exclude_globs, package.span()));
+    let exclude = match exclude_globs.build() {
+        Ok(globs) => Exclude::new(globs),
+        Err(err) => {
+            Diagnostic::error(Code::ManifestPackageExcludeInvalid)
+                .with_message(format!("Invalid exclude globs ({err})"))
+                .with_label(manifest_label(exclude_globs.span()))
+                .with_docs_link(Docs::PACKAGE)
+                .emit(diags);
+            Exclude::empty()
+        }
     };
 
-    let exclude = exclude.filter_map(Item::as_array).error(
-        "manifest/package/exclude/type",
-        "`exclude` must be an array of strings",
-    )?;
+    exclude_globs.map(|_| exclude)
+}
 
-    for exclusion in exclude.iter() {
-        let Some(exclusion_str) = exclusion.as_str() else {
-            continue;
-        };
-
-        if exclusion_str.starts_with('!') {
-            warn!("globs with '!' are not supported");
-            continue;
-        }
-
-        let exclusion_str = exclusion_str
-            .strip_prefix("./")
-            .inspect(|_| {
-                diags.emit(
-                    Diagnostic::warning()
-                        .with_label(Label::primary(manifest_id(), exclusion.span().unwrap_or_default()))
-                        .with_code("manifest/package/exclude/leading-dot")
-                        .with_message("Leading `./` of exclusions are trimmed. Use an absolute path starting with `/` to avoid recursive matching."),
-                );
-            })
-            .unwrap_or(exclusion_str);
-        exclude_globs.add(&format!("!{exclusion_str}")).ok();
+fn dont_over_exclude(diags: &mut Diagnostics, exclude: &Spanned<Exclude>) {
+    if exclude.matches_relative_file("LICENSE") {
+        Diagnostic::warn(Code::ExcludeLicense)
+            .with_message("Your LICENSE file should not be excluded.")
+            .with_label(manifest_label(exclude.span()))
+            .emit(diags);
     }
 
-    Ok(exclude.map(|_| exclude_globs))
+    if exclude.matches_relative_file("README.md") {
+        Diagnostic::warn(Code::ExcludeReadme)
+            .with_message("Your README.md file should not be excluded.")
+            .with_label(manifest_label(exclude.span()))
+            .emit(diags);
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -613,117 +509,121 @@ impl Exclude {
 
     /// Whether the package relative file path is excluded.
     pub fn matches_relative_file(&self, relative_path: impl AsRef<Path>) -> bool {
-        let relative_path = relative_path.as_ref();
-        if self.globs.matched(relative_path, false).is_ignore() {
-            return true;
-        }
-
-        // Manually check if any of the parent directories is excluded.
-        // This has to be done to mimic the behavior of [`ignore::Walk`], which
-        // won't enter a directory if it is ignored. [`Override::matched]
-        // function doesn't check if a parent directory is excluded.
-        let mut parent = relative_path.parent();
-        while let Some(dir) = parent {
-            if self.globs.matched(dir, true).is_ignore() {
-                return true;
-            }
-            parent = dir.parent();
-        }
-
-        false
+        match_relative_file(relative_path.as_ref(), |path, is_dir| {
+            self.globs.matched(path, is_dir).is_ignore()
+        })
     }
 }
 
-fn check_template(
-    diags: &mut Diagnostics,
-    manifest: &toml_edit::Document<&String>,
-    package_dir: &Path,
-) -> Option<Spanned<Template>> {
-    let template = manifest.get_spanned("template")?;
+#[derive(Debug, Clone)]
+pub struct Glob(globset::GlobMatcher);
 
-    let Some(template) = template.filter_map(Item::as_table) else {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), template.span()))
-                .with_code("manifest/template/type")
-                .with_message("`template` must be a table."),
-        );
-        return None;
-    };
+impl Glob {
+    pub fn new(glob: &str) -> std::result::Result<Self, globset::Error> {
+        let glob = globset::Glob::new(glob)?;
+        Ok(Self(glob.compile_matcher()))
+    }
 
-    let path = template.get_str("path").and_then(|path| {
-        // The template path is naively joined in `typst-cli` and thus shouldn't
-        // be absolute, otherwise it could escape the package directory, when
-        // initializing a template.
-        if path.trim().starts_with("/") {
-            diags.emit(
-                Diagnostic::error()
-                    .with_label(Label::primary(manifest_id(), path.span()))
-                    .with_code("manifest/template/path/invalid")
-                    .with_message(format!(
-                        "The template path is absolute `{}`.\n\
-                         Use a relative path instead.",
-                        path.val
-                    )),
-            );
+    /// Whether the package file path matches.
+    pub fn matches_file<T: AsRef<Path>>(&self, path: &PackagePath<T>) -> bool {
+        self.matches_relative_file(path.relative())
+    }
+
+    /// Whether the package relative file path matches.
+    pub fn matches_relative_file(&self, relative_path: impl AsRef<Path>) -> bool {
+        let only_dir = self.0.glob().glob().ends_with('/');
+        match_relative_file(relative_path.as_ref(), |path, is_dir| {
+            if only_dir && !is_dir {
+                return false;
+            }
+            self.0.is_match(path)
+        })
+    }
+}
+
+/// Returns true, if the file itself or any of its parent directories match.
+fn match_relative_file<F>(relative_path: &Path, is_match: F) -> bool
+where
+    F: Fn(&Path, bool) -> bool,
+{
+    if is_match(relative_path, false) {
+        return true;
+    }
+
+    // Manually check if any of the parent directories is excluded.
+    // This has to be done to mimic the behavior of [`ignore::Walk`], which
+    // won't enter a directory if it is ignored. [`Override::matched`]
+    // function doesn't check if a parent directory is excluded.
+    let mut parent = relative_path.parent();
+    while let Some(dir) = parent {
+        if is_match(dir, true) {
+            return true;
         }
+        parent = dir.parent();
+    }
 
-        let res = path
-            .try_map(|path| PackagePath::from_relative(package_dir, path))
-            .map_err(|err| {
-                path_error(
-                    "manifest/template/path/invalid",
-                    "template path",
-                    err,
-                    &path,
-                )
-            });
-        diags.maybe_emit(res)
-    });
+    false
+}
 
-    let entrypoint = template.get_str("entrypoint").and_then(|entrypoint| {
-        let res = entrypoint.try_map(VirtualPath::new).map_err(|err| {
-            path_error(
-                "manifest/template/entrypoint/invalid",
-                "template entrypoint",
-                err,
-                &entrypoint,
-            )
-        });
-        diags.maybe_emit(res)
-    });
+fn check_template(manifest: &mut toml::File, package_dir: &Path) -> Option<Spanned<Template>> {
+    let mut template = manifest
+        .optional_field("template")?
+        .expected_table(Code::ManifestTemplateType)?;
 
-    let thumbnail = template.get_str("thumbnail").and_then(|path| {
-        let res = path
-            .try_map(|path| PackagePath::from_relative(package_dir, path))
-            .map_err(|err| {
-                path_error(
-                    "manifest/template/thumbnail/invalid",
-                    "template thumbnail",
-                    err,
-                    &path,
-                )
-            });
-        diags.maybe_emit(res)
-    });
+    let path = template
+        .required_field("path", Code::ManifestTemplatePathMissing)
+        .and_then(|p| p.expected_str(Code::ManifestTemplatePathType))
+        .and_then(|p| {
+            p.parsed(|path| {
+                // The template path was previously naively joined in `typst-cli` and
+                // thus shouldn't be absolute, otherwise it could escape the package
+                // directory, when initializing a template.
+                if path.trim().starts_with("/") {
+                    return Err(Diagnostic::error(Code::ManifestTemplatePathInvalid)
+                        .with_message(format!("`template.path` is absolute `{path}`"))
+                        .with_hint("Use a relative path instead."));
+                }
 
-    Some(template.map(|_| Template {
+                PackagePath::from_relative(package_dir, path).map_err(|err| {
+                    Diagnostic::error(Code::ManifestTemplatePathInvalid)
+                        .with_message(format!("`template.path` is invalid `{path}` ({err})"))
+                })
+            })
+        })
+        .map(|path| path.item);
+
+    let entrypoint = template
+        .required_field("entrypoint", Code::ManifestTemplateEntrypointMissing)
+        .and_then(|p| p.expected_str(Code::ManifestTemplateEntrypointType))
+        .and_then(|entry| {
+            entry.parsed(|entry| {
+                VirtualPath::new(entry).map_err(|err| {
+                    Diagnostic::error(Code::ManifestTemplateEntrypointInvalid).with_message(
+                        format!("`template.entrypoint` is invalid `{entry}` ({err})"),
+                    )
+                })
+            })
+        })
+        .map(|path| path.item);
+
+    let thumbnail = template
+        .required_field("thumbnail", Code::ManifestTemplateThumbnailMissing)
+        .and_then(|thumb| thumb.expected_str(Code::ManifestTemplateThumbnailType))
+        .and_then(|thumb| {
+            thumb.parsed(|thumb| {
+                PackagePath::from_relative(package_dir, thumb).map_err(|err| {
+                    Diagnostic::error(Code::ManifestTemplateThumbnailInvalid)
+                        .with_message(format!("`template.thumbnail` is invalid `{thumb}` ({err})"))
+                })
+            })
+        })
+        .map(|path| path.item);
+
+    Some(template.item.map(|_| Template {
         path,
         entrypoint,
         thumbnail,
     }))
-}
-
-fn path_error(
-    code: &str,
-    field: &str,
-    error: PathError,
-    path: &Spanned<&str>,
-) -> Diagnostic<FileId> {
-    Diagnostic::error()
-        .with_label(Label::primary(manifest_id(), path.span()))
-        .with_code(code)
-        .with_message(format_args!("Invalid {field} `{}` ({error})", path.val))
 }
 
 fn world_for_template(
@@ -764,84 +664,193 @@ fn dont_exclude_template_files(
     };
 
     for entry in files::walk(template_path.full()).flatten() {
-        let entry_path = PackagePath::from_full(package_dir, entry.path());
+        let path = PackagePath::from_full(package_dir, entry.path());
 
         // For build artifacts, ask the package author to delete them.
-        let ext = entry.path().extension().and_then(|e| e.to_str());
+        let ext = path.extension().and_then(|e| e.to_str());
         if matches!(ext, Some("pdf" | "png" | "svg")) && entry.path().with_extension("typ").exists()
         {
-            diags.emit(
-                Diagnostic::error()
-                    .with_label(Label::primary(entry_path.file_id(), 0..0))
-                    .with_code("files/compilation-artifact")
-                    .with_message(
-                        "This file is a compiled document and should \
-                        not be included in the template. \
-                        Please delete it.",
-                    ),
-            );
+            Diagnostic::error(Code::FilesCompilationArtifact(path.virtual_path()))
+                .with_message(
+                    "This file is a compiled document and should \
+                     not be included in the template. \
+                     Please delete it.",
+                )
+                .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+                .with_label(Label::new(path.file_id(), 0..0))
+                .emit(diags);
             continue;
         }
 
         // For other files, check that they are indeed not excluded.
-        if entry.metadata().is_ok_and(|m| m.is_file()) && exclude.matches_file(&entry_path) {
-            diags.emit(
-                Diagnostic::error()
-                    .with_code("exclude/template")
-                    .with_message("This file is part of the template and should not be excluded.")
-                    .with_label(Label::primary(entry_path.file_id(), 0..0)),
-            )
+        if entry.metadata().is_ok_and(|m| m.is_file()) && exclude.matches_file(&path) {
+            Diagnostic::error(Code::ExcludeTemplate)
+                .with_message("This file is part of the template and should not be excluded.")
+                .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+                .with_label(Label::new(path.file_id(), 0..0))
+                .emit(diags);
         }
     }
 }
 
 fn check_thumbnail(diags: &mut Diagnostics, template: &Spanned<Template>) {
     let Some(thumbnail_path) = &template.thumbnail else {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), template.span()))
-                .with_code("manifest/template/thumbnail/missing")
-                .with_message("Thumbnails are required for templates."),
-        );
         return;
     };
 
     if !thumbnail_path.full().exists() {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
-                .with_code("manifest/template/thumbnail/not-found")
-                .with_message("This file does not exist."),
-        )
+        Diagnostic::error(Code::ManifestTemplateThumbnailNotFound)
+            .with_message("This file does not exist.")
+            .with_docs_link(Docs::TEMPLATE)
+            .with_label(manifest_label(thumbnail_path.span()))
+            .emit(diags);
     }
 
     if !matches!(
         thumbnail_path.extension().and_then(|e| e.to_str()),
         Some("png" | "webp")
     ) {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
-                .with_code("manifest/template/thumbnail/format")
-                .with_message("Thumbnails should be PNG or WebP files."),
-        )
+        Diagnostic::error(Code::ManifestTemplateThumbnailFormat)
+            .with_message("Thumbnails should be PNG or WebP files.")
+            .with_docs_link(Docs::TEMPLATE)
+            .with_label(manifest_label(thumbnail_path.span()))
+            .emit(diags);
     }
 
     if let Some(template_path) = &template.path
         && thumbnail_path.full().starts_with(template_path.full())
     {
-        diags.emit(
-            Diagnostic::error()
-                .with_label(Label::primary(manifest_id(), thumbnail_path.span()))
-                .with_code("manifest/template/thumbnail/location")
-                .with_message(
-                    "The thumbnail file should be outside of the template directory.\n\n\
-                     When your template will be used as a base for users's projects, \
-                     the template directory will be copied as is, and the thumbnail file
-                     is generally not displayed in documents based on your template.",
-                ),
-        );
+        Diagnostic::error(Code::ManifestTemplateThumbnailLocation)
+            .with_message(
+                "The thumbnail file should be outside of the template directory.\n\n\
+                 When your template will be used as a base for users's projects, \
+                 the template directory will be copied as is, and the thumbnail file \
+                 is generally not displayed in documents based on your template.",
+            )
+            .with_docs_link(Docs::TEMPLATE)
+            .with_label(manifest_label(thumbnail_path.span()))
+            .emit(diags);
     }
+}
+
+fn check_tool(manifest: &mut toml::File) -> Option<Spanned<PackageCheck>> {
+    let mut tools = manifest
+        .optional_field("tool")?
+        .expected_table(Code::ManifestToolType)?;
+    let mut package_check = tools
+        .optional_field("package-check")?
+        .expected_table(Code::ManifestToolPackageCheckType)?;
+
+    let lints = package_check
+        .optional_field("lints")
+        .and_then(|l| l.expected_table(Code::ManifestToolPackageCheckLintsType))
+        .map(|l| {
+            l.parse_map(
+                |lint| {
+                    lint.parse::<CodeType>().map_err(|_| {
+                        Diagnostic::warn(Code::ManifestToolPackageCheckLintsUnknown)
+                            .with_message(format!("Unknown lint code `{lint}`"))
+                    })
+                },
+                |code, selector| {
+                    let Some(selector_type) = code.overridable().selector_type() else {
+                        return Err(Diagnostic::error(Code::LintOverridable)
+                            .with_message(format!("`{}` cannot be overriden", code.val)));
+                    };
+                    let allowed = parse_selector_type(selector, selector_type)?;
+                    let span = span_across(code.span(), allowed.span());
+                    Ok(Spanned::new(
+                        Lint {
+                            code: code.to_owned(),
+                            allowed,
+                        },
+                        span,
+                    ))
+                },
+            )
+        })
+        .map(|lints| lints.item);
+
+    Some(package_check.item.map(|_| PackageCheck { lints }))
+}
+
+fn span_across(a: Range<usize>, b: Range<usize>) -> Range<usize> {
+    Range::from(a.start.min(b.start)..a.end.max(b.end))
+}
+
+fn parse_selector_type(
+    selector: ValueParser<Spanned<&Item>>,
+    selector_type: SelectorType,
+) -> Result<Spanned<Selector>> {
+    match selector_type {
+        SelectorType::Project => {
+            let allow = selector.expect_str(Code::LintSelectorProjectType)?;
+            if allow.item.val != "allow" {
+                return Err(Diagnostic::error(Code::LintSelectorProjectInvalid)
+                    .with_message(r#"a project level selector must be `"allow"`"#));
+            }
+            Ok(allow.item.map(|_| Selector::Project))
+        }
+        SelectorType::Files => {
+            let selector = selector.expect_inline_table(Code::LintSelectorFilesType)?;
+            parse_files_selector(selector)
+        }
+        SelectorType::Text => {
+            let selector = selector.expect_inline_table(Code::LintSelectorTextType)?;
+            parse_text_selector(selector)
+        }
+    }
+}
+
+fn parse_files_selector<T: TableLike>(
+    mut selector: TableLikeParser<T>,
+) -> Result<Spanned<Selector>> {
+    const FIELD: &str = "allow-files";
+    selector.unexpected(Code::LintSelectorFilesUnexpected, [FIELD]);
+    let globs = selector
+        .require_field(FIELD, Code::LintSelectorFilesInvalid)?
+        .expect_array(Code::LintSelectorFilesType)?
+        .parse_array(|item| {
+            let glob = item.expect_str(Code::LintSelectorFilesType)?.parse(|str| {
+                Glob::new(str).map_err(|err| {
+                    Diagnostic::error(Code::LintSelectorFilesGlob)
+                        .with_message(format!("invalid file glob ({err})"))
+                })
+            })?;
+            Ok(glob.item)
+        });
+    Ok(globs.item.map(Selector::Files))
+}
+
+fn parse_text_selector<T: TableLike>(
+    mut selector: TableLikeParser<T>,
+) -> Result<Spanned<Selector>> {
+    const FIELD: &str = "allow-matches";
+    selector.unexpected(Code::LintSelectorTextUnexpected, [FIELD]);
+    let regexes = selector
+        .require_field(FIELD, Code::LintSelectorTextInvalid)?
+        .expect_array(Code::LintSelectorTextType)?
+        .parse_array(|item| {
+            let regex = item.expect_str(Code::LintSelectorTextType)?.parse(|str| {
+                let hir = regex_syntax::parse(str).map_err(|err| {
+                    Diagnostic::error(Code::LintSelectorTextRegex).with_message(format!("{err}"))
+                })?;
+                // Build an anchored regex that has to match the *full* input.
+                let hir = Hir::concat(vec![Hir::look(Look::Start), hir, Hir::look(Look::End)]);
+                regex_automata::meta::Builder::new()
+                    .build_from_hir(&hir)
+                    .map_err(|err| {
+                        Diagnostic::error(Code::LintSelectorTextRegex)
+                            .with_message(format!("{err}"))
+                    })
+            })?;
+            Ok(regex.item)
+        });
+    Ok(regexes.item.map(Selector::Text))
+}
+
+pub fn manifest_label(span: impl Into<Range<usize>>) -> Label {
+    Label::new(manifest_id(), span)
 }
 
 pub fn manifest_id() -> FileId {
@@ -849,119 +858,4 @@ pub fn manifest_id() -> FileId {
         typst::syntax::VirtualRoot::Project,
         VirtualPath::new("typst.toml").unwrap(),
     ))
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct Spanned<T> {
-    pub val: T,
-    /// Don't use [`std::ops::Range`] directly, so we can derive Copy.
-    span: (usize, usize),
-}
-
-impl<T> Spanned<T> {
-    fn new(val: T, span: Range<usize>) -> Self {
-        Self {
-            val,
-            span: (span.start, span.end),
-        }
-    }
-
-    pub fn span(&self) -> Range<usize> {
-        self.span.0..self.span.1
-    }
-
-    pub fn as_ref(&self) -> Spanned<&T> {
-        Spanned {
-            val: &self.val,
-            span: self.span,
-        }
-    }
-
-    pub fn map<F, V>(self, f: F) -> Spanned<V>
-    where
-        F: FnOnce(T) -> V,
-    {
-        Spanned {
-            val: f(self.val),
-            span: self.span,
-        }
-    }
-
-    pub fn filter_map<F, V>(self, f: F) -> Option<Spanned<V>>
-    where
-        F: FnOnce(T) -> Option<V>,
-    {
-        Some(Spanned {
-            val: f(self.val)?,
-            span: self.span,
-        })
-    }
-
-    pub fn try_map<F, V, E>(self, f: F) -> std::result::Result<Spanned<V>, E>
-    where
-        F: FnOnce(T) -> std::result::Result<V, E>,
-    {
-        Ok(Spanned {
-            val: f(self.val)?,
-            span: self.span,
-        })
-    }
-}
-
-impl<T: ?Sized + ToOwned> Spanned<&T> {
-    pub fn to_owned(self) -> Spanned<T::Owned>
-    where
-        T: ToOwned,
-    {
-        Spanned {
-            val: self.val.to_owned(),
-            span: self.span,
-        }
-    }
-}
-
-impl<T> std::ops::Deref for Spanned<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.val
-    }
-}
-
-impl<T> std::ops::DerefMut for Spanned<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.val
-    }
-}
-
-trait TomlExt {
-    fn get_spanned(&self, name: &'static str) -> Option<Spanned<&Item>>;
-
-    fn get_table(&self, name: &'static str) -> Option<Spanned<&Table>>;
-
-    fn get_array(&self, name: &'static str) -> Option<Spanned<&Array>>;
-
-    fn get_str(&self, name: &'static str) -> Option<Spanned<&str>>;
-}
-
-impl TomlExt for Table {
-    fn get_spanned(&self, name: &'static str) -> Option<Spanned<&Item>> {
-        let item = self.get(name)?;
-        // The span should only ever be none for user-created tables, not
-        // deserialized ones.
-        let span = item.span()?;
-        Some(Spanned::new(item, span))
-    }
-
-    fn get_table(&self, name: &'static str) -> Option<Spanned<&Table>> {
-        self.get_spanned(name)?.filter_map(Item::as_table)
-    }
-
-    fn get_array(&self, name: &'static str) -> Option<Spanned<&Array>> {
-        self.get_spanned(name)?.filter_map(Item::as_array)
-    }
-
-    fn get_str(&self, name: &'static str) -> Option<Spanned<&str>> {
-        self.get_spanned(name)?.filter_map(Item::as_str)
-    }
 }
