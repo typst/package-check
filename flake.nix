@@ -31,7 +31,11 @@
         rec {
           default = typst-package-check;
 
-          typst-package-check = pkgs.callPackage ./package.nix { };
+          # The prebuilt `notices` binary is not available on x86_64-darwin, where
+          # the NOTICE file is left out.
+          notices = pkgs.callPackage ./notices.nix { };
+
+          typst-package-check = pkgs.callPackage ./package.nix { inherit notices; };
 
           docker-image = pkgs.dockerTools.buildImage {
             name = "ghcr.io/typst/package-check";
