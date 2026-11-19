@@ -1,6 +1,6 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
 use anyhow::{Context, anyhow, bail};
 use clap::Parser;
@@ -55,7 +55,7 @@ enum Update {
     Choice,
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<ExitCode> {
     // Make all paths relative to the workspace. That's nicer for IDEs when
     // clicking on paths printed to the terminal.
     let workspace_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -127,7 +127,11 @@ fn main() -> anyhow::Result<()> {
     }
     eprintln!();
 
-    Ok(())
+    Ok(if failed > 0 {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    })
 }
 
 fn prepare() -> anyhow::Result<()> {
