@@ -374,7 +374,7 @@ fn check_repo_file_url(diags: &mut Diagnostics, readme: &Readme, sourcepos: Sour
              Alternatively you can also link to a local file. This is  preferred \
              if the linked file is already present in the submitted package."
         ))
-        .with_docs_link(Docs::DOCS)
+        .with_docs_link(Docs::DOCS_LINKING_RESOURCES)
         .with_label(readme_label(readme, sourcepos))
         .emit(diags);
 }
@@ -398,7 +398,7 @@ fn check_image_alternative_description(
                 "Missing alternative description for image. \
                  Please add a short description to make this image more accessible.",
             )
-            // TODO: Update docs for alternative descriptions and link here.
+            .with_docs_link(Docs::DOCS_IMAGE_ALT)
             .with_label(readme_label(readme, sourcepos))
             .emit(diags);
     } else if SINGLE_WORD.is_match(alt) || SINGLE_LETTER.is_match(alt) {
@@ -407,6 +407,7 @@ fn check_image_alternative_description(
                 "Possibly inadequate alternative description for image: `{alt}`. \
                  Please add a short description to make this image more accessible."
             ))
+            .with_docs_link(Docs::DOCS_IMAGE_ALT)
             .with_label(readme_label(readme, sourcepos))
             .emit(diags);
     }

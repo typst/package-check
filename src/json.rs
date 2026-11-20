@@ -4,7 +4,7 @@ use codespan_reporting::files::Files;
 use serde::Serialize;
 use tracing::error;
 
-use crate::check::Diagnostics;
+use crate::check::codes::Output;
 use crate::check::diagnostics::Diagnostic;
 use crate::world::SystemWorld;
 
@@ -36,18 +36,17 @@ struct LineCol {
 pub fn write_output(
     mut w: impl Write,
     world: &SystemWorld,
-    diags: &Diagnostics,
-    ignored: &[Diagnostic],
+    output: &Output,
 ) -> std::io::Result<()> {
     w.write_all(br#"{"denied":["#)?;
-    for (i, diag) in diags.all().enumerate() {
+    for (i, diag) in output.denied.all().enumerate() {
         if i > 0 {
             w.write_all(b",")?;
         }
         write_diagnostic(&mut w, world, diag)?;
     }
     w.write_all(br#"],"allowed":["#)?;
-    for (i, diag) in ignored.iter().enumerate() {
+    for (i, diag) in output.allowed.all().enumerate() {
         if i > 0 {
             w.write_all(b",")?;
         }

@@ -324,7 +324,8 @@ fn check_description(package: &mut TableParser) -> Option<Spanned<String>> {
             if desc.to_ascii_lowercase().contains("typst") {
                 return Err(Diagnostic::warn(Code::ManifestPackageDescTypst(()))
                     .with_message(
-                        "The `description` field should generally not contain the word `Typst`",
+                        "The `description` field should generally not contain the word `Typst`, \
+                         unless this package actually has to do with Typst itself or its ecosystem",
                     )
                     .with_docs_link(Docs::DESCRIPTION));
             }
@@ -791,8 +792,8 @@ fn parse_selector_type(
             }
             Ok(allow.item.map(|_| Selector::Project))
         }
-        SelectorType::Files => {
-            let selector = selector.expect_inline_table(Code::LintSelectorFilesType)?;
+        SelectorType::File => {
+            let selector = selector.expect_inline_table(Code::LintSelectorFileType)?;
             parse_files_selector(selector)
         }
         SelectorType::Text => {
@@ -806,14 +807,14 @@ fn parse_files_selector<T: TableLike>(
     mut selector: TableLikeParser<T>,
 ) -> Result<Spanned<Selector>> {
     const FIELD: &str = "allow-files";
-    selector.unexpected(Code::LintSelectorFilesUnexpected, [FIELD]);
+    selector.unexpected(Code::LintSelectorFileUnexpected, [FIELD]);
     let globs = selector
-        .require_field(FIELD, Code::LintSelectorFilesInvalid)?
-        .expect_array(Code::LintSelectorFilesType)?
+        .require_field(FIELD, Code::LintSelectorFileInvalid)?
+        .expect_array(Code::LintSelectorFileType)?
         .parse_array(|item| {
-            let glob = item.expect_str(Code::LintSelectorFilesType)?.parse(|str| {
+            let glob = item.expect_str(Code::LintSelectorFileType)?.parse(|str| {
                 Glob::new(str).map_err(|err| {
-                    Diagnostic::error(Code::LintSelectorFilesGlob)
+                    Diagnostic::error(Code::LintSelectorFileGlob)
                         .with_message(format!("invalid file glob ({err})"))
                 })
             })?;

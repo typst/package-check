@@ -8,62 +8,78 @@ use crate::check::manifest::{Lint, Selector, manifest_label};
 use crate::check::toml::Spanned;
 use crate::check::{Checks, Diagnostics};
 
-/// Filter out diagnostics that have been allowed in the
-/// `tool.package-check.lint` configuration.
-pub fn filter_diagnostics(checks: &Checks, diags: &mut Diagnostics) -> Vec<Diagnostic> {
-    let package_check = checks.manifest.package_check.as_ref();
-    let Some(lints) = package_check.and_then(|p| p.lints.as_ref()) else {
-        return Vec::new();
-    };
-
-    // Stores which selectors have been matched.
-    let mut matched = HashSet::new();
-
-    let allowed = diags.split_off(|diag| {
-        let Some(lint) = lints.get(&diag.code.ty()) else {
-            return false;
-        };
-        let Some(data) = diag.code.data() else {
-            return false;
-        };
-
-        match (data, &lint.allowed.val) {
-            (SelectorData::Project, Selector::Project) => {
-                matched.insert((diag.code.ty(), 0));
-                true
-            }
-            (SelectorData::Files(path), Selector::Files(globs)) => {
-                let path = path.get_without_slash();
-                for (i, glob) in globs.iter().enumerate() {
-                    if glob.matches_relative_file(path) {
-                        matched.insert((diag.code.ty(), i));
-                        return true;
-                    }
-                }
-                false
-            }
-            (SelectorData::Text(text), Selector::Text(regexes)) => {
-                for (i, regex) in regexes.iter().enumerate() {
-                    if regex.is_match(text.as_str()) {
-                        matched.insert((diag.code.ty(), i));
-                        return true;
-                    }
-                }
-                false
-            }
-            (data, selector) => {
-                unreachable!("selector data and type don't match {data:?} {selector:?}");
-            }
-        }
-    });
-
-    check_unused_lint_overrides(diags, lints, matched);
-    diags.sort();
-
-    allowed
+pub struct Output {
+    pub denied: Diagnostics,
+    pub allowed: Diagnostics,
+    pub has_overridable: bool,
 }
 
-fn check_unused_lint_overrides(
+/// Filter out diagnostics that have been allowed in the
+/// `tool.package-check.lint` configuration.
+pub fn process_diagnostics(checks: &Checks, mut diags: Diagnostics) -> Output {
+    let package_check = checks.manifest.package_check.as_ref();
+
+    let mut allowed = Diagnostics::default();
+    let mut has_overridable = false;
+    if let Some(lints) = package_check.and_then(|p| p.lints.as_ref()) {
+        // Stores which selectors have been matched.
+        let mut matched = HashSet::new();
+
+        allowed = diags.split_off(|diag| {
+            let Some(data) = diag.code.data() else {
+                return false;
+            };
+
+            let mut allowed = None;
+            if let Some(lint) = lints.get(&diag.code.ty()) {
+                allowed = match_selector(&lint.allowed.val, &data);
+            }
+            if let Some(idx) = allowed {
+                matched.insert((diag.code.ty(), idx));
+            } else {
+                has_overridable = true;
+            }
+            allowed.is_some()
+        });
+
+        check_unused_lint_selectors(&mut diags, lints, matched);
+        diags.sort();
+    }
+
+    Output {
+        denied: diags,
+        allowed,
+        has_overridable,
+    }
+}
+
+fn match_selector(selector: &Selector, data: &SelectorData) -> Option<usize> {
+    match (selector, data) {
+        (Selector::Project, SelectorData::Project) => Some(0),
+        (Selector::Files(globs), SelectorData::Files(path)) => {
+            let path = path.get_without_slash();
+            for (i, glob) in globs.iter().enumerate() {
+                if glob.matches_relative_file(path) {
+                    return Some(i);
+                }
+            }
+            None
+        }
+        (Selector::Text(regexes), SelectorData::Text(text)) => {
+            for (i, regex) in regexes.iter().enumerate() {
+                if regex.is_match(text.as_str()) {
+                    return Some(i);
+                }
+            }
+            None
+        }
+        (data, selector) => {
+            unreachable!("selector data and type don't match {data:?} {selector:?}");
+        }
+    }
+}
+
+fn check_unused_lint_selectors(
     diags: &mut Diagnostics,
     lints: &BTreeMap<CodeType, Spanned<Lint>>,
     matched: HashSet<(CodeType, usize)>,
@@ -122,7 +138,7 @@ macro_rules! code_data {
     (Project) => {
         ()
     };
-    (Files) => {
+    (File) => {
         typst::syntax::VirtualPath
     };
     (Text) => {
@@ -134,7 +150,7 @@ macro_rules! selector_data {
     (Project($data:expr)) => {
         SelectorData::Project
     };
-    (Files($data:expr)) => {
+    (File($data:expr)) => {
         SelectorData::Files($data)
     };
     (Text($data:expr)) => {
@@ -182,6 +198,13 @@ macro_rules! codes {
         }
 
         impl CodeType {
+            pub fn variants() -> &'static [CodeType] {
+                &[
+                    $(Self::$never_name,)+
+                    $($(Self::$name,)+)+
+                ]
+            }
+
             pub fn overridable(&self) -> Overridable {
                 match self {
                     $(| Self::$never_name)+ => Overridable::Never,
@@ -289,10 +312,10 @@ codes! {
     LintOverridable = "lint/overridable"
     LintSelectorProjectType = "lint/selector/project/type"
     LintSelectorProjectInvalid = "lint/selector/project/invalid"
-    LintSelectorFilesType = "lint/selector/files/type"
-    LintSelectorFilesInvalid = "lint/selector/files/invalid"
-    LintSelectorFilesUnexpected = "lint/selector/files/unexpected"
-    LintSelectorFilesGlob = "lint/selector/files/glob"
+    LintSelectorFileType = "lint/selector/file/type"
+    LintSelectorFileInvalid = "lint/selector/file/invalid"
+    LintSelectorFileUnexpected = "lint/selector/file/unexpected"
+    LintSelectorFileGlob = "lint/selector/file/glob"
     LintSelectorTextType = "lint/selector/text/type"
     LintSelectorTextInvalid = "lint/selector/text/invalid"
     LintSelectorTextUnexpected = "lint/selector/text/unexpected"
@@ -356,7 +379,7 @@ codes! {
     ManifestPackageDescTypst = "manifest/package/description/typst"
     ManifestPackageCompilerPatch = "manifest/package/compiler/patch"
 
-    [Overridable::User(Files)]
+    [Overridable::User(File)]
     ExcludeExample = "exclude/example"
     ExcludeTest = "exclude/test"
     FilesManualUnlinked =  "files/manual/unlinked"
@@ -400,7 +423,7 @@ impl Overridable {
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SelectorType {
     Project,
-    Files,
+    File,
     Text,
 }
 

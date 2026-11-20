@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 use typst::syntax::package::PackageSpec;
-use typst_package_check::check::codes::{Code, filter_diagnostics};
+use typst_package_check::check::codes::{Code, process_diagnostics};
 use typst_package_check::check::{Exclude, TryExt, all_checks};
 use typst_package_check::github::api::pr::PullRequestEvent;
 use typst_package_check::github::api::{Installation, Repository};
@@ -29,6 +29,8 @@ enum Commands {
     TypstVersion,
     /// Output the version of this application.
     Version,
+    /// List all overridable lints.
+    Lints,
     /// Check the any modified package, and report the results as a GitHub check.
     ///
     /// This command assumes to be run in GitHub Action and to have access to some
@@ -151,6 +153,7 @@ async fn main() -> ExitCode {
         Commands::Version => {
             println!("{}", option_env!("CARGO_PKG_VERSION").unwrap_or("n/a"))
         }
+        Commands::Lints => lints_help(),
         Commands::Action => run_action().await,
     }
 
@@ -195,23 +198,22 @@ async fn run_cli(mut cmd: CheckCommand) -> ExitCode {
         let mut buf = typst_utils::defer(&mut buf, |buf| stdout.print(buf).unwrap());
         let res = all_checks(&workspace, package_spec.as_ref(), package_dir, cmd.offline).await;
         match res {
-            Ok((checks, mut diags)) => {
-                let allowed = filter_diagnostics(&checks, &mut diags);
+            Ok((checks, diags)) => {
+                let output = process_diagnostics(&checks, diags);
 
                 // Remove the exclude, so reading excluded files doesn't error.
                 // Otherwise printing some diagnostics might fail.
                 let world = checks.worlds.package.exclude(Exclude::empty());
 
                 if cmd.json {
-                    json::write_output(buf.deref_mut(), &world, &diags, &allowed).unwrap();
+                    json::write_output(buf.deref_mut(), &world, &output).unwrap();
                 } else {
-                    cli::write_output(buf.deref_mut(), &world, &diags, &allowed, cmd.show.into())
-                        .unwrap();
+                    cli::write_output(buf.deref_mut(), &world, &output, cmd.show.into()).unwrap();
                 }
 
-                if !diags.errors().is_empty() {
+                if !output.denied.errors().is_empty() {
                     exit_code = Some(1);
-                } else if !diags.warnings().is_empty() {
+                } else if !output.denied.warnings().is_empty() {
                     exit_code = exit_code.or(Some(2));
                 }
             }
@@ -237,6 +239,13 @@ async fn run_cli(mut cmd: CheckCommand) -> ExitCode {
     }
 
     ExitCode::SUCCESS
+}
+
+pub fn lints_help() {
+    let stdout = termcolor::BufferWriter::stdout(termcolor::ColorChoice::Auto);
+    let mut buf = stdout.buffer();
+    let mut buf = typst_utils::defer(&mut buf, |buf| stdout.print(buf).unwrap());
+    cli::write_lints(buf.deref_mut()).unwrap();
 }
 
 pub async fn run_action() {

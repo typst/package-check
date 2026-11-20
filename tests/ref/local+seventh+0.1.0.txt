@@ -42,3 +42,5 @@ error[manifest/template/thumbnail/not-found]: This file does not exist.
 
 error[readme/io]: Failed to read README.md
 
+6 errors, 0 warnings, and 0 notes
+
