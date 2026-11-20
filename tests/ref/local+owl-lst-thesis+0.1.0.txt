@@ -4,5 +4,7 @@ error[manifest/template/thumbnail/missing]: Missing required field `template.thu
 26 │ [template]
    │ ^^^^^^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#templates
+
+1 error, 0 warnings, and 0 notes
 

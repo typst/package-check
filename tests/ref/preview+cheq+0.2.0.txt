@@ -3,24 +3,32 @@ warning[import/relative]: This import should use the package specification, not 
   │
 1 │ #import "../lib.typ": checklist
   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/typst.md#use-package-specifications-in-imports
 
 warning[import/relative]: This import should use the package specification, not a relative path.
   ┌─ examples/custom-styles.typ:1:1
   │
 1 │ #import "../lib.typ": checklist
   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/typst.md#use-package-specifications-in-imports
 
-warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Example`. Please add a short description to make this image more accessible.
+[overridable] warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Example`. Please add a short description to make this image more accessible.
    ┌─ README.md:84:0
    │
 84 │ ![Example](./examples/custom-styles.png)
    │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   │
+   = hint: See https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images
 
-warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Example`. Please add a short description to make this image more accessible.
+[overridable] warning[readme/image/inadequate-alt]: Possibly inadequate alternative description for image: `Example`. Please add a short description to make this image more accessible.
    ┌─ README.md:48:0
    │
 48 │ ![Example](./examples/example.png)
    │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   │
+   = hint: See https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images
 
 warning[readme/syntax]: Syntax error in README.
 
@@ -78,12 +86,14 @@ warning[manifest/package/exclude/leading-dot]: Leading `./` of exclusions are tr
 6 │ exclude = ["./examples"]
   │            ^^^^^^^^^^^^
   │
-  = Use an absolute path starting with `/` to avoid recursive matching.
-  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
+  = hint: Use an absolute path starting with `/` to avoid recursive matching.
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
 error[import/outdated/self]: This import seems to use an older version of the package.
    ┌─ README.md:53:1
    │
 53 │ #import "@preview/cheq:0.1.0": checklist
    │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1 error, 10 warnings, and 0 notes
 

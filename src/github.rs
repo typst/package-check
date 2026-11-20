@@ -11,9 +11,9 @@ use tracing::{debug, warn};
 use typst::syntax::VirtualRoot;
 use typst::syntax::package::PackageSpec;
 
-use crate::check::codes::{self, Code};
-use crate::check::diagnostics::{Diagnostic, Severity};
-use crate::check::{self, Diagnostics, Result, TryExt};
+use crate::check::codes::{self, Code, Output};
+use crate::check::diagnostics::{Diagnostic, Docs, Severity};
+use crate::check::{self, Result, TryExt};
 use crate::workspace::{SystemPackages, Workspace};
 use crate::world::SystemWorld;
 
@@ -335,16 +335,15 @@ pub async fn run_github_check(
                 .error(Code::GithubApiCheckRunFatal, "Failed to report fatal error")?;
         }
 
-        let (checks, mut diags) = res?;
-
-        let ignored = codes::filter_diagnostics(&checks, &mut diags);
+        let (checks, diags) = res?;
+        let output = codes::process_diagnostics(&checks, diags);
 
         // Diagnostics that can't be attached to a file (for instance because
         // they have no label or point to a directory) are listed in the
         // summary instead, so that they don't silently disappear.
         let mut annotations = Vec::new();
         let mut unplaced = Vec::new();
-        for diag in diags.all() {
+        for diag in output.denied.all() {
             match diagnostic_to_annotation(&checks.worlds.package, package, diag) {
                 Some(annotation) => annotations.push(annotation),
                 None => unplaced.push(diag),
@@ -353,34 +352,34 @@ pub async fn run_github_check(
         let suppressed = annotations.len().saturating_sub(MAX_ANNOTATIONS);
         annotations.truncate(MAX_ANNOTATIONS);
 
+        let success = output.denied.errors().is_empty() && output.denied.warnings().is_empty();
+        let title = if output.denied.is_empty() {
+            "All good!".to_owned()
+        } else {
+            [Severity::Error, Severity::Warning, Severity::Note]
+                .into_iter()
+                .map(|severity| {
+                    let num = output.denied.get(severity).len();
+                    format!("{num} {severity}{}", plural(num))
+                })
+                .fold(String::new(), |mut acc, x| {
+                    acc.push_str(", ");
+                    acc.push_str(&x);
+                    acc
+                })
+        };
+        let output = CheckRunOutput {
+            title: &title,
+            summary: &summary(package, &output, suppressed, &unplaced),
+            annotations: &annotations,
+        };
         api_client
             .update_check_run(
                 repository.owner(),
                 repository.name(),
                 check_run.id,
-                diags.errors().is_empty() && diags.warnings().is_empty(),
-                CheckRunOutput {
-                    title: &if diags.all().next().is_none() {
-                        "All good!".to_owned()
-                    } else {
-                        [
-                            (diags.errors(), "error"),
-                            (diags.warnings(), "warning"),
-                            (diags.notes(), "note"),
-                        ]
-                        .iter()
-                        .map(|(diags, kind)| {
-                            format!("{} {}{}", diags.len(), kind, plural(diags.len()))
-                        })
-                        .fold(String::new(), |mut acc, x| {
-                            acc.push_str(", ");
-                            acc.push_str(&x);
-                            acc
-                        })
-                    },
-                    summary: &summary(package, &diags, suppressed, &unplaced, &ignored),
-                    annotations: &annotations,
-                },
+                success,
+                output,
             )
             .await
             .error(Code::GithubApiCheckRunFinalize, "Failed to send report")?;
@@ -439,20 +438,19 @@ fn update_description_checks(
 /// Builds the summary of the check run.
 fn summary(
     package: &PackageSpec,
-    diags: &Diagnostics,
+    output: &Output,
     suppressed: usize,
     unplaced: &[&Diagnostic],
-    allowed: &[Diagnostic],
 ) -> String {
-    let errors = diags.errors().len();
-    let warnings = diags.warnings().len();
-    let notes = diags.notes().len();
+    let errors = output.denied.errors().len();
+    let warnings = output.denied.warnings().len();
+    let notes = output.denied.notes().len();
 
     let mut summary = String::new();
-    write!(
+    writeln!(
         summary,
         "Our bots have automatically run some checks on your packages. \
-         They found {errors} error{}, {warnings} warning{}, and {notes} notes{}.\n\n",
+         They found {errors} error{}, {warnings} warning{}, and {notes} notes{}.\n",
         plural(errors),
         plural(warnings),
         plural(notes),
@@ -460,27 +458,36 @@ fn summary(
     .unwrap();
 
     if warnings > 0 {
-        summary.push_str(
-            "Warnings are suggestions, your package can still be accepted even \
-             if you prefer not to fix them.\n\n",
-        );
+        writeln!(
+            summary,
+            "Please either fix all errors and warnings, or explicitly \
+             allow them in the `typst.toml` manifest using the \
+             `[tool.package-check.lints]` configuration.\n\
+             See: {}\n",
+            Docs::PACKAGE_CHECK,
+        )
+        .unwrap();
     }
 
+    summary.push_str(
+        "Once the automated checks pass, a human being will review the package.\n\
+         If you think there is an issue with the package check, please write \
+         a message and ping us by including `@typst/package-review`",
+    );
+
     if suppressed > 0 {
-        write!(
+        writeln!(
             summary,
             "Only the first {MAX_ANNOTATIONS} annotations are shown. \
-             {suppressed} additional annotation{} suppressed.\n\n",
+             {suppressed} additional annotation{} suppressed.\n",
             if suppressed == 1 { " was" } else { "s were" },
         )
         .unwrap();
     }
 
-    summary.push_str("A human being will soon review your package, too.");
-
     if !unplaced.is_empty() {
         summary.push_str(
-            "\n\nThere are a few diagnostics which we could \
+            "\nThere are a few diagnostics which we could \
              not show inline with your changes. These are listed here:\n",
         );
         for diag in unplaced {
@@ -488,16 +495,16 @@ fn summary(
         }
     }
 
-    if !allowed.is_empty() {
+    if !output.allowed.is_empty() {
         writeln!(
             summary,
             "\n\n<details>\n\
              <summary>{} diagnostic{} were allowed</summary>\n\n",
-            allowed.len(),
-            plural(allowed.len()),
+            output.allowed.len(),
+            plural(output.allowed.len()),
         )
         .unwrap();
-        for diag in allowed {
+        for diag in output.allowed.all() {
             write_summary_diagnostic(&mut summary, package, diag).unwrap();
         }
         summary.push_str("</details>\n");
@@ -532,7 +539,16 @@ fn write_summary_diagnostic(
             write!(f, " in `{file_package}/{path}`")?;
         }
     }
-    writeln!(f, ": {}", diag.message)?;
+    for (i, line) in diag.message.lines().enumerate() {
+        let prefix = if i == 0 { ": " } else { "  " };
+        writeln!(f, "{prefix}{line}")?;
+    }
+    for hint in diag.hints() {
+        for (i, line) in hint.lines().enumerate() {
+            let prefix = if i == 0 { "= hint: " } else { "  " };
+            writeln!(f, "  {prefix}{line}")?;
+        }
+    }
     Ok(())
 }
 
@@ -559,11 +575,7 @@ fn diagnostic_to_annotation(
         VirtualRoot::Package(p) => p,
         VirtualRoot::Project => package,
     };
-    let mut message = diag.message.clone();
-    message.push('\n');
-    for hint in diag.hints() {
-        writeln!(message, "= {hint}").ok();
-    }
+    let message = diag.format_message_with_hints();
     Some(Annotation {
         path: Path::new("packages")
             .join(package.namespace.to_string())
@@ -582,7 +594,14 @@ fn diagnostic_to_annotation(
             Severity::Warning => AnnotationLevel::Warning,
             Severity::Error => AnnotationLevel::Failure,
         },
-        title: Some(diag.code.ty().to_string()),
+        title: {
+            let overridable = if diag.code.data().is_some() {
+                "[overridable] "
+            } else {
+                ""
+            };
+            Some(format!("{overridable}{}", diag.code.ty()))
+        },
         message,
     })
 }

@@ -3,6 +3,8 @@
   │
 3 │ ![Repo](https://badgen.net/static/GitHub/Repo/blue?icon=github)
   │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images
 
 warning[unused/lint/override/regex]: This regex doesn't match any diagnostics
    ┌─ typst.toml:17:78
@@ -16,13 +18,13 @@ warning[unused/lint/override]: This text selector doesn't match any diagnostics
 16 │ "readme/link/repo/default-branch" = { allow-matches = [true] }
    │                                                       ^^^^^^
 
-warning[lint/selector/files/unexpected]: unexpected key
+warning[lint/selector/file/unexpected]: unexpected key
    ┌─ typst.toml:14:17
    │
 14 │ "size/large" = { flies = ["examples/*"] }
    │                  ^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 warning[manifest/tool/package-check/lints/unknown]: Unknown lint code `wat?`
    ┌─ typst.toml:10:0
@@ -30,7 +32,7 @@ warning[manifest/tool/package-check/lints/unknown]: Unknown lint code `wat?`
 10 │ "wat?" = "allow"
    │ ^^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 error[lint/selector/text/regex]: regex parse error:
     (GitHub|License
@@ -41,7 +43,7 @@ error: unclosed group
 17 │ "readme/image/inadequate-alt" = { allow-matches = ["Repo", "(GitHub|License", "License"] }
    │                                                            ^^^^^^^^^^^^^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 error[lint/selector/text/type]: `tool.package-check.lints."readme/link/repo/default-branch".allow-matches[0]` should be a string
    ┌─ typst.toml:16:55
@@ -49,15 +51,15 @@ error[lint/selector/text/type]: `tool.package-check.lints."readme/link/repo/defa
 16 │ "readme/link/repo/default-branch" = { allow-matches = [true] }
    │                                                        ^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
-error[lint/selector/files/invalid]: Missing required field `tool.package-check.lints."size/large".allow-files`
+error[lint/selector/file/invalid]: Missing required field `tool.package-check.lints."size/large".allow-files`
    ┌─ typst.toml:14:15
    │
 14 │ "size/large" = { flies = ["examples/*"] }
    │                ^^^^^^^^^^^^^^^^^^^^^^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 error[lint/selector/project/invalid]: a project level selector must be `"allow"`
    ┌─ typst.toml:12:32
@@ -65,7 +67,7 @@ error[lint/selector/project/invalid]: a project level selector must be `"allow"`
 12 │ "manifest/package/name/typst" = "deny"
    │                                 ^^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 error[lint/overridable]: `files/fonts` cannot be overriden
    ┌─ typst.toml:11:16
@@ -73,5 +75,7 @@ error[lint/overridable]: `files/fonts` cannot be overriden
 11 │ "files/fonts" = "allow"
    │                 ^^^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
+
+5 errors, 4[+1 allowed] warnings, and 0 notes
 

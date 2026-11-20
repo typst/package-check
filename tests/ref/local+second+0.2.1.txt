@@ -1,12 +1,12 @@
-[allowed] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+[allowed] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`, unless this package actually has to do with Typst itself or its ecosystem
   ┌─ typst.toml:9:14
   │
 9 │ description = "Cool Typst package"
   │               ^^^^^^^^^^^^^^^^^^^^
   │
-  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
-warning[src/kebab-case]: This value seems to be public. It is recommended to use kebab-case names.
+[overridable] warning[src/kebab-case]: This value seems to be public. It is recommended to use kebab-case names.
   ┌─ lib.typ:1:5
   │
 1 │ #let Tick(t) = calc.rem(t + 1, 60)
@@ -30,7 +30,7 @@ error[manifest/template/thumbnail/missing]: Missing required field `template.thu
 11 │ [template]
    │ ^^^^^^^^^^
    │
-   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
 error[manifest/package/authors/type]: `package.authors[0]` should be a string
   ┌─ typst.toml:8:11
@@ -38,7 +38,7 @@ error[manifest/package/authors/type]: `package.authors[0]` should be a string
 8 │ authors = [2024-01-01]
   │            ^^^^^^^^^^
   │
-  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
 error[manifest/package/compiler/type]: `package.compiler` should be a string
   ┌─ typst.toml:6:11
@@ -46,5 +46,8 @@ error[manifest/package/compiler/type]: `package.compiler` should be a string
 6 │ compiler = -inf
   │            ^^^^
   │
-  = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
+
+3 errors, 3[+1 allowed] warnings, and 0 notes
+hint: Some diagnostics are overridable. See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

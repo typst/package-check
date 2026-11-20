@@ -6,8 +6,8 @@ Make sure to commit all linked files and possibly add them to the `exclude` list
 80 │ ![Typst output for the previous code; 3 checkboxes with modified color, icon and styling](example/example.2.png)
    │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    │
-   = The link `example/example.2.png` was assumed to be a local file because it couldn't be parsed as an URL (relative URL without a base)
-   = See: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
+   = hint: The link `example/example.2.png` was assumed to be a local file because it couldn't be parsed as an URL (relative URL without a base)
+   = hint: See https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
 
 error[readme/link/file-not-found]: Linked file not found: `/example/example.1.png`.
 
@@ -17,6 +17,8 @@ Make sure to commit all linked files and possibly add them to the `exclude` list
 42 │ ![Typst output for the previous code; a list with colored icons instead of bullet points](example/example.1.png)
    │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    │
-   = The link `example/example.1.png` was assumed to be a local file because it couldn't be parsed as an URL (relative URL without a base)
-   = See: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
+   = hint: The link `example/example.1.png` was assumed to be a local file because it couldn't be parsed as an URL (relative URL without a base)
+   = hint: See https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
+
+2 errors, 0 warnings, and 0 notes
 
