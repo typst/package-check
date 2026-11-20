@@ -12,3 +12,5 @@ error[manifest/template/thumbnail/not-found]: This file does not exist.
    │
    = See: https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
+1 error, 1 warning, and 0 notes
+

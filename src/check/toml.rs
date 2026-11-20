@@ -400,6 +400,22 @@ impl<'p> TomlPath<'p> {
         }
     }
 
+    pub fn nth(&self, n: usize) -> Option<&TomlKey> {
+        fn find_nth<'a>(
+            path: &'a TomlPath<'a>,
+            n: usize,
+        ) -> std::result::Result<usize, &'a TomlPath<'a>> {
+            let i = match path.parent {
+                Parent::File(_) => 0,
+                Parent::Path(parent) => find_nth(parent, n)? + 1,
+            };
+
+            if i == n { Err(path) } else { Ok(i) }
+        }
+
+        find_nth(self, n).err().map(|path| &path.key)
+    }
+
     pub fn root(&self) -> &str {
         let mut path = self;
         while let Parent::Path(parent) = path.parent {

@@ -6,7 +6,7 @@ use typst::WorldExt;
 use typst::syntax::{DiagSpan, FileId, RootedPath, VirtualPath, VirtualRoot};
 
 use crate::check::codes::Code;
-use crate::check::toml::TomlPath;
+use crate::check::toml::{TomlKey, TomlPath};
 use crate::world::SystemWorld;
 
 pub type Result<T> = std::result::Result<T, Diagnostic>;
@@ -101,11 +101,11 @@ impl Diagnostics {
         }
     }
 
-    pub fn split_off<F>(&mut self, mut f: F) -> Vec<Diagnostic>
+    pub fn split_off<F>(&mut self, mut f: F) -> Self
     where
         F: FnMut(&Diagnostic) -> bool,
     {
-        let mut split_off = Vec::new();
+        let mut split_off = Self::default();
 
         let mut split = |diags: &mut Vec<Diagnostic>| {
             *diags = std::mem::take(diags)
@@ -113,7 +113,7 @@ impl Diagnostics {
                 .filter_map(|diag| match f(&diag) {
                     false => Some(diag),
                     true => {
-                        split_off.push(diag);
+                        split_off.emit(diag);
                         None
                     }
                 })
@@ -167,6 +167,22 @@ impl Diagnostics {
 
     pub fn notes(&self) -> &[Diagnostic] {
         &self.notes
+    }
+
+    pub fn get(&self, severity: Severity) -> &[Diagnostic] {
+        match severity {
+            Severity::Error => &self.errors,
+            Severity::Warning => &self.warnings,
+            Severity::Note => &self.notes,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.errors.len() + self.warnings.len() + self.notes.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     pub fn all(&self) -> impl DoubleEndedIterator<Item = &Diagnostic> {
@@ -262,7 +278,10 @@ impl Diagnostic {
     pub fn format_message_with_hints(&self) -> String {
         let mut buf = format!("{}\n", self.message);
         for hint in self.hints() {
-            writeln!(buf, "= {hint}").ok();
+            for (i, line) in hint.lines().enumerate() {
+                let prefix = if i == 0 { "= " } else { "  " };
+                writeln!(buf, "{prefix}{line}").ok();
+            }
         }
         buf
     }
@@ -407,12 +426,15 @@ impl Docs {
     pub const TEMPLATE: &str = "https://github.com/typst/packages/blob/main/docs/manifest.md#templates";
     pub const THIRD_PARTY_META:  &str = "https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata";
     pub const WHAT_TO_EXCLUDE: &str = "https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude";
+    pub const SPEC_IMPORTS: &str = "https://github.com/typst/packages/blob/main/docs/typst.md#use-package-specifications-in-imports";
     pub const LICENSE: &str = "https://github.com/typst/packages/blob/main/docs/licensing.md";
     pub const DOCS: &str = "https://github.com/typst/packages/blob/main/docs/documentation.md";
+    pub const DOCS_LINKING_RESOURCES: &str = "https://github.com/typst/packages/blob/main/docs/documentation.md#linking-resources";
+    pub const DOCS_IMAGE_ALT: &str = "https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images";
     pub const DOCS_GFM: &str = "https://github.com/typst/packages/blob/main/docs/documentation.md#differences-from-standard-markdown";
     pub const FONTS_NOT_ALLOWED: &str = "https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages";
-    // TODO: Update docs.
-    pub const SIZE: &str = "TODO";
+    pub const SIZE: &str = "https://github.com/typst/packages/blob/main/docs/files.md#package-size";
+    pub const PACKAGE_CHECK:  &str = "https://github.com/typst/packages/blob/main/docs/manifest.md#package-check";
 }
 
 impl Docs {
@@ -420,8 +442,13 @@ impl Docs {
         match path.root() {
             "package" => Docs::PACKAGE,
             "template" => Docs::TEMPLATE,
-            // TODO: Change to package-check lint docs.
-            "tool" => Docs::THIRD_PARTY_META,
+            "tool" => {
+                if path.nth(1).and_then(TomlKey::str) == Some("package-check") {
+                    Docs::PACKAGE_CHECK
+                } else {
+                    Docs::THIRD_PARTY_META
+                }
+            }
             _ => Docs::MANIFEST,
         }
     }

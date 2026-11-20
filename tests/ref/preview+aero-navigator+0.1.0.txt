@@ -1,4 +1,4 @@
-warning[files/manual/unlinked]: This file seems to be a manual/documentation, but isn't linked in the readme. It will be inacessible on Typst Universe.
+[overridable] warning[files/manual/unlinked]: This file seems to be a manual/documentation, but isn't linked in the readme. It will be inacessible on Typst Universe.
   ┌─ docs/manual.pdf:1:0
   │
 1 │ 
@@ -13,4 +13,8 @@ error[readme/image/missing-alt]: Missing alternative description for image. Plea
 17 │ │   <img src="./thumbnail.svg">
 18 │ │ </picture>
    │ ╰──────────^
+   │  
+   = See: https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images
+
+1 error, 1 warning, and 0 notes
 

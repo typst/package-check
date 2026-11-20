@@ -8,7 +8,7 @@ use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use termcolor::ColorChoice;
 use typst::ecow::EcoString;
 use typst::syntax::package::{PackageSpec, PackageVersion};
-use typst_package_check::check::codes::filter_diagnostics;
+use typst_package_check::check::codes::process_diagnostics;
 use typst_package_check::cli::{self, Show};
 use typst_package_check::workspace::{SystemPackages, Workspace};
 
@@ -163,10 +163,10 @@ fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<
     // Format diagnostics.
     let mut buf = termcolor::BufferWriter::stdout(ColorChoice::Never).buffer();
     match res {
-        Ok((checks, mut diags)) => {
+        Ok((checks, diags)) => {
             let world = &checks.worlds.package;
-            let allowed = filter_diagnostics(&checks, &mut diags);
-            cli::write_output(&mut buf, world, &diags, &allowed, Show::All).unwrap();
+            let output = process_diagnostics(&checks, diags);
+            cli::write_output(&mut buf, world, &output, Show::All).unwrap();
         }
         Err(err) => cli::write_fatal_error(&mut buf, &err).unwrap(),
     };

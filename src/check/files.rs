@@ -209,6 +209,7 @@ fn exclude_large_files(
             )
             .with_label(Label::new(path.file_id(), 0..0))
             .with_docs_link(Docs::WHAT_TO_EXCLUDE)
+            .with_docs_link(Docs::SIZE)
             .emit(diags);
     }
 }

@@ -6,8 +6,8 @@ use tracing::error;
 use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, Source};
 
-use crate::check::Diagnostics;
-use crate::check::diagnostics::Diagnostic;
+use crate::check::codes::{CodeType, Output, Overridable, SelectorType};
+use crate::check::diagnostics::{Diagnostic, Docs, Severity};
 use crate::world::SystemWorld;
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -62,21 +62,73 @@ pub fn write_header(mut w: impl WriteColor, package_dir: &Path, show: Show) -> s
 pub fn write_output(
     mut w: impl WriteColor,
     world: &SystemWorld,
-    diags: &Diagnostics,
-    allowed: &[Diagnostic],
+    output: &Output,
     show: Show,
 ) -> std::io::Result<()> {
     if show.allowed() {
-        for diag in allowed.iter().rev() {
+        for diag in output.allowed.all().rev() {
             write_diagnostic(&mut w, world, diag, true)?;
         }
     }
 
     if show.denied() {
-        for diag in diags.all().rev() {
+        for diag in output.denied.all().rev() {
             write_diagnostic(&mut w, world, diag, false)?;
         }
     }
+
+    write_allowed_count(&mut w, output, show, Severity::Error)?;
+    w.write_all(b", ")?;
+    write_allowed_count(&mut w, output, show, Severity::Warning)?;
+    w.write_all(b", and ")?;
+    write_allowed_count(&mut w, output, show, Severity::Note)?;
+    w.write_all(b"\n")?;
+
+    if output.has_overridable {
+        w.set_color(
+            ColorSpec::new()
+                .set_bold(true)
+                .set_intense(true)
+                .set_fg(Some(Color::Cyan)),
+        )?;
+        w.write_all(b"hint")?;
+        w.reset()?;
+        w.write_all(b": Some diagnostics are overridable. See: ")?;
+        w.set_color(ColorSpec::new().set_underline(true))?;
+        writeln!(w, "{}", Docs::PACKAGE_CHECK)?;
+        w.reset()?;
+    }
+
+    w.write_all(b"\n")?;
+
+    Ok(())
+}
+
+fn write_allowed_count(
+    mut w: impl WriteColor,
+    output: &Output,
+    show: Show,
+    severity: Severity,
+) -> std::io::Result<()> {
+    let denied = output.denied.get(severity).len();
+    let mut allowed = output.allowed.get(severity).len();
+
+    write!(w, "{denied}")?;
+
+    if show.allowed() && allowed > 0 {
+        w.set_color(
+            ColorSpec::new()
+                .set_intense(true)
+                .set_fg(Some(Color::Black)),
+        )?;
+        write!(w, "[+{allowed} allowed]")?;
+        w.reset()?;
+    } else {
+        allowed = 0;
+    }
+
+    let plural = if denied + allowed != 1 { "s" } else { "" };
+    write!(w, " {severity}{plural}")?;
 
     Ok(())
 }
@@ -91,6 +143,10 @@ pub fn write_diagnostic(
     if allowed {
         w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Cyan)))?;
         w.write_all(b"[allowed] ")?;
+        w.reset()?;
+    } else if diag.code.ty().overridable() != Overridable::Never {
+        w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Cyan)))?;
+        w.write_all(b"[overridable] ")?;
         w.reset()?;
     }
 
@@ -121,10 +177,41 @@ pub fn write_diagnostic(
 
 /// Print this diagnostic as a fatal error to the writer.
 pub fn write_fatal_error(mut w: impl WriteColor, diag: &Diagnostic) -> std::io::Result<()> {
-    w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Red)))?;
+    w.set_color(
+        ColorSpec::new()
+            .set_bold(true)
+            .set_intense(true)
+            .set_fg(Some(Color::Red)),
+    )?;
     write!(w, "fatal error [{}]", diag.code.ty())?;
     w.reset()?;
     writeln!(w, ": {}", diag.format_message_with_hints())
+}
+
+pub fn write_lints(mut w: impl WriteColor) -> std::io::Result<()> {
+    writeln!(w, "These are all overridable lints.")?;
+    w.write_all(b"See: ")?;
+    w.set_color(ColorSpec::new().set_underline(true))?;
+    writeln!(w, "{}", Docs::PACKAGE_CHECK)?;
+    w.reset()?;
+
+    for (ty, scope) in [
+        (SelectorType::Project, "Project"),
+        (SelectorType::File, "File"),
+        (SelectorType::Text, "Text"),
+    ] {
+        writeln!(w, "\n{scope} level")?;
+
+        for code in CodeType::variants() {
+            if code.overridable().selector_type() == Some(ty) {
+                w.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
+                writeln!(w, "  {code}")?;
+                w.reset()?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 type CodespanResult<T> = Result<T, CodespanError>;

@@ -1,4 +1,4 @@
-[allowed] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+[allowed] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`, unless this package actually has to do with Typst itself or its ecosystem
   ┌─ typst.toml:9:14
   │
 9 │ description = "Cool Typst package"
@@ -6,7 +6,7 @@
   │
   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
-warning[src/kebab-case]: This value seems to be public. It is recommended to use kebab-case names.
+[overridable] warning[src/kebab-case]: This value seems to be public. It is recommended to use kebab-case names.
   ┌─ lib.typ:1:5
   │
 1 │ #let Tick(t) = calc.rem(t + 1, 60)
@@ -47,4 +47,7 @@ error[manifest/package/compiler/type]: `package.compiler` should be a string
   │            ^^^^
   │
   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
+
+3 errors, 3[+1 allowed] warnings, and 0 notes
+hint: Some diagnostics are overridable. See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

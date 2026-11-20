@@ -9,7 +9,7 @@ use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec
 use walkdir::WalkDir;
 
 use crate::check::codes::Code;
-use crate::check::diagnostics::{Diagnostic, Label};
+use crate::check::diagnostics::{Diagnostic, Docs, Label};
 use crate::check::path::PackagePath;
 use crate::check::{Diagnostics, TryExt};
 use crate::world::SystemWorld;
@@ -69,8 +69,7 @@ pub fn check_ast(
                     "This import should use the package specification, \
                      not a relative path.",
                 )
-                // TODO: Expand section in `documentation.md` to explain why we
-                // require package spec imports.
+                .with_docs_link(Docs::SPEC_IMPORTS)
                 .with_label(Label::for_span(world, import.span()))
                 .emit(diags);
         }

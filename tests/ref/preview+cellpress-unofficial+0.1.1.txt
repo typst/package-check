@@ -16,11 +16,13 @@ warning[exclude/thumbnail]: The template thumbnail is automatically excluded
    │
    = See: https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
 
-warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+[overridable] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`, unless this package actually has to do with Typst itself or its ecosystem
   ┌─ typst.toml:7:14
   │
 7 │ description = "Unofficial Cell Press template for Typst."
   │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
   │
   = See: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
+
+0 errors, 3 warnings, and 0 notes
 

@@ -1,4 +1,4 @@
-warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
+[overridable] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`, unless this package actually has to do with Typst itself or its ecosystem
    ┌─ typst.toml:11:14
    │
 11 │ description = "Use multiple bibliographies in a single Typst document "
@@ -14,4 +14,8 @@ error[readme/image/missing-alt]: Missing alternative description for image. Plea
 27 │ │   <img src="./thumbnail-light.svg">
 28 │ │ </picture>
    │ ╰──────────^
+   │  
+   = See: https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images
+
+1 error, 1 warning, and 0 notes
 
