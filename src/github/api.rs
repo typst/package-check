@@ -2,15 +2,12 @@
 
 use std::fmt::Display;
 
-use reqwest::{RequestBuilder, Response, StatusCode};
+use reqwest::{RequestBuilder, Response};
 use serde::Deserialize;
 use tracing::debug;
 
-use self::check::{CheckRun, CheckRunId, CheckRunOutput};
-
 pub mod check;
 pub mod pr;
-mod user;
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -18,6 +15,7 @@ pub enum ApiError {
     Reqwest(reqwest::Error),
     Json(serde_json::Error),
     UnexpectedResponse(String),
+    InvalidHeader(http::header::ToStrError),
 }
 
 impl std::error::Error for ApiError {
@@ -26,6 +24,7 @@ impl std::error::Error for ApiError {
             ApiError::Reqwest(e) => Some(e),
             ApiError::Json(e) => Some(e),
             ApiError::UnexpectedResponse(_) => None,
+            ApiError::InvalidHeader(e) => Some(e),
         }
     }
 }
@@ -36,6 +35,7 @@ impl Display for ApiError {
             ApiError::Reqwest(e) => write!(f, "Network error: {:?}", e),
             ApiError::Json(e) => write!(f, "JSON ser/de error: {:?}", e),
             ApiError::UnexpectedResponse(e) => write!(f, "Unexpected response: {:?}", e),
+            ApiError::InvalidHeader(e) => write!(f, "Invalid header: {:?}", e),
         }
     }
 }
@@ -49,6 +49,12 @@ impl From<reqwest::Error> for ApiError {
 impl From<serde_json::Error> for ApiError {
     fn from(value: serde_json::Error) -> Self {
         ApiError::Json(value)
+    }
+}
+
+impl From<http::header::ToStrError> for ApiError {
+    fn from(v: http::header::ToStrError) -> Self {
+        Self::InvalidHeader(v)
     }
 }
 
@@ -66,6 +72,7 @@ impl Display for AuthJwt {
 /// Authentication for the GitHub API using an installation token, that
 /// is scoped to a specific organization or set of repositories, but that
 /// can do more than a [`AuthJwt`] token.
+#[derive(Clone)]
 pub struct AuthInstallation(String);
 
 impl Display for AuthInstallation {
@@ -75,6 +82,7 @@ impl Display for AuthInstallation {
 }
 
 /// A GitHub API client
+#[derive(Clone)]
 pub struct GitHub<A = AuthJwt> {
     pub(crate) auth: A,
     pub(crate) req: reqwest::Client,
@@ -91,6 +99,10 @@ impl<A: ToString> GitHub<A> {
 
     fn post(&self, url: impl AsRef<str>) -> RequestBuilder {
         self.with_headers(self.req.post(Self::url(url)))
+    }
+
+    fn delete(&self, url: impl AsRef<str>) -> RequestBuilder {
+        self.with_headers(self.req.delete(Self::url(url)))
     }
 
     fn with_headers(&self, req: RequestBuilder) -> RequestBuilder {
@@ -127,7 +139,7 @@ impl GitHub<AuthJwt> {
             }))
             .send()
             .await?
-            .parse_json()
+            .json()
             .await?;
 
         Ok(GitHub {
@@ -137,110 +149,24 @@ impl GitHub<AuthJwt> {
     }
 }
 
-impl GitHub<AuthInstallation> {
-    #[tracing::instrument(skip(self))]
-    pub async fn create_check_run(
-        &self,
-        owner: OwnerId,
-        repo: RepoId,
-        check_run_name: String,
-        head_sha: &str,
-    ) -> ApiResult<CheckRun> {
-        let response = self
-            .post(format!("repos/{owner}/{repo}/check-runs"))
-            .body(serde_json::to_string(&serde_json::json!({
-                "name": check_run_name,
-                "head_sha": head_sha,
-                "status": "in_progress",
-            }))?)
-            .send()
-            .await?;
-
-        if response.status() != StatusCode::CREATED {
-            return Err(ApiError::UnexpectedResponse(response.text().await?));
-        }
-
-        let result = serde_json::from_str(&response.text().await?)?;
-        Ok(result)
-    }
-
-    #[tracing::instrument(skip(self, output))]
-    pub async fn update_check_run(
-        &self,
-        owner: OwnerId,
-        repo: RepoId,
-        check_run: CheckRunId,
-        success: bool,
-        output: CheckRunOutput<'_>,
-    ) -> ApiResult<()> {
-        let res = self
-            .patch(format!("repos/{owner}/{repo}/check-runs/{check_run}"))
-            .body(serde_json::to_string(&serde_json::json!({
-                "status": "completed",
-                "conclusion": if success { "success" } else { "failure" },
-                "output": output,
-            }))?)
-            .send()
-            .await?
-            .text()
-            .await?;
-        debug!("GitHub said: {}", res);
-        Ok(())
-    }
-}
-
-#[derive(Debug)]
-pub struct OwnerId(String);
-
-#[derive(Debug)]
-pub struct RepoId(String);
-
-impl Display for OwnerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Display for RepoId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-#[derive(Debug, Deserialize)]
-pub struct Repository {
+/// Repository ID in the form of `owner/name`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct RepositoryId {
     full_name: String,
 }
 
-impl Repository {
-    pub fn new(name: &str) -> Result<Self, &'static str> {
-        if !name.contains('/') {
-            return Err("Invalid repository path");
-        }
-
-        Ok(Self {
-            full_name: name.to_owned(),
-        })
+impl RepositoryId {
+    pub fn new(full_name: String) -> Result<Self, &'static str> {
+        if full_name.chars().filter(|c| *c == '/').count() != 1 {
+            return Err("Invalid repository id (path must contain exactly one `/`)");
+        };
+        Ok(Self { full_name })
     }
+}
 
-    pub fn owner(&self) -> OwnerId {
-        OwnerId(
-            self.full_name
-                .split_once('/')
-                .expect("Repository path must contain a /")
-                .0
-                .to_owned(),
-        )
-    }
-
-    pub fn name(&self) -> RepoId {
-        RepoId(
-            self.full_name
-                .split_once('/')
-                .expect("Repository path must contain a /")
-                .1
-                .to_owned(),
-        )
+impl Display for RepositoryId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.full_name)
     }
 }
 
@@ -254,19 +180,17 @@ struct InstallationToken {
     token: String,
 }
 
-trait JsonExt {
-    async fn parse_json<T: for<'a> Deserialize<'a>>(self) -> Result<T, ApiError>;
+trait ResponseExt: Sized {
+    async fn expect_success(self) -> Result<Self, ApiError>;
 }
 
-impl JsonExt for Response {
-    async fn parse_json<T: for<'a> Deserialize<'a>>(self) -> Result<T, ApiError> {
-        let bytes = self.bytes().await?;
+impl ResponseExt for Response {
+    async fn expect_success(self) -> Result<Self, ApiError> {
+        if !self.status().is_success() {
+            let text = self.text().await?;
+            return Err(ApiError::UnexpectedResponse(text));
+        }
 
-        debug!(
-            "Parsing JSON: {}",
-            std::str::from_utf8(&bytes).unwrap_or("[INVALID UTF8]")
-        );
-
-        Ok(serde_json::from_slice(&bytes)?)
+        Ok(self)
     }
 }

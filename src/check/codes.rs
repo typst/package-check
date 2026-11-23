@@ -11,7 +11,17 @@ use crate::check::{Checks, Diagnostics};
 pub struct Output {
     pub denied: Diagnostics,
     pub allowed: Diagnostics,
+    /// There are diagnostics that are overridable, which *weren't* allowed.
     pub has_overridable: bool,
+    /// There are staff-overridable diagnostics, which *were* allowed.
+    pub has_staff_override: bool,
+}
+
+impl Output {
+    /// Whether there are no denied no warnings and errors.
+    pub fn passed(&self) -> bool {
+        self.denied.errors().is_empty() && self.denied.warnings().is_empty()
+    }
 }
 
 /// Filter out diagnostics that have been allowed in the
@@ -21,6 +31,7 @@ pub fn process_diagnostics(checks: &Checks, mut diags: Diagnostics) -> Output {
 
     let mut allowed = Diagnostics::default();
     let mut has_overridable = false;
+    let mut has_allowed_staff_overridable = false;
     if let Some(lints) = package_check.and_then(|p| p.lints.as_ref()) {
         // Stores which selectors have been matched.
         let mut matched = HashSet::new();
@@ -36,6 +47,10 @@ pub fn process_diagnostics(checks: &Checks, mut diags: Diagnostics) -> Output {
             }
             if let Some(idx) = allowed {
                 matched.insert((diag.code.ty(), idx));
+
+                if diag.code.ty().overridable().by_staff() {
+                    has_allowed_staff_overridable = true;
+                }
             } else {
                 has_overridable = true;
             }
@@ -50,6 +65,7 @@ pub fn process_diagnostics(checks: &Checks, mut diags: Diagnostics) -> Output {
         denied: diags,
         allowed,
         has_overridable,
+        has_staff_override: has_allowed_staff_overridable,
     }
 }
 
@@ -351,18 +367,16 @@ codes! {
 
     CompileError = "compile/error"
 
-    ListVersionsIo = "list-versions/io"
-    ListVersionsUtf8 = "list-versions/utf-8"
-    ListVersionsInvalid = "list-versions/invalid"
-
     GitIo = "git/io"
     GitUtf8 = "git/utf-8"
 
     GithubApiPullUpdate = "github/api/pull/update"
+    GithubApiPullCommentsList = "github/api/pull/comment/list"
+    GithubApiPullCommentsPost = "github/api/pull/comment/post"
+    GithubApiPullCommentsDelete = "github/api/pull/comment/delete"
+    GithubApiPullCommentsTag = "github/api/pull/comment/tags"
+    GithubApiCommitPulls = "github/api/commit/pulls"
     GithubApiCheckRunCreate = "github/api/check-run/create"
-    GithubApiCheckRunCancel = "github/api/check-run/cancel"
-    GithubApiCheckRunFatal = "github/api/check-run/fatal"
-    GithubApiCheckRunFinalize = "github/api/check-run/finalize"
     GithubActionsEventIo = "github/actions/event/io"
     GithubActionsEventInvalid = "github/actions/event/invalid"
 
@@ -416,6 +430,10 @@ impl Overridable {
             Overridable::Staff(ty) => Some(ty),
             Overridable::User(ty) => Some(ty),
         }
+    }
+
+    pub fn by_staff(self) -> bool {
+        matches!(self, Self::Staff(_))
     }
 }
 

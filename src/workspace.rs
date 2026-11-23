@@ -1,9 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
+use indexmap::IndexSet;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 use typst_kit::fonts::FontStore;
 use typst_kit::packages::FsPackages;
+
+use crate::check::TryExt;
+use crate::check::codes::Code;
+use crate::check::diagnostics::{Diagnostic, Result};
 
 /// Relevant workspace directories.
 #[derive(Clone)]
@@ -72,40 +77,41 @@ impl PackagesRepo {
         self.packages.path().join(&relative_path)
     }
 
+    /// Returns the `typst.toml` manifest path of the spec inside
+    /// [`Self::packages`].
+    pub fn manifest_path_of(&self, spec: &PackageSpec) -> PathBuf {
+        self.path_of(spec).join("typst.toml")
+    }
+
     /// Resolves the previous version of the package inside [`Self::packages`].
-    pub fn find_previous_version(&self, spec: &PackageSpec) -> Option<PackageSpec> {
+    pub fn find_versions(&self, spec: &PackageSpec) -> Result<IndexSet<PackageVersion>> {
         let all_versions_dir = (self.packages.path())
             .join(spec.namespace.as_str())
             .join(spec.name.as_str());
+        let all_versions =
+            std::fs::read_dir(all_versions_dir).error(Code::Io, "Failed to list versions")?;
 
-        let mut last_version = None;
-        for version_dir in std::fs::read_dir(&all_versions_dir).ok()? {
-            let Ok(version_dir) = version_dir else {
-                continue;
+        let mut versions = IndexSet::new();
+        for version_dir in all_versions {
+            let io_err = |err| {
+                Diagnostic::error(Code::Io)
+                    .with_message(format!("Failed read version directory ({err})"))
             };
 
-            let Some(version) = version_dir
-                .file_name()
-                .to_str()
-                .and_then(|v| v.parse::<PackageVersion>().ok())
-            else {
-                continue;
-            };
-
-            if version == spec.version {
+            let version_dir = version_dir.map_err(io_err)?;
+            if !version_dir.file_type().map_err(io_err)?.is_dir() {
                 continue;
             }
 
-            if last_version.map(|last| last < version).unwrap_or(true) {
-                last_version = Some(version);
+            if let Some(dir) = version_dir.file_name().to_str()
+                && let Ok(version) = dir.parse::<PackageVersion>()
+            {
+                versions.insert(version);
             }
         }
 
-        last_version.map(|v| PackageSpec {
-            version: v,
-            name: spec.name.clone(),
-            namespace: spec.namespace.clone(),
-        })
+        versions.sort();
+        Ok(versions)
     }
 }
 

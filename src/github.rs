@@ -1,23 +1,23 @@
-use std::{
-    ffi::OsStr,
-    fmt::{self, Write},
-    path::{Path, PathBuf},
-};
+use std::fmt::Write;
+use std::path::Component;
+use std::path::{Path, PathBuf};
 
 use codespan_reporting::files::Files;
+use indexmap::map::Entry;
+use indexmap::{IndexMap, IndexSet};
 use jwt_simple::prelude::*;
-use pr::{PullRequest, PullRequestUpdate};
 use tracing::{debug, warn};
 use typst::syntax::VirtualRoot;
-use typst::syntax::package::PackageSpec;
+use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
 
 use crate::check::codes::{self, Code, Output};
 use crate::check::diagnostics::{Diagnostic, Docs, Severity};
 use crate::check::{self, Result, TryExt};
+use crate::github::api::check::CheckRun;
+use crate::github::api::pr::{Comment, PullRequest, PullRequestUpdate};
+use crate::github::api::{AuthInstallation, AuthJwt, GitHub, RepositoryId};
 use crate::workspace::{SystemPackages, Workspace};
 use crate::world::SystemWorld;
-
-use api::{check::CheckRun, *};
 
 pub mod api;
 pub mod git;
@@ -28,6 +28,8 @@ use self::{
 };
 
 const MAX_ANNOTATIONS: usize = 50;
+const COMMENT_TAG_AUTHOR: &str = "<!-- package-check-comment-author -->";
+const COMMENT_TAG_REVIEW: &str = "<!-- package-check-comment-review -->";
 
 /// Application configuration, read from .env file.
 #[derive(Clone)]
@@ -57,7 +59,7 @@ impl AppState {
     }
 
     #[expect(clippy::result_unit_err)]
-    pub fn as_github_api(&self) -> std::result::Result<GitHub<AuthJwt>, ()> {
+    pub fn github_api_client(&self) -> std::result::Result<GitHub<AuthJwt>, ()> {
         let Ok(private_key) = RS256KeyPair::from_pem(&self.private_key) else {
             warn!("The private key in the .env file cannot be parsed as PEM.");
             return Err(());
@@ -76,363 +78,696 @@ impl AppState {
     }
 }
 
-pub async fn run_github_check(
+pub async fn run_action(
     workspace: &Workspace,
-    head_sha: String,
-    api_client: GitHub<AuthInstallation>,
-    repository: Repository,
-    previous_check_run: Option<CheckRun>,
-    pr: Option<PullRequest>,
+    api_client: &GitHub<AuthInstallation>,
+    repo: &RepositoryId,
+    pr: &PullRequest,
 ) -> Result<()> {
-    let git_repo = GitRepo::open(workspace.repo().dir())?;
-    let touched_files = git_repo.files_touched_by("HEAD")?;
+    let kind = check_pr(workspace, api_client, repo, pr).await?;
 
-    let mut touches_outside_of_packages = false;
+    let previous_comments = api_client
+        .list_pr_comments(repo, pr.number)
+        .await
+        .map_err(|err| {
+            Diagnostic::error(Code::GithubApiPullCommentsList).with_message(format!(
+                "Failed to fetch comments for #{}: {err:?}",
+                pr.number,
+            ))
+        })?;
 
-    let touched_packages = touched_files
-        .into_iter()
-        .filter_map(|line| {
-            let mut components = line.components();
-            if components.next()?.as_os_str() != OsStr::new("packages") {
-                touches_outside_of_packages = true;
-                return None;
-            }
+    // Update PR
+    update_pr(api_client, repo, pr, &kind).await?;
 
-            let namespace = components.next()?.as_os_str().to_str()?.into();
-            let name = components.next()?.as_os_str().to_str()?.into();
-            let version = components.next()?.as_os_str().to_str()?.parse().ok()?;
-            Some(PackageSpec {
-                namespace,
-                name,
-                version,
-            })
-        })
-        .collect::<HashSet<_>>();
+    // Review comment
+    post_review_comment(api_client, repo, pr, &previous_comments, &kind).await?;
 
-    debug!(
-        "This commit touched the following packages: {:#?}",
-        touched_packages
-    );
-
-    if let Some(pr) = &pr {
-        debug!("This commit is linked to PR {}", pr.number);
-
-        // Update labels
-        let mut has_new_packages = false;
-        let mut has_updated_packages = false;
-        for package in &touched_packages {
-            if git_repo.has_previous_version(package).unwrap_or(false) {
-                has_updated_packages = true;
-            } else {
-                has_new_packages = true;
-            }
-        }
-        const REMOVE_LABELS: [&str; 3] = ["new", "update", "waiting-on-author"];
-        let mut labels = (pr.labels.iter())
-            .filter_map(|l| {
-                let remove = REMOVE_LABELS.contains(&l.name.as_str());
-                (!remove).then(|| l.name.clone())
-            })
-            .collect::<Vec<_>>();
-        if has_new_packages {
-            labels.push("new".to_owned())
-        }
-        if has_updated_packages {
-            labels.push("update".to_owned());
-        }
-
-        // Update checks in PR body if needed
-        let body =
-            update_description_checks(has_new_packages, has_updated_packages, pr.body.as_deref());
-
-        // Update title
-        let mut package_names = touched_packages
-            .iter()
-            .map(|p| format!("{}:{}", p.name, p.version))
-            .collect::<Vec<_>>();
-        package_names.sort();
-        let last_package = package_names.pop();
-        let penultimate_package = package_names.pop();
-        let expected_pr_title = if let Some((penultimate_package, last_package)) =
-            penultimate_package.as_ref().zip(last_package.as_ref())
-        {
-            package_names.push(format!("{} and {}", penultimate_package, last_package));
-            Some(package_names.join(", "))
-        } else {
-            last_package
-        };
-
-        debug!(
-            "Updating PR metadata. Expected title : {:?}, expected labels: {:?}",
-            expected_pr_title, labels
-        );
-        // Actually update the PR, if needed
-        if let Some(expected_pr_title) = expected_pr_title
-            && (pr.title != expected_pr_title || !labels.is_empty() || body.is_some())
-        {
-            api_client
-                .update_pull_request(
-                    repository.owner(),
-                    repository.name(),
-                    pr.number,
-                    PullRequestUpdate {
-                        title: expected_pr_title,
-                        labels,
-                        body,
-                    },
-                )
-                .await
-                .error(Code::GithubApiPullUpdate, "Failed to update pull request")?;
-        }
-    }
-
-    for ref package in touched_packages {
-        let check_run_name = format!(
-            "@{}/{}:{}",
-            package.namespace, package.name, package.version
-        );
-
-        let check_run = if let Some(previous) = previous_check_run
-            .as_ref()
-            .filter(|p| p.name == check_run_name)
-        {
-            previous
-        } else {
-            debug!("Creating a new check run");
-            &api_client
-                .create_check_run(
-                    repository.owner(),
-                    repository.name(),
-                    check_run_name,
-                    &head_sha,
-                )
-                .await
-                .error(
-                    Code::GithubApiCheckRunCreate,
-                    "Failed to create a new check run",
-                )?
-        };
-
-        if touches_outside_of_packages {
-            api_client
-                .update_check_run(
-                    repository.owner(),
-                    repository.name(),
-                    check_run.id,
-                    false,
-                    CheckRunOutput {
-                        title: "This PR does too many things",
-                        summary: "A PR should either change packages/, \
-                                  or the rest of the repository, but not both.",
-                        annotations: &[],
-                    },
-                )
-                .await
-                .error(
-                    Code::GithubApiCheckRunCreate,
-                    "Failed to cancel a check run because the branch does too many things",
-                )?;
-            continue;
-        }
-
-        // Check that the author of this PR is the same as the one of
-        // the previous version.
-        if let Some(current_pr) = &pr {
-            debug!("There is a current PR");
-            if let Some(previous_commit) = git_repo.commit_for_previous_version(workspace, package)
-            {
-                debug!("Found previous commit: {previous_commit}");
-                if let Ok(Some(previous_pr)) = api_client
-                    .prs_for_commit(repository.owner(), repository.name(), previous_commit)
-                    .await
-                    .map(|prs| prs.into_iter().next())
-                {
-                    debug!(
-                        "Found previous PR: #{} (author: {})",
-                        previous_pr.number, previous_pr.user.login
-                    );
-
-                    let previous_comments = match api_client
-                        .list_pr_comments(repository.owner(), repository.name(), current_pr.number)
-                        .await
-                    {
-                        Ok(c) => c,
-                        Err(e) => {
-                            warn!(
-                                "Failed to fetch comments for #{}: {:?}",
-                                previous_pr.number, e
-                            );
-                            Vec::new()
-                        }
-                    };
-                    let already_posted = previous_comments
-                        .iter()
-                        .any(|c| c.user.login == "typst-package-check[bot]");
-
-                    if previous_pr.user.login != current_pr.user.login && !already_posted {
-                        let res = api_client
-                            .post_pr_comment(
-                                repository.owner(),
-                                repository.name(),
-                                current_pr.number,
-                                format!(
-                                    "@{} You released {}:{}, so you probably \
-                                    want to have a look at this pull request. \
-                                    If you want this update to be merged, \
-                                    please leave a comment stating so. \
-                                    Without your permission, the pull request \
-                                    will not be merged.",
-                                    previous_pr.user.login,
-                                    package.name,
-                                    workspace
-                                        .repo()
-                                        .find_previous_version(package)
-                                        .expect(
-                                            "If there is no previous version, \
-                                            this branch should not be reached"
-                                        )
-                                        .version,
-                                ),
-                            )
-                            .await;
-                        if let Err(e) = res {
-                            warn!("Error while posting PR comment: {:?}", e)
-                        }
-                    }
-                }
-            }
-        }
-
-        let res = check::all_checks(
-            workspace,
-            Some(package),
-            PathBuf::new()
-                .join("packages")
-                .join(package.namespace.as_str())
-                .join(package.name.as_str())
-                .join(package.version.to_string()),
-            false,
-        )
-        .await;
-
-        if let Err(err) = &res {
-            api_client
-                .update_check_run(
-                    repository.owner(),
-                    repository.name(),
-                    check_run.id,
-                    false,
-                    CheckRunOutput {
-                        title: &format!("Fatal error [{}]", err.code.ty()),
-                        summary: &format!(
-                            "The following error was encountered:\n\n{}",
-                            err.format_message_with_hints()
-                        ),
-                        annotations: &[],
-                    },
-                )
-                .await
-                .error(Code::GithubApiCheckRunFatal, "Failed to report fatal error")?;
-        }
-
-        let (checks, diags) = res?;
-        let output = codes::process_diagnostics(&checks, diags);
-
-        // Diagnostics that can't be attached to a file (for instance because
-        // they have no label or point to a directory) are listed in the
-        // summary instead, so that they don't silently disappear.
-        let mut annotations = Vec::new();
-        let mut unplaced = Vec::new();
-        for diag in output.denied.all() {
-            match diagnostic_to_annotation(&checks.worlds.package, package, diag) {
-                Some(annotation) => annotations.push(annotation),
-                None => unplaced.push(diag),
-            }
-        }
-        let suppressed = annotations.len().saturating_sub(MAX_ANNOTATIONS);
-        annotations.truncate(MAX_ANNOTATIONS);
-
-        let success = output.denied.errors().is_empty() && output.denied.warnings().is_empty();
-        let title = if output.denied.is_empty() {
-            "All good!".to_owned()
-        } else {
-            [Severity::Error, Severity::Warning, Severity::Note]
-                .into_iter()
-                .map(|severity| {
-                    let num = output.denied.get(severity).len();
-                    format!("{num} {severity}{}", plural(num))
-                })
-                .fold(String::new(), |mut acc, x| {
-                    acc.push_str(", ");
-                    acc.push_str(&x);
-                    acc
-                })
-        };
-        let output = CheckRunOutput {
-            title: &title,
-            summary: &summary(package, &output, suppressed, &unplaced),
-            annotations: &annotations,
-        };
-        api_client
-            .update_check_run(
-                repository.owner(),
-                repository.name(),
-                check_run.id,
-                success,
-                output,
-            )
-            .await
-            .error(Code::GithubApiCheckRunFinalize, "Failed to send report")?;
+    // Authors comment
+    if let PrKind::Packages {
+        different_authors, ..
+    } = kind
+    {
+        post_different_authors_comment(api_client, repo, pr, &previous_comments, different_authors)
+            .await?;
     }
 
     Ok(())
 }
 
-/// Update the "new package" / "update for a package" check boxes in the PR description if needed.
-///
-/// Returns `None` if there is nothing to change.
-fn update_description_checks(
-    has_new_packages: bool,
-    has_updated_packages: bool,
-    current_body: Option<&str>,
-) -> Option<String> {
-    let mut body_changed = false;
-    let new_body = current_body
-        .map(|body| {
-            body.lines()
-                .map(|l| {
-                    let line = l.trim();
-                    if line.starts_with("-") {
-                        let marked = line.contains("[x]");
-                        if line.ends_with("a new package") {
-                            body_changed |= marked != has_new_packages;
-                            if has_new_packages {
-                                return "- [x] a new package";
-                            } else {
-                                return "- [ ] a new package";
-                            }
-                        }
+struct Touched {
+    outside_of_packages: bool,
+    /// Files that are withing `packages/`, but not recognized as package files.
+    misplaced_package_files: Vec<PathBuf>,
+    packages: IndexSet<PackageSpec>,
+}
 
-                        if line.ends_with("an update for a package") {
-                            body_changed |= marked != has_updated_packages;
-                            if has_updated_packages {
-                                return "- [x] an update for a package";
-                            } else {
-                                return "- [ ] an update for a package";
-                            }
-                        }
+impl Touched {
+    pub fn inside_of_packages(&self) -> bool {
+        !self.misplaced_package_files.is_empty() || !self.packages.is_empty()
+    }
+}
+
+fn touched(git_repo: &GitRepo) -> Result<Touched> {
+    let touched_files = git_repo.files_touched_by("HEAD")?;
+
+    let mut outside_of_packages = false;
+    let mut misplaced_package_files = Vec::new();
+    let mut packages = IndexSet::new();
+    for file in touched_files {
+        let mut components = file.components().map(Component::as_os_str);
+
+        // packages
+        let first = components.next().expect("path should be non-empty");
+        if first != "packages" {
+            outside_of_packages = true;
+            continue;
+        }
+
+        // preview
+        let namespace = components
+            .next()
+            .expect("the `packages/` directory exists: this must touch a file inside it")
+            .to_str()
+            .error(Code::GitUtf8, "namespace is invalid UTF-8")?;
+        if namespace != "preview" {
+            misplaced_package_files.push(file);
+            continue;
+        }
+
+        // name
+        let name = components
+            .next()
+            .expect("the `packages/preview/` directory exists: this must touch a file inside it")
+            .to_str()
+            .error(Code::GitUtf8, "package name is invalid UTF-8")?;
+
+        // version
+        let Some(version) = components.next() else {
+            misplaced_package_files.push(file);
+            continue;
+        };
+        let version = version
+            .to_str()
+            .error(Code::GitUtf8, "package version is invalid UTF-8")?;
+        let Ok(version) = version.parse::<PackageVersion>() else {
+            misplaced_package_files.push(file);
+            continue;
+        };
+
+        packages.insert(PackageSpec {
+            namespace: namespace.into(),
+            name: name.into(),
+            version,
+        });
+    }
+
+    packages.sort_by_key(|spec| (spec.name.clone(), spec.version));
+
+    Ok(Touched {
+        outside_of_packages,
+        misplaced_package_files,
+        packages,
+    })
+}
+
+enum PrKind {
+    /// No changes at all.
+    Empty,
+    /// Changes only outside of the `packages/` directory.
+    Meta,
+    /// Changes both inside and outside of the `packages/` directory.
+    Mixed(Touched),
+    /// Changes inside the `packages/` directory, but only misplaced files.
+    Misplaced(Vec<PathBuf>),
+    /// Changes inside the `packages/` directory, with at least one correctly
+    /// placed package.
+    Packages {
+        touched: Touched,
+        other_versions: OtherPackageVersions,
+        different_authors: DifferentPackageAuthors,
+        checks: Vec<CheckedPackage>,
+    },
+}
+impl PrKind {
+    fn is_invalid(&self) -> bool {
+        matches!(self, PrKind::Mixed(_) | PrKind::Misplaced(_))
+    }
+}
+
+async fn check_pr(
+    workspace: &Workspace,
+    api_client: &GitHub<AuthInstallation>,
+    repo: &RepositoryId,
+    pr: &PullRequest,
+) -> Result<PrKind> {
+    let git_repo = GitRepo::open(workspace.repo().dir().to_owned())?;
+    let touched = touched(&git_repo)?;
+    debug!(
+        "This commit touched the following packages: {:#?}",
+        touched.packages
+    );
+    debug!("This commit is linked to PR {}", pr.number);
+
+    if touched.outside_of_packages {
+        return if touched.inside_of_packages() {
+            Ok(PrKind::Mixed(touched))
+        } else {
+            Ok(PrKind::Meta)
+        };
+    } else if touched.packages.is_empty() {
+        return if touched.misplaced_package_files.is_empty() {
+            Ok(PrKind::Empty)
+        } else {
+            Ok(PrKind::Misplaced(touched.misplaced_package_files))
+        };
+    }
+
+    let other_versions = other_package_versions(workspace, &touched)?;
+    let different_authors =
+        different_package_authors(workspace, api_client, &git_repo, pr, repo, &other_versions)
+            .await?;
+
+    // Run checks in parallel.
+    let mut tasks = Vec::with_capacity(touched.packages.len());
+    for package in touched.packages.iter().cloned() {
+        let workspace = workspace.clone();
+        tasks.push(tokio::task::spawn(check_package(workspace, package)));
+    }
+
+    let mut checks = Vec::with_capacity(touched.packages.len());
+    for (package, task) in touched.packages.iter().zip(tasks) {
+        let (output, check_run_output) = task.await.unwrap();
+        let success = output.as_ref().is_some_and(|o| o.passed());
+
+        // Directly create the concluded check run, because sometimes newly
+        // created runs aren't found by the API. Running checks for a
+        // package doesn't take very long, compared to checking out the
+        // repo, so this isn't really perceivable.
+        debug!("Creating check run, success: {success}, output: {check_run_output:?}");
+        let run = api_client
+            .create_check_run(
+                repo,
+                package.to_string(),
+                &pr.head.sha,
+                success,
+                check_run_output,
+            )
+            .await
+            .error(
+                Code::GithubApiCheckRunCreate,
+                "Failed to create a new check run",
+            )?;
+
+        checks.push(CheckedPackage { run, output });
+    }
+
+    Ok(PrKind::Packages {
+        touched,
+        other_versions,
+        different_authors,
+        checks,
+    })
+}
+
+#[derive(Default)]
+struct OtherPackageVersions(IndexMap<VersionlessPackageSpec, IndexSet<PackageVersion>>);
+
+impl OtherPackageVersions {
+    fn has_updated_package(&self) -> bool {
+        self.0.iter().any(|(_, other)| !other.is_empty())
+    }
+
+    fn has_new_package(&self) -> bool {
+        self.0.iter().any(|(_, other)| other.is_empty())
+    }
+
+    fn iter(&self) -> impl Iterator<Item = (&VersionlessPackageSpec, &IndexSet<PackageVersion>)> {
+        self.0.iter()
+    }
+}
+
+/// Package versions that haven't been added in this PR.
+fn other_package_versions(
+    workspace: &Workspace,
+    touched: &Touched,
+) -> Result<OtherPackageVersions> {
+    let mut other_package_versions = IndexMap::new();
+
+    // Read all package versions.
+    for package in touched.packages.iter() {
+        if let Entry::Vacant(vacant) = other_package_versions.entry(package.versionless()) {
+            let versions = workspace.repo().find_versions(package)?;
+            vacant.insert(versions);
+        }
+    }
+
+    // Filter out packages that have been touched.
+    for touched in touched.packages.iter() {
+        let versions = &mut other_package_versions[&touched.versionless()];
+        versions.shift_remove(&touched.version);
+    }
+
+    Ok(OtherPackageVersions(other_package_versions))
+}
+
+type DifferentPackageAuthors = IndexMap<String, Vec<PackageSpec>>;
+
+/// Packages that have previously been published by different authors.
+async fn different_package_authors(
+    workspace: &Workspace,
+    api_client: &GitHub<AuthInstallation>,
+    git_repo: &GitRepo,
+    pr: &PullRequest,
+    repository: &RepositoryId,
+    other_versions: &OtherPackageVersions,
+) -> Result<DifferentPackageAuthors> {
+    let mut different_authors = DifferentPackageAuthors::default();
+    for (package, versions) in other_versions.iter() {
+        let Some(version) = versions.last() else {
+            continue;
+        };
+
+        let newest_spec = package.clone().at(*version);
+        let manifest = workspace.repo().manifest_path_of(&newest_spec);
+        let Some(previous_commit) = git_repo.commit_for_file(&manifest) else {
+            continue;
+        };
+        debug!("Found previous commit: {previous_commit}");
+
+        let previous_prs = api_client
+            .prs_for_commit(repository, &previous_commit)
+            .await
+            .error(Code::GithubApiCommitPulls, "Failed to get PR for commit")?;
+
+        if let Some(previous_pr) = previous_prs.into_iter().next() {
+            debug!(
+                "Found previous PR: #{} (author: {})",
+                previous_pr.number, previous_pr.user.login
+            );
+
+            // TODO: Handle github organizations?
+            let prev_author = previous_pr.user.login;
+            if prev_author != pr.user.login {
+                different_authors
+                    .entry(prev_author)
+                    .or_default()
+                    .push(newest_spec);
+            }
+        }
+    }
+
+    Ok(different_authors)
+}
+
+async fn update_pr(
+    api_client: &GitHub<AuthInstallation>,
+    repo: &RepositoryId,
+    pr: &PullRequest,
+    kind: &PrKind,
+) -> Result<()> {
+    // Update title
+    let mut title = None;
+    if let PrKind::Packages { touched, .. } = &kind {
+        let mut expected = String::new();
+        for (i, p) in touched.packages.iter().enumerate() {
+            if i > 0 {
+                let last = i == touched.packages.len() - 1;
+                expected.push_str(if last { " and " } else { ", " });
+            }
+
+            write!(expected, "{}:{}", p.name, p.version).ok();
+        }
+
+        if pr.title != expected {
+            title = Some(expected);
+        }
+    }
+
+    // Update labels
+    let mut has_new_packages = false;
+    let mut has_updated_packages = false;
+    let mut has_staff_override = false;
+    let mut ready_for_review = false;
+    let mut waiting_on_author = None;
+    match kind {
+        PrKind::Empty | PrKind::Meta => {}
+        PrKind::Mixed(_) | PrKind::Misplaced(_) => {
+            waiting_on_author = Some(true);
+        }
+        PrKind::Packages {
+            other_versions,
+            checks,
+            ..
+        } => {
+            has_new_packages = other_versions.has_new_package();
+            has_updated_packages = other_versions.has_updated_package();
+
+            has_staff_override = checks.iter().any(|c| c.has_staff_override());
+
+            let all_passed = checks.iter().all(|c| c.passed());
+            ready_for_review = all_passed;
+            waiting_on_author = Some(!all_passed);
+        }
+    }
+
+    let labels = {
+        let mut labels = IndexSet::from_iter(pr.labels.iter().map(|l| l.name.clone()));
+
+        // Make sure the managed labels are ordered the same way.
+        let mut i = 0;
+        let mut set_label = |label: &str, insert| {
+            labels.shift_remove(label);
+            if insert {
+                labels.shift_insert(i, label.to_owned());
+                i += 1;
+            }
+        };
+        set_label("invalid", kind.is_invalid());
+        set_label("meta", matches!(kind, PrKind::Meta));
+        set_label("new", has_new_packages);
+        set_label("update", has_updated_packages);
+        set_label("staff-override", has_staff_override);
+        set_label("ready-for-review", ready_for_review);
+        if let Some(waiting) = waiting_on_author {
+            set_label("waiting-on-author", waiting);
+        }
+
+        let changed = pr.labels.iter().map(|l| &l.name).ne(labels.iter());
+        changed.then_some(labels)
+    };
+
+    debug!("Updating PR metadata, expected title: {title:?}, expected labels: {labels:?}");
+    // Only update the PR, if needed.
+    if title.is_some() || labels.is_some() {
+        api_client
+            .update_pull_request(repo, pr.number, PullRequestUpdate { title, labels })
+            .await
+            .error(Code::GithubApiPullUpdate, "Failed to update pull request")?;
+    }
+
+    Ok(())
+}
+
+/// Delete the previous review comment and post a new one.
+async fn post_review_comment(
+    api_client: &GitHub<AuthInstallation>,
+    repo: &RepositoryId,
+    pr: &PullRequest,
+    previous_comments: &[Comment],
+    kind: &PrKind,
+) -> Result<()> {
+    let comment = match kind {
+        PrKind::Empty => None,
+        PrKind::Meta => None,
+        PrKind::Mixed(touched) => {
+            let message = String::from(
+                "This PR does too many things.\n\
+                 A PR should either change `packages/`, \
+                 or the rest of the repository, but not both.\n",
+            );
+
+            Some((message, &touched.misplaced_package_files))
+        }
+        PrKind::Misplaced(misplaced) => Some(("".to_string(), misplaced)),
+        PrKind::Packages {
+            touched,
+            other_versions,
+            checks,
+            ..
+        } => {
+            let misplaced = &touched.misplaced_package_files;
+
+            let mut message = String::new();
+            if checks.iter().all(|c| c.passed()) {
+                if misplaced.is_empty() {
+                    message.push_str("All good! A human being will review this PR soon.");
+                }
+            } else {
+                message.push_str(
+                    "The automatic package-check failed.\n\
+                     There are some issues with these packages:\n",
+                );
+
+                for check in checks {
+                    if !check.passed() {
+                        let pr = pr.number;
+                        let name = &check.run.name;
+                        let id = check.run.id;
+                        writeln!(
+                            message,
+                            "- [{name}](https://github.com/{repo}/pull\
+                             /{pr}/checks?check_run_id={id})"
+                        )
+                        .ok();
                     }
+                }
 
-                    l
-                })
-                .fold(
-                    String::with_capacity(current_body.map(|body| body.len()).unwrap_or(0)),
-                    |body, line| body + "\n" + line,
-                )
-        })
-        .unwrap_or_default();
+                message.push_str(
+                    "\nPlease take a look at the failing checks and deal with the errors and warnings.\n\
+                     Once the automated checks pass a human being will review this PR.\n\n\
+                     If you think there is an issue with the package check, please write \
+                     a message and ping us by including `@typst/package-review`\n",
+                );
+            }
 
-    body_changed.then_some(new_body)
+            let missing_explanation = other_versions.has_new_package()
+                && (!pr.body.contains("  - Explanation:")
+                    || pr.body.contains("`YOUR EXPLANATION`"));
+            if missing_explanation {
+                message.push_str(
+                    "\nThis PR adds new packages, please provide an explanation for the package name:\n\
+                    > Please write one or two sentences explaining:\n\
+                    > 1. the name of your package, if necessary, e.g:\n\
+                    >   > Pergamon was an ancient Greek city state in Asia Minor. \
+                        Its library was second only to the Library of Alexandria around 200 BC.\n\
+                    > 2. why it isn't too canonical/descriptive and complies \
+                        with the naming rules, e.g:\n\
+                    >   - The name is a related but creative term\n\
+                    >   - The name is a neologism combining the words … and …\n\
+                    >   - The name contains a non-descriptive prefix\n\
+                    >   - The package is official ⇒ an email needs to be sent to hello@typst.app\n",
+                );
+            }
+
+            Some((message, misplaced))
+        }
+    };
+
+    // Add note about misplaced files.
+    let comment = comment.map(|(mut message, misplaced)| {
+        if !misplaced.is_empty() {
+            message.push_str(
+                "\nThere are misplaced files in the packages directory. \
+                 Package files should be placed under `packages/preview/<name>/<version>/`.\n\
+                 <details>\n\
+                 <summary>Incorrectly placed files:</summary>\n\n",
+            );
+            for file in misplaced.iter() {
+                writeln!(message, "  - `{}`", file.display()).ok();
+            }
+            message.push_str("</details>\n");
+        }
+
+        message
+    });
+
+    // Delete previous comment.
+    let previous_comment = previous_comments.iter().find(|comment| {
+        comment.user.login == "typst-package-check[bot]"
+            && comment.body.trim().starts_with(COMMENT_TAG_REVIEW)
+    });
+    if let Some(comment) = previous_comment {
+        debug!("Deleting old review comment, id: {:?}", comment.id);
+        api_client
+            .delete_pr_comment(repo, pr.number, comment.id)
+            .await
+            .error(
+                Code::GithubApiPullCommentsDelete,
+                "Failed to delete previous PR review comment",
+            )?;
+    }
+
+    // Post new comment.
+    if let Some(message) = comment {
+        debug!("Posting review comment, message: {message:?}");
+        api_client
+            .post_pr_comment(repo, pr.number, format!("{COMMENT_TAG_REVIEW}\n{message}"))
+            .await
+            .error(
+                Code::GithubApiPullCommentsPost,
+                "Failed to post PR review comment",
+            )?;
+    }
+
+    Ok(())
+}
+
+/// Ping authors that released the previous package versions, if not already
+/// done for the PR.
+///
+/// This is tracked using by tagging comments made by the package check with
+/// markdown comments in a specific format.
+async fn post_different_authors_comment(
+    api_client: &GitHub<AuthInstallation>,
+    repo: &RepositoryId,
+    pr: &PullRequest,
+    previous_comments: &[Comment],
+    mut different_authors: DifferentPackageAuthors,
+) -> Result<()> {
+    let mut pinged_author_packages = HashSet::new();
+    for comment in previous_comments.iter() {
+        if comment.user.login != "typst-package-check[bot]" {
+            continue;
+        }
+        let Some(comment) = comment.body.trim().strip_prefix(COMMENT_TAG_AUTHOR) else {
+            continue;
+        };
+        let list = comment
+            .trim()
+            .lines()
+            .next()
+            .and_then(|line| line.trim().strip_prefix("<!--")?.strip_suffix("-->"))
+            .error(
+                Code::GithubApiPullCommentsTag,
+                "Expected comment tag with list of packages",
+            )?;
+
+        for package in list.trim().split(' ') {
+            let spec = package.parse::<PackageSpec>().error(
+                Code::GithubApiPullCommentsTag,
+                "Invalid package spec in comment tag",
+            )?;
+            pinged_author_packages.insert(spec);
+        }
+    }
+
+    // Filter out packages, for which an author has already been pinged.
+    different_authors.retain(|_, packages| {
+        packages.retain(|package| !pinged_author_packages.contains(package));
+        !packages.is_empty()
+    });
+
+    if !different_authors.is_empty() {
+        different_authors.sort_keys();
+
+        // Tags
+        let mut message = format!("{COMMENT_TAG_AUTHOR}\n<!--");
+        for p in different_authors.values().flatten() {
+            write!(message, " {p}").ok();
+        }
+        message.push_str(" -->\n");
+
+        // Message
+        for (author, packages) in different_authors.iter() {
+            writeln!(message, "@{author} You released these packages:").ok();
+            for package in packages.iter() {
+                writeln!(message, "- {}:{}", package.name, package.version).ok();
+            }
+            message.push_str(
+                "If you want this update to be merged, \
+                 please leave a comment stating so. \
+                 Without your permission, the pull request \
+                 will not be merged.\n\n",
+            );
+        }
+
+        debug!("Posting author comment, message: {message:?}");
+        api_client
+            .post_pr_comment(repo, pr.number, message)
+            .await
+            .error(
+                Code::GithubApiPullCommentsPost,
+                "Failed to post PR author comment",
+            )?;
+    }
+
+    Ok(())
+}
+
+struct CheckedPackage {
+    run: CheckRun,
+    output: Option<Output>,
+}
+
+impl CheckedPackage {
+    fn passed(&self) -> bool {
+        self.output.as_ref().is_some_and(|o| o.passed())
+    }
+
+    fn has_staff_override(&self) -> bool {
+        self.output.as_ref().is_some_and(|o| o.has_staff_override)
+    }
+}
+
+async fn check_package(
+    workspace: Workspace,
+    package: PackageSpec,
+) -> (Option<Output>, CheckRunOutput) {
+    let res = check::all_checks(
+        &workspace,
+        Some(&package),
+        PathBuf::from_iter([
+            "packages",
+            package.namespace.as_str(),
+            package.name.as_str(),
+            package.version.to_string().as_str(),
+        ]),
+        false,
+    )
+    .await;
+
+    match res {
+        Ok((checks, diags)) => {
+            let output = codes::process_diagnostics(&checks, diags);
+
+            // Diagnostics that can't be attached to a file (for instance because
+            // they have no label or point to a directory) are listed in the
+            // summary instead, so that they don't silently disappear.
+            let mut annotations = Vec::new();
+            let mut unplaced = Vec::new();
+            for diag in output.denied.all() {
+                match diagnostic_to_annotation(&checks.worlds.package, &package, diag) {
+                    Some(annotation) => annotations.push(annotation),
+                    None => unplaced.push(diag),
+                }
+            }
+            let suppressed = annotations.len().saturating_sub(MAX_ANNOTATIONS);
+            annotations.truncate(MAX_ANNOTATIONS);
+
+            let title = if output.denied.is_empty() {
+                "All good!".to_owned()
+            } else {
+                let mut title = String::new();
+                for severity in [Severity::Error, Severity::Warning, Severity::Note] {
+                    if !title.is_empty() {
+                        title.push_str(", ");
+                    }
+                    let num = output.denied.get(severity).len();
+                    write!(title, "{num} {severity}{}", plural(num)).ok();
+                }
+                title
+            };
+            let check_run_output = CheckRunOutput {
+                title,
+                summary: summary(&package, &output, suppressed, &unplaced),
+                annotations,
+            };
+
+            (Some(output), check_run_output)
+        }
+        Err(err) => {
+            let check_run_output = CheckRunOutput {
+                title: format!("Fatal error [{}]", err.code.ty()),
+                summary: format!(
+                    "The following error was encountered:\n\n{}",
+                    err.format_message_with_hints()
+                ),
+                annotations: Vec::new(),
+            };
+
+            (None, check_run_output)
+        }
+    }
 }
 
 /// Builds the summary of the check run.
@@ -455,9 +790,9 @@ fn summary(
         plural(warnings),
         plural(notes),
     )
-    .unwrap();
+    .ok();
 
-    if warnings > 0 {
+    if !output.passed() {
         writeln!(
             summary,
             "Please either fix all errors and warnings, or explicitly \
@@ -466,14 +801,16 @@ fn summary(
              See: {}\n",
             Docs::PACKAGE_CHECK,
         )
-        .unwrap();
-    }
+        .ok();
 
-    summary.push_str(
-        "Once the automated checks pass, a human being will review the package.\n\
-         If you think there is an issue with the package check, please write \
-         a message and ping us by including `@typst/package-review`",
-    );
+        summary.push_str(
+            "Once the automated checks pass, a human being will review the package.\n\
+             If you think there is an issue with the package check, please write \
+             a message and ping us by including `@typst/package-review`.\n",
+        );
+    } else {
+        summary.push_str("A human being will review the package soon.\n");
+    }
 
     if suppressed > 0 {
         writeln!(
@@ -482,7 +819,7 @@ fn summary(
              {suppressed} additional annotation{} suppressed.\n",
             if suppressed == 1 { " was" } else { "s were" },
         )
-        .unwrap();
+        .ok();
     }
 
     if !unplaced.is_empty() {
@@ -491,7 +828,7 @@ fn summary(
              not show inline with your changes. These are listed here:\n",
         );
         for diag in unplaced {
-            write_summary_diagnostic(&mut summary, package, diag).unwrap();
+            write_summary_diagnostic(&mut summary, package, diag).ok();
         }
     }
 
@@ -503,9 +840,9 @@ fn summary(
             output.allowed.len(),
             plural(output.allowed.len()),
         )
-        .unwrap();
+        .ok();
         for diag in output.allowed.all() {
-            write_summary_diagnostic(&mut summary, package, diag).unwrap();
+            write_summary_diagnostic(&mut summary, package, diag).ok();
         }
         summary.push_str("</details>\n");
     }
@@ -518,14 +855,18 @@ fn write_summary_diagnostic(
     mut f: impl Write,
     package: &PackageSpec,
     diag: &Diagnostic,
-) -> fmt::Result {
+) -> std::fmt::Result {
     let severity = match diag.severity {
         Severity::Error => "Error",
         Severity::Warning => "Warning",
         Severity::Note => "Note",
     };
     let code = diag.code.ty().as_str();
-    write!(f, "- **{severity}** [`{code}`]")?;
+    f.write_str("- ")?;
+    if diag.code.data().is_some() {
+        f.write_str("[overridable] ")?;
+    };
+    write!(f, "**{severity}** [`{code}`]")?;
 
     if let Some(label) = diag.label {
         let file_package = match label.file.root() {
