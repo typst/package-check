@@ -177,19 +177,19 @@ impl Diagnostics {
         }
     }
 
+    pub fn all(&self) -> impl DoubleEndedIterator<Item = &Diagnostic> {
+        self.errors
+            .iter()
+            .chain(self.warnings.iter())
+            .chain(self.notes.iter())
+    }
+
     pub fn len(&self) -> usize {
         self.errors.len() + self.warnings.len() + self.notes.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    pub fn all(&self) -> impl DoubleEndedIterator<Item = &Diagnostic> {
-        self.errors
-            .iter()
-            .chain(self.warnings.iter())
-            .chain(self.notes.iter())
     }
 }
 

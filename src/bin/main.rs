@@ -8,11 +8,11 @@ use tracing_subscriber::EnvFilter;
 use typst::syntax::package::PackageSpec;
 use typst_package_check::check::codes::{Code, process_diagnostics};
 use typst_package_check::check::{Exclude, TryExt, all_checks};
+use typst_package_check::github::AppState;
 use typst_package_check::github::api::pr::PullRequestEvent;
-use typst_package_check::github::api::{Installation, Repository};
-use typst_package_check::github::{AppState, run_github_check};
+use typst_package_check::github::api::{Installation, RepositoryId};
 use typst_package_check::workspace::{SystemPackages, Workspace};
-use typst_package_check::{cli, json};
+use typst_package_check::{cli, github, json};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -252,7 +252,7 @@ pub async fn run_action() {
     let state = AppState::read();
 
     let api_client = state
-        .as_github_api()
+        .github_api_client()
         .unwrap()
         .auth_installation(&Installation {
             id: std::env::var("GITHUB_INSTALLATION")
@@ -263,27 +263,25 @@ pub async fn run_action() {
         .await
         .unwrap();
 
-    let repository =
-        Repository::new(&std::env::var("GITHUB_REPOSITORY").unwrap_or("typst/packages".to_owned()))
-            .unwrap();
+    let repository = RepositoryId::new(
+        std::env::var("GITHUB_REPOSITORY").unwrap_or("typst/packages".to_owned()),
+    )
+    .unwrap();
 
-    let event = tokio::fs::read_to_string(
+    let event = std::fs::read_to_string(
         std::env::var("GITHUB_EVENT_PATH").expect("This command should be run in GitHub Actions"),
     )
-    .await
     .error(Code::GithubActionsEventIo, "Failed to read event metadata")
     .unwrap();
     let event: PullRequestEvent = serde_json::from_str(&event)
         .error(Code::GithubActionsEventInvalid, "Invalid event JSON")
         .unwrap();
 
-    run_github_check(
+    github::run_action(
         &state.workspace,
-        event.pull_request.head.sha.clone(),
-        api_client,
-        repository,
-        None,
-        Some(event.pull_request),
+        &api_client,
+        &repository,
+        &event.pull_request,
     )
     .await
     .unwrap();
