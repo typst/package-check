@@ -322,6 +322,10 @@ codes! {
     // === Tool ===
     ManifestToolType = "manifest/tool/type"
     ManifestToolPackageCheckType = "manifest/tool/package-check/type"
+    ManifestToolPackageCheckTargetsType = "manifest/tool/package-check/targets/type"
+    ManifestToolPackageCheckTargetsEmpty = "manifest/tool/package-check/targets/empty"
+    ManifestToolPackageCheckTargetsUnknown = "manifest/tool/package-check/targets/unknown"
+    ManifestToolPackageCheckTargetsDuplicate = "manifest/tool/package-check/targets/duplicate"
     ManifestToolPackageCheckLintsUnknown = "manifest/tool/package-check/lints/unknown"
     ManifestToolPackageCheckLintsType = "manifest/tool/package-check/lints/type"
 

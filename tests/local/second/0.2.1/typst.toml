@@ -12,5 +12,8 @@ description = "Cool Typst package"
 path = "template"
 entrypoint = "main.typ"
 
+[tool.package-check]
+targets = ["html"]
+
 [tool.package-check.lints]
 "manifest/package/description/typst" = { allow = true }

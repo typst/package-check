@@ -6,12 +6,11 @@ use typst::ecow::eco_format;
 use typst::syntax::VirtualPath;
 use typst::syntax::ast::{self, AstNode, ModuleImport};
 use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec};
-use walkdir::WalkDir;
 
 use crate::check::codes::Code;
 use crate::check::diagnostics::{Diagnostic, Docs, Label};
 use crate::check::path::PackagePath;
-use crate::check::{Diagnostics, TryExt};
+use crate::check::{Diagnostics, TryExt, files};
 use crate::world::SystemWorld;
 
 pub fn check(
@@ -19,7 +18,7 @@ pub fn check(
     package_dir: &Path,
     world: &SystemWorld,
 ) -> crate::check::Result<()> {
-    for ch in WalkDir::new(package_dir).into_iter().flatten() {
+    for ch in files::walk(package_dir).flatten() {
         let Ok(meta) = ch.metadata() else {
             continue;
         };

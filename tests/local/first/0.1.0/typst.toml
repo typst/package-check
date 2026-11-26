@@ -9,5 +9,8 @@ thumbnail = "missing.png"
 path = "template"
 entrypoint = "main.typ"
 
+[tool.package-check]
+targets = ["paged", "paged"]
+
 [tool.package-check.lints]
 "exclude/example" = { allow.files = ["src/example.typ"] }

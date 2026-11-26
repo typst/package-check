@@ -50,6 +50,8 @@ typst-assets = { version = "0.15.1", features = [ "fonts" ] }
 typst-eval = "0.15.1"
 typst-utils = "0.15.1"
 typst-layout = "0.15.1"
+typst-html = "0.15.1"
+typst-bundle = "0.15.1"
 typst-kit = {version = "0.15.1", features = ["datetime", "embedded-fonts", "scan-fonts"]}
 url = "2.5.7"
 walkdir = "2.5.0"

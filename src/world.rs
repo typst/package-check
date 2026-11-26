@@ -2,23 +2,20 @@
 //!
 //! Most of this module is copied from typst-cli.
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
 use tracing::{Level, debug, span};
+use typst::Features;
+use typst::diag::{FileError, FileResult, PackageError, PackageResult};
 use typst::foundations::Duration;
-use typst::syntax::{RootedPath, VirtualRoot};
-use typst::{
-    Library, LibraryExt, World,
-    diag::{FileError, FileResult, PackageError, PackageResult},
-    foundations::{Bytes, Datetime},
-    syntax::{FileId, Source, VirtualPath, package::PackageSpec},
-    text::{Font, FontBook},
-    utils::LazyHash,
-};
+use typst::foundations::{Bytes, Datetime};
+use typst::syntax::package::PackageSpec;
+use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
+use typst::text::{Font, FontBook};
+use typst::utils::LazyHash;
+use typst::{Library, LibraryExt, World};
 use typst_kit::files::FsRoot;
 
 use crate::check::Exclude;
@@ -52,11 +49,12 @@ impl SystemWorld {
         input: VirtualPath,
         workspace: Workspace,
         root: WorldRoot,
+        features: Features,
         package_spec: Option<PackageSpec>,
     ) -> Self {
         let main = FileId::new(RootedPath::new(VirtualRoot::Project, input));
 
-        let library = Library::default();
+        let library = Library::builder().with_features(features).build();
 
         Self {
             workspace,
@@ -166,6 +164,7 @@ impl SystemWorld {
     }
 }
 
+#[derive(Clone)]
 pub enum WorldRoot {
     Package(PathBuf),
     Template { package: PathBuf, template: PathBuf },

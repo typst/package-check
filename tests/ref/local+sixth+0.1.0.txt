@@ -63,10 +63,18 @@
   = hint: See https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
 
 warning[unused/lint/override]: This lint does not need to be allowed
-   ┌─ typst.toml:15:0
+   ┌─ typst.toml:19:0
    │
-15 │ "manifest/package/description/typst" = { allow = true }
+19 │ "manifest/package/description/typst" = { allow = true }
    │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[manifest/tool/package-check/targets/empty]: The `targets` list must be non-empty
+   ┌─ typst.toml:16:10
+   │
+16 │ targets = []
+   │           ^^
+   │
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 error[manifest/template/thumbnail/not-found]: This file does not exist.
    ┌─ typst.toml:10:12
@@ -76,6 +84,6 @@ error[manifest/template/thumbnail/not-found]: This file does not exist.
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
-1 error, 8[+1 allowed] warnings, and 0 notes
+2 errors, 8[+1 allowed] warnings, and 0 notes
 hint: Some diagnostics are overridable. See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

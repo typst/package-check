@@ -6,7 +6,7 @@
   │
   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
-error[compile/error]: The following error was reported by the Typst compiler:
+error[compile/error]: Compile error[paged]:
 failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ mino.typ:1:8
   │

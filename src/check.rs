@@ -60,11 +60,11 @@ pub fn offline_checks(
 
     let files = files::check(&mut diags, &package_dir, &manifest, &readme);
 
-    compile::check(&mut diags, &worlds.package);
+    compile::check(&mut diags, &manifest, &worlds.package);
     kebab_case::check_project(&worlds.package, &mut diags);
     if let Some(template_world) = &worlds.template {
         let mut template_diags = Diagnostics::default();
-        compile::check(&mut template_diags, template_world);
+        compile::check(&mut template_diags, &manifest, template_world);
         kebab_case::check_project(template_world, &mut template_diags);
 
         let template_dir = template_world
