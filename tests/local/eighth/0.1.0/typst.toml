@@ -7,11 +7,11 @@ entrypoint = "lib.typ"
 license = "MIT"
 
 [tool.package-check.lints]
-"wat?" = "allow"
-"files/fonts" = "allow"
-"manifest/package/name/typst" = "deny"
+"wat?" = { allow = true }
+"files/fonts" = { allow = true }
+"manifest/package/name/typst" = { allow = false }
 
-"size/large" = { flies = ["examples/*"] }
+"size/large" = { allow.flies = ["examples/*"] }
 
-"readme/link/repo/default-branch" = { allow-matches = [true] }
-"readme/image/inadequate-alt" = { allow-matches = ["Repo", "(GitHub|License", "License"] }
+"readme/link/repo/default-branch" = { allow.matches = [true] }
+"readme/image/inadequate-alt" = { allow.matches = ["Repo", "(GitHub|License", "License"] }

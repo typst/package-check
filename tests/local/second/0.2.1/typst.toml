@@ -13,4 +13,4 @@ path = "template"
 entrypoint = "main.typ"
 
 [tool.package-check.lints]
-"manifest/package/description/typst" = "allow"
+"manifest/package/description/typst" = { allow = true }

@@ -9,27 +9,27 @@
 warning[unused/lint/override/regex]: This regex doesn't match any diagnostics
    ┌─ typst.toml:17:78
    │
-17 │ "readme/image/inadequate-alt" = { allow-matches = ["Repo", "(GitHub|License", "License"] }
+17 │ "readme/image/inadequate-alt" = { allow.matches = ["Repo", "(GitHub|License", "License"] }
    │                                                                               ^^^^^^^^^
 
 warning[unused/lint/override]: This text selector doesn't match any diagnostics
    ┌─ typst.toml:16:54
    │
-16 │ "readme/link/repo/default-branch" = { allow-matches = [true] }
+16 │ "readme/link/repo/default-branch" = { allow.matches = [true] }
    │                                                       ^^^^^^
 
 warning[lint/selector/file/unexpected]: unexpected key
-   ┌─ typst.toml:14:17
+   ┌─ typst.toml:14:23
    │
-14 │ "size/large" = { flies = ["examples/*"] }
-   │                  ^^^^^
+14 │ "size/large" = { allow.flies = ["examples/*"] }
+   │                        ^^^^^
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 warning[manifest/tool/package-check/lints/unknown]: Unknown lint code `wat?`
    ┌─ typst.toml:10:0
    │
-10 │ "wat?" = "allow"
+10 │ "wat?" = { allow = true }
    │ ^^^^^^
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
@@ -40,40 +40,40 @@ error[lint/selector/text/regex]: regex parse error:
 error: unclosed group
    ┌─ typst.toml:17:59
    │
-17 │ "readme/image/inadequate-alt" = { allow-matches = ["Repo", "(GitHub|License", "License"] }
+17 │ "readme/image/inadequate-alt" = { allow.matches = ["Repo", "(GitHub|License", "License"] }
    │                                                            ^^^^^^^^^^^^^^^^^
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
-error[lint/selector/text/type]: `tool.package-check.lints."readme/link/repo/default-branch".allow-matches[0]` should be a string
+error[lint/selector/text/type]: `tool.package-check.lints."readme/link/repo/default-branch".allow.matches[0]` should be a string
    ┌─ typst.toml:16:55
    │
-16 │ "readme/link/repo/default-branch" = { allow-matches = [true] }
+16 │ "readme/link/repo/default-branch" = { allow.matches = [true] }
    │                                                        ^^^^
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
-error[lint/selector/file/invalid]: Missing required field `tool.package-check.lints."size/large".allow-files`
-   ┌─ typst.toml:14:15
+error[lint/selector/file/invalid]: Missing required field `tool.package-check.lints."size/large".allow.files`
+   ┌─ typst.toml:14:17
    │
-14 │ "size/large" = { flies = ["examples/*"] }
-   │                ^^^^^^^^^^^^^^^^^^^^^^^^^^
+14 │ "size/large" = { allow.flies = ["examples/*"] }
+   │                  ^^^^^
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 error[lint/selector/project/invalid]: a project level selector must be `"allow"`
-   ┌─ typst.toml:12:32
+   ┌─ typst.toml:12:42
    │
-12 │ "manifest/package/name/typst" = "deny"
-   │                                 ^^^^^^
+12 │ "manifest/package/name/typst" = { allow = false }
+   │                                           ^^^^^
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 error[lint/overridable]: `files/fonts` cannot be overriden
-   ┌─ typst.toml:11:16
+   ┌─ typst.toml:11:0
    │
-11 │ "files/fonts" = "allow"
-   │                 ^^^^^^^
+11 │ "files/fonts" = { allow = true }
+   │ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

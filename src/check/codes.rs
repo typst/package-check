@@ -310,6 +310,8 @@ codes! {
     ManifestToolPackageCheckLintsType = "manifest/tool/package-check/lints/type"
 
     LintOverridable = "lint/overridable"
+    LintSelectorType = "lint/selector/type"
+    LintSelectorUnexpected = "lint/selector/unexpected"
     LintSelectorProjectType = "lint/selector/project/type"
     LintSelectorProjectInvalid = "lint/selector/project/invalid"
     LintSelectorFileType = "lint/selector/file/type"

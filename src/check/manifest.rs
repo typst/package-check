@@ -754,12 +754,13 @@ fn check_tool(manifest: &mut toml::File) -> Option<Spanned<PackageCheck>> {
                     })
                 },
                 |code, selector| {
+                    let span = span_across(code.span(), selector.item.span());
                     let Some(selector_type) = code.overridable().selector_type() else {
                         return Err(Diagnostic::error(Code::LintOverridable)
-                            .with_message(format!("`{}` cannot be overriden", code.val)));
+                            .with_message(format!("`{}` cannot be overriden", code.val))
+                            .with_label(manifest_label(span)));
                     };
                     let allowed = parse_selector_type(selector, selector_type)?;
-                    let span = span_across(code.span(), allowed.span());
                     Ok(Spanned::new(
                         Lint {
                             code: code.to_owned(),
@@ -783,22 +784,36 @@ fn parse_selector_type(
     selector: ValueParser<Spanned<&Item>>,
     selector_type: SelectorType,
 ) -> Result<Spanned<Selector>> {
+    let mut selector = selector.expect_inline_table(Code::LintSelectorType)?;
+
+    const ALLOW: &str = "allow";
+    selector.unexpected(Code::LintSelectorUnexpected, [ALLOW]);
+
     match selector_type {
         SelectorType::Project => {
-            let allow = selector.expect_str(Code::LintSelectorProjectType)?;
-            if allow.item.val != "allow" {
-                return Err(Diagnostic::error(Code::LintSelectorProjectInvalid)
-                    .with_message(r#"a project level selector must be `"allow"`"#));
-            }
-            Ok(allow.item.map(|_| Selector::Project))
+            let allow = selector
+                .require_field(ALLOW, Code::LintSelectorProjectInvalid)?
+                .expect_bool(Code::LintSelectorProjectType)?
+                .parse(|val| {
+                    if !val {
+                        return Err(Diagnostic::error(Code::LintSelectorProjectInvalid)
+                            .with_message(r#"a project level selector must be `"allow"`"#));
+                    }
+                    Ok(Selector::Project)
+                })?;
+            Ok(allow.item)
         }
         SelectorType::File => {
-            let selector = selector.expect_inline_table(Code::LintSelectorFileType)?;
-            parse_files_selector(selector)
+            let allow = selector
+                .require_field(ALLOW, Code::LintSelectorFileType)?
+                .expect_inline_table(Code::LintSelectorFileType)?;
+            parse_files_selector(allow)
         }
         SelectorType::Text => {
-            let selector = selector.expect_inline_table(Code::LintSelectorTextType)?;
-            parse_text_selector(selector)
+            let allow = selector
+                .require_field(ALLOW, Code::LintSelectorTextType)?
+                .expect_inline_table(Code::LintSelectorTextType)?;
+            parse_text_selector(allow)
         }
     }
 }
@@ -806,7 +821,7 @@ fn parse_selector_type(
 fn parse_files_selector<T: TableLike>(
     mut selector: TableLikeParser<T>,
 ) -> Result<Spanned<Selector>> {
-    const FIELD: &str = "allow-files";
+    const FIELD: &str = "files";
     selector.unexpected(Code::LintSelectorFileUnexpected, [FIELD]);
     let globs = selector
         .require_field(FIELD, Code::LintSelectorFileInvalid)?
@@ -826,7 +841,7 @@ fn parse_files_selector<T: TableLike>(
 fn parse_text_selector<T: TableLike>(
     mut selector: TableLikeParser<T>,
 ) -> Result<Spanned<Selector>> {
-    const FIELD: &str = "allow-matches";
+    const FIELD: &str = "matches";
     selector.unexpected(Code::LintSelectorTextUnexpected, [FIELD]);
     let regexes = selector
         .require_field(FIELD, Code::LintSelectorTextInvalid)?
