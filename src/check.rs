@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use typst::syntax::package::PackageSpec;
 
-use crate::check::files::Files;
+use crate::check::files::{Files, Ignored};
 use crate::check::manifest::{Manifest, Worlds};
 use crate::check::readme::Readme;
 use crate::workspace::Workspace;
@@ -10,7 +10,7 @@ use crate::workspace::Workspace;
 pub mod codes;
 mod compile;
 pub mod diagnostics;
-mod files;
+pub mod files;
 mod imports;
 mod kebab_case;
 mod manifest;
@@ -60,9 +60,11 @@ pub fn offline_checks(
 
     let files = files::check(&mut diags, &package_dir, &manifest, &readme);
 
+    let mut worlds = worlds.map(|w| w.with_ignored(files.ignored.clone()));
+
     compile::check(&mut diags, &manifest, &worlds.package);
-    kebab_case::check_project(&worlds.package, &mut diags);
-    if let Some(template_world) = &worlds.template {
+    kebab_case::check_project(&mut worlds.package, &mut diags);
+    if let Some(template_world) = &mut worlds.template {
         let mut template_diags = Diagnostics::default();
         compile::check(&mut template_diags, &manifest, template_world);
         kebab_case::check_project(template_world, &mut template_diags);
@@ -73,6 +75,13 @@ pub fn offline_checks(
             .expect("Template should be in a subfolder of the package");
         diags.extend(template_diags, template_dir);
     }
+
+    // Clear the exclude, so reading excluded files doesn't error. Otherwise
+    // checking or later on reading some files to report diagnostics might fail.
+    let worlds = worlds.map(|w| {
+        w.with_exclude(Exclude::empty())
+            .with_ignored(Ignored::empty())
+    });
 
     let res = imports::check(&mut diags, &package_dir, &worlds.package);
     diags.maybe_emit(res);

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::fmt::Display;
 
 use codespan_reporting::term;
 use termcolor::{Color, ColorSpec, WriteColor};
@@ -34,7 +34,7 @@ impl Show {
 }
 
 /// Print a check header for a package to the writer.
-pub fn write_header(mut w: impl WriteColor, package_dir: &Path, show: Show) -> std::io::Result<()> {
+pub fn write_header(mut w: impl WriteColor, what: impl Display, show: Show) -> std::io::Result<()> {
     w.set_color(
         ColorSpec::new()
             .set_bold(true)
@@ -43,7 +43,7 @@ pub fn write_header(mut w: impl WriteColor, package_dir: &Path, show: Show) -> s
     )?;
     w.write_all(b"Checking ")?;
     w.reset()?;
-    writeln!(w, "`{}`", package_dir.display())?;
+    writeln!(w, "`{what}`")?;
 
     if show == Show::Allowed {
         w.set_color(
@@ -252,7 +252,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
         source
             .lines()
             .byte_to_line(given)
-            .map(|line| line + self.virtual_line(id))
+            .map(|line| line + self.virtual_line_shift(id))
             .ok_or_else(|| CodespanError::IndexTooLarge {
                 given,
                 max: source.lines().len_bytes(),
@@ -261,7 +261,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
 
     fn line_range(&'a self, id: FileId, given: usize) -> CodespanResult<std::ops::Range<usize>> {
         let source = self.source(id)?;
-        let given = given - self.virtual_line(id);
+        let given = given - self.virtual_line_shift(id);
         source
             .lines()
             .line_to_range(given)

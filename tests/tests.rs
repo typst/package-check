@@ -10,7 +10,7 @@ use typst::ecow::EcoString;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 use typst_package_check::check::codes::process_diagnostics;
 use typst_package_check::cli::{self, Show};
-use typst_package_check::workspace::{SystemPackages, Workspace};
+use typst_package_check::workspace::{System, Workspace};
 
 #[derive(Debug)]
 struct Snapshot {
@@ -87,7 +87,7 @@ fn main() -> anyhow::Result<ExitCode> {
     let filtered = all - snapshots.len();
 
     // Ignore system wide installed packages.
-    let workspace = Workspace::new("tests/packages".into(), SystemPackages::empty());
+    let workspace = Workspace::new(Some("tests/packages".into()), System::sandboxed());
     let results = snapshots
         .par_iter()
         .map(|snapshot| {
@@ -157,7 +157,7 @@ fn check_snapshot(workspace: &Workspace, snapshot: &Snapshot) -> anyhow::Result<
     let res = typst_package_check::check::offline_checks(
         workspace,
         Some(&snapshot.spec),
-        workspace.repo().path_of(&snapshot.spec),
+        workspace.repo().unwrap().path_of(&snapshot.spec),
     );
 
     // Format diagnostics.

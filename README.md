@@ -41,7 +41,7 @@ The following environment variables are used for configuration.
 They are all mandatory when running the server that handles webhook.
 `.env` is supported.
 
-- `PACKAGES_DIR`, path to a local clone of `typst/packages`
+- `TYPST_PACKAGES_REPO`, path to a local clone of `typst/packages`
 - `GITHUB_APP_IDENTIFIER`, the ID of the GitHub app submitting reviews.
   This app should have the `checks:write` permission.
 - `GITHUB_PRIVATE_KEY`, the private key of the GitHub app, in PEM format.

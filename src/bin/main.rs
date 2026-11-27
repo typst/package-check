@@ -1,18 +1,21 @@
 use std::env;
+use std::fmt::Write as _;
 use std::ops::DerefMut;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
-use typst::syntax::package::PackageSpec;
+use typst::foundations::Smart;
+use typst_kit::packages::FsPackages;
 use typst_package_check::check::codes::{Code, process_diagnostics};
-use typst_package_check::check::{Exclude, TryExt, all_checks};
+use typst_package_check::check::diagnostics::Diagnostic;
+use typst_package_check::check::{TryExt, all_checks};
 use typst_package_check::github::AppState;
 use typst_package_check::github::api::pr::PullRequestEvent;
 use typst_package_check::github::api::{Installation, RepositoryId};
-use typst_package_check::workspace::{SystemPackages, Workspace};
-use typst_package_check::{cli, github, json};
+use typst_package_check::workspace::{System, Workspace};
+use typst_package_check::{cli, github, json, world};
 
 #[derive(clap::Parser)]
 struct Cli {
@@ -49,6 +52,25 @@ struct CheckCommand {
     /// in the @preview/name:version format (to run in the packages
     /// directory of typst/packages).
     packages: Vec<String>,
+
+    /// Path to a local checkout of the `typst/packages` repository, which will
+    /// be searched for packages.
+    #[clap(long, env = "TYPST_PACKAGES_REPO")]
+    packages_repo: Option<PathBuf>,
+
+    /// Custom path to the local packages, defaults to system-dependent
+    /// location. Use `unset` to not search local packages at all.
+    #[clap(long, env = "TYPST_PACKAGE_PATH")]
+    package_path: Option<PathBuf>,
+
+    /// Custom path to the package cache, defaults to system-dependent location.
+    /// Use `unset` to not search the packages cache at all.
+    #[clap(long, env = "TYPST_PACKAGE_CACHE_PATH")]
+    package_cache_path: Option<PathBuf>,
+
+    /// Ensures system fonts won't be searched.
+    #[clap(long, env = "TYPST_IGNORE_SYSTEM_FONTS")]
+    ignore_system_fonts: bool,
 
     /// Skip lints that require network access.
     #[clap(long)]
@@ -165,12 +187,13 @@ async fn run_cli(mut cmd: CheckCommand) -> ExitCode {
         cmd.packages.push(".".into());
     }
 
-    let packages_repo_dir = PathBuf::from(
-        std::env::var("PACKAGES_DIR")
-            .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
-            .unwrap_or(".".to_owned()),
-    );
-    let workspace = Workspace::new(packages_repo_dir, SystemPackages::default());
+    let unset_path = |p: PathBuf| (&p != "unset").then_some(p);
+    let system = System {
+        package_path: Smart::from(cmd.package_path.map(unset_path)),
+        package_cache_path: Smart::from(cmd.package_cache_path.map(unset_path)),
+        ignore_system_fonts: cmd.ignore_system_fonts,
+    };
+    let workspace = Workspace::new(cmd.packages_repo, system);
 
     let color = match cmd.color {
         clap::ColorChoice::Auto => termcolor::ColorChoice::Auto,
@@ -181,34 +204,56 @@ async fn run_cli(mut cmd: CheckCommand) -> ExitCode {
 
     let mut exit_code: Option<u8> = None;
     for spec_or_path in cmd.packages.iter() {
-        let package_spec: Option<PackageSpec> = spec_or_path.parse().ok();
-        let package_dir = if let Some(ref package_spec) = package_spec {
-            workspace.repo().path_of(package_spec)
+        let package_spec = spec_or_path.parse().ok();
+        let package_dir = if let Some(spec) = &package_spec {
+            world::find_in_workspace(&workspace, spec)
+                .map(|root| root.path().to_owned())
+                .map_err(|_| {
+                    let mut hint = "Search locations are:\n".to_string();
+                    let mut location = |name, fs: Option<&FsPackages>| {
+                        write!(hint, "- {name}: ").ok();
+                        match fs {
+                            Some(fs) => writeln!(hint, "`{}`", fs.path().display()).ok(),
+                            None => writeln!(hint, "<unset>").ok(),
+                        };
+                    };
+                    location("packages-repo", workspace.repo().map(|r| r.packages()));
+                    location("package-path", workspace.system().data.as_ref());
+                    location("package-cache-path", workspace.system().cache.as_ref());
+
+                    Diagnostic::error(Code::SpecResolve)
+                        .with_message(format!("Failed to resolve package specification `{spec}`."))
+                        .with_hint(hint)
+                })
         } else {
-            PathBuf::from(spec_or_path)
+            Ok(spec_or_path.into())
         };
 
         if !cmd.json {
             let mut buf = stdout.buffer();
             let mut buf = typst_utils::defer(&mut buf, |buf| stdout.print(buf).unwrap());
-            cli::write_header(buf.deref_mut(), &package_dir, cmd.show.into()).unwrap();
+            if let Ok(package_dir) = &package_dir {
+                cli::write_header(buf.deref_mut(), package_dir.display(), cmd.show.into()).unwrap();
+            } else {
+                cli::write_header(buf.deref_mut(), spec_or_path, cmd.show.into()).unwrap();
+            }
         }
 
         let mut buf = stdout.buffer();
         let mut buf = typst_utils::defer(&mut buf, |buf| stdout.print(buf).unwrap());
-        let res = all_checks(&workspace, package_spec.as_ref(), package_dir, cmd.offline).await;
+
+        let res = match package_dir {
+            Ok(dir) => all_checks(&workspace, package_spec.as_ref(), dir, cmd.offline).await,
+            Err(err) => Err(err),
+        };
         match res {
             Ok((checks, diags)) => {
+                let world = &checks.worlds.package;
                 let output = process_diagnostics(&checks, diags);
-
-                // Remove the exclude, so reading excluded files doesn't error.
-                // Otherwise printing some diagnostics might fail.
-                let world = checks.worlds.package.exclude(Exclude::empty());
-
                 if cmd.json {
-                    json::write_output(buf.deref_mut(), &world, &output).unwrap();
+                    json::write_output(buf.deref_mut(), world, &output).unwrap();
                 } else {
-                    cli::write_output(buf.deref_mut(), &world, &output, cmd.show.into()).unwrap();
+                    cli::write_output(buf.deref_mut(), world, &output, cmd.show.into()).unwrap();
                 }
 
                 if !output.denied.errors().is_empty() {

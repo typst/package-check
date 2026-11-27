@@ -14,9 +14,38 @@ use crate::check::readme::Readme;
 
 #[derive(Default)]
 pub struct Files {
-    pub ignored: HashSet<PackagePath>,
+    pub ignored: Ignored,
     pub bundle_size: Size,
     pub archive_size: Size,
+}
+
+/// Files that are ignored due to bundling rules.
+#[derive(Default, Clone)]
+pub struct Ignored {
+    /// Package relative files paths.
+    files: HashSet<PathBuf>,
+}
+
+impl Ignored {
+    pub fn empty() -> Self {
+        Self {
+            files: HashSet::new(),
+        }
+    }
+
+    pub fn insert(&mut self, file: PackagePath) {
+        self.files.insert(file.relative().to_owned());
+    }
+
+    /// Whether the package file path is ignored.
+    pub fn matches_file<T: AsRef<Path>>(&self, path: &PackagePath<T>) -> bool {
+        self.matches_relative_file(path.relative())
+    }
+
+    /// Whether the package relative file path is ignored.
+    pub fn matches_relative_file(&self, relative_path: impl AsRef<Path>) -> bool {
+        self.files.contains(relative_path.as_ref())
+    }
 }
 
 /// A size in bytes.

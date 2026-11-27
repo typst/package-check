@@ -32,5 +32,19 @@ warning[exclude/thumbnail]: The template thumbnail is automatically excluded
   │
   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
-0 errors, 4 warnings, and 0 notes
+error[compile/error]: Compile error[paged]:
+failed to load file (This file exists but is ignored from your package.)
+    ┌─ @preview/cellpress-unofficial:0.1.1/src/lib.typ:213:54
+    │
+213 │             #place(top+left, dx: -0.3mm, dy: -0.9mm)[#image("/inc/cell_press_logo.pdf")]
+    │                                                             ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[compile/error]: Compile error[paged]:
+failed to load file (This file exists but is ignored from your package.)
+    ┌─ @preview/cellpress-unofficial:0.1.1/src/lib.typ:178:52
+    │
+178 │               #place(top+right, dx: 0.3mm, dy: 1mm)[#image("/inc/cell_press_logo.pdf")]
+    │                                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+2 errors, 4 warnings, and 0 notes
 

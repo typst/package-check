@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use indexmap::IndexSet;
+use typst::foundations::Smart;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 use typst_kit::fonts::FontStore;
 use typst_kit::packages::FsPackages;
@@ -10,28 +11,55 @@ use crate::check::TryExt;
 use crate::check::codes::Code;
 use crate::check::diagnostics::{Diagnostic, Result};
 
+/// System configuration.
+#[derive(Default)]
+pub struct System {
+    pub package_path: Smart<Option<PathBuf>>,
+    pub package_cache_path: Smart<Option<PathBuf>>,
+    pub ignore_system_fonts: bool,
+}
+
+impl System {
+    pub fn sandboxed() -> Self {
+        Self {
+            package_path: Smart::Custom(None),
+            package_cache_path: Smart::Custom(None),
+            ignore_system_fonts: true,
+        }
+    }
+}
+
 /// Relevant workspace directories.
 #[derive(Clone)]
 pub struct Workspace(Arc<WorkspaceInner>);
 
 struct WorkspaceInner {
-    repo: PackagesRepo,
+    repo: Option<PackagesRepo>,
     system: SystemPackages,
     fonts: LazyLock<FontStore, Box<dyn Fn() -> FontStore + Send + Sync>>,
 }
 
 impl Workspace {
-    pub fn new(repo_dir: PathBuf, system: SystemPackages) -> Self {
+    pub fn new(repo_dir: Option<PathBuf>, system: System) -> Self {
         Self(Arc::new(WorkspaceInner {
-            repo: PackagesRepo::new(repo_dir),
-            system,
-            fonts: LazyLock::new(Box::new(discover_fonts)),
+            repo: repo_dir.map(PackagesRepo::new),
+            fonts: LazyLock::new(Box::new(move || discover_fonts(system.ignore_system_fonts))),
+            system: SystemPackages {
+                data: system
+                    .package_path
+                    .unwrap_or_else(SystemPackages::data_dir)
+                    .map(FsPackages::new),
+                cache: system
+                    .package_cache_path
+                    .unwrap_or_else(SystemPackages::cache_dir)
+                    .map(FsPackages::new),
+            },
         }))
     }
 
     /// The local `typst/packages` repository.
-    pub fn repo(&self) -> &PackagesRepo {
-        &self.0.repo
+    pub fn repo(&self) -> Option<&PackagesRepo> {
+        self.0.repo.as_ref()
     }
 
     /// System wide installed packages.
@@ -125,27 +153,22 @@ pub struct SystemPackages {
 }
 
 impl SystemPackages {
-    pub fn empty() -> Self {
-        Self {
-            data: None,
-            cache: None,
-        }
+    pub fn data_dir() -> Option<PathBuf> {
+        dirs::data_dir().map(|path| path.join("typst/packages"))
+    }
+
+    pub fn cache_dir() -> Option<PathBuf> {
+        dirs::cache_dir().map(|path| path.join("typst/packages"))
     }
 }
 
-impl Default for SystemPackages {
-    fn default() -> Self {
-        Self {
-            data: dirs::data_dir().map(|path| FsPackages::new(path.join("typst/packages"))),
-            cache: dirs::cache_dir().map(|path| FsPackages::new(path.join("typst/packages"))),
-        }
-    }
-}
-
-fn discover_fonts() -> FontStore {
+fn discover_fonts(ignore_system_fonts: bool) -> FontStore {
     let mut fonts = FontStore::new();
     fonts.extend(typst_kit::fonts::embedded());
-    // TODO: Should we not include system fonts here?
-    fonts.extend(typst_kit::fonts::system());
+
+    if !ignore_system_fonts {
+        fonts.extend(typst_kit::fonts::system());
+    }
+
     fonts
 }

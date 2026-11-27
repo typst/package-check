@@ -10,7 +10,7 @@ use typst::syntax::package::{PackageSpec, PackageVersion, VersionlessPackageSpec
 use crate::check::codes::Code;
 use crate::check::diagnostics::{Diagnostic, Docs, Label};
 use crate::check::path::PackagePath;
-use crate::check::{Diagnostics, TryExt, files};
+use crate::check::{Diagnostics, files};
 use crate::world::SystemWorld;
 
 pub fn check(
@@ -28,9 +28,11 @@ pub fn check(
 
         let path = PackagePath::from_full(package_dir, ch.path());
         if path.extension().is_some_and(|ext| ext == "typ") {
-            let source = world
-                .lookup(path.file_id())
-                .error(Code::Io, "Can't read source file")?;
+            let source = world.lookup(path.file_id()).map_err(|err| {
+                Diagnostic::error(Code::Io)
+                    .with_message(format!("Can't read source file ({err})"))
+                    .with_label(Label::new(path.file_id(), 0..0))
+            })?;
             check_ast(diags, world, source.root(), path.relative());
         }
     }

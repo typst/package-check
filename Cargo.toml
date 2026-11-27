@@ -16,7 +16,7 @@ harness = false
 opt-level = 2
 
 [dependencies]
-clap = { version= "4.5", features = ["derive"] }
+clap = { version= "4.5", features = ["derive", "env"] }
 codespan-reporting = "0.13.1"
 comemo = "0.5.0"
 comrak = { version = "0.49.0", default-features = false }

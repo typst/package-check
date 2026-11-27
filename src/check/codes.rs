@@ -255,6 +255,8 @@ codes! {
     [Overridable::Never]
     Io = "io"
 
+    SpecResolve = "spec/resolve"
+
     ManifestIo = "manifest/io"
     ManifestTomlSyntax = "manifest/toml-syntax"
 
