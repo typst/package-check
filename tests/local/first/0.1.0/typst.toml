@@ -7,3 +7,6 @@ entrypoint = "lib.typ"
 thumbnail = "missing.png"
 path = "template"
 entrypoint = "main.typ"
+
+[tool.package-check.lints]
+"exclude/example" = { allow.files = ["src/example.typ"] }

@@ -1,12 +1,13 @@
-warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`
-
-More details: https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
+[overridable] warning[manifest/package/description/typst]: The `description` field should generally not contain the word `Typst`, unless this package actually has to do with Typst itself or its ecosystem
   ┌─ typst.toml:7:14
   │
 7 │ description = "Render tetris fumen in typst."
   │               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
-error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
+error[compile/error]: The following error was reported by the Typst compiler:
+failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ mino.typ:1:8
   │
 1 │ #import "@preview/jogs:0.2.1": compile-js, call-js-function
@@ -17,10 +18,16 @@ error[readme/image/missing-alt]: Missing alternative description for image. Plea
   │
 5 │ ![](mino.svg)
   │ ^^^^^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images
 
 error[manifest/package/homepage/redundant]: Use the homepage field only if there is a dedicated website. Otherwise, prefer the `repository` field.
   ┌─ typst.toml:9:11
   │
 9 │ homepage = "https://github.com/Enter-tainer/mino"
   │            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
+
+3 errors, 1 warning, and 0 notes
 

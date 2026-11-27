@@ -1,0 +1,17 @@
+[package]
+name = "eighth"
+version = "0.1.0"
+description = "Useless package"
+authors = ["Some Person"]
+entrypoint = "lib.typ"
+license = "MIT"
+
+[tool.package-check.lints]
+"wat?" = { allow = true }
+"files/fonts" = { allow = true }
+"manifest/package/name/typst" = { allow = false }
+
+"size/large" = { allow.flies = ["examples/*"] }
+
+"readme/link/repo/default-branch" = { allow.matches = [true] }
+"readme/image/inadequate-alt" = { allow.matches = ["Repo", "(GitHub|License", "License"] }

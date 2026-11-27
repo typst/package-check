@@ -10,3 +10,6 @@ license = "MIT"
 thumbnail = "missing.png"
 path = "template"
 entrypoint = "example.typ"
+
+[tool.package-check.lints]
+"manifest/package/description/typst" = { allow = true }

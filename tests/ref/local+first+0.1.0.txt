@@ -1,48 +1,68 @@
-error[compile/error]: The following error was reported by the Typst compiler: failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
-  ┌─ template/main.typ:1:8
+[allowed] warning[exclude/example]: This file seems to be an example, and should probably be added to `exclude` in your `typst.toml`.
+  ┌─ src/example.typ:1:0
   │
-1 │ #import "@preview/first:0.1.0": add as add
-  │         ^^^^^^^^^^^^^^^^^^^^^^
+1 │ #let add = (a, b) => a + b
+  │ ^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
 
-note[import/outdated]: This import seems to use an older version of the package.
+[overridable] note[import/outdated/dependency]: This import seems to use an older version of the package.
   ┌─ lib.typ:2:1
   │
 2 │ #import "@local/second:0.1.0"
   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+error[compile/error]: The following error was reported by the Typst compiler:
+failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
+  ┌─ template/main.typ:1:8
+  │
+1 │ #import "@preview/first:0.1.0": add as add
+  │         ^^^^^^^^^^^^^^^^^^^^^^
+
 error[files/fonts]: Font files are not allowed.
 
 Delete them and instruct your users to install them manually, in your README and/or in a documentation comment.
-
-More details: https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages
   ┌─ fonts/empty.woff2:1:0
   │
 1 │ 
   │ ^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages
 
 error[manifest/template/thumbnail/not-found]: This file does not exist.
   ┌─ typst.toml:7:12
   │
 7 │ thumbnail = "missing.png"
   │             ^^^^^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#templates
 
-error[manifest/package/authors/type]: The `authors` field should be an array of strings
+error[manifest/package/authors/missing]: Missing required field `package.authors`
   ┌─ typst.toml:1:0
   │
 1 │ [package]
   │ ^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
-error[manifest/package/description/type]: The `description` field should be a string
+error[manifest/package/description/missing]: Missing required field `package.description`
   ┌─ typst.toml:1:0
   │
 1 │ [package]
   │ ^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
-error[manifest/package/license/type]: The `license` field should be a string
+error[manifest/package/license/missing]: Missing required field `package.license`
   ┌─ typst.toml:1:0
   │
 1 │ [package]
   │ ^^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
-error[io/readme]: Failed to read README.md
+error[readme/io]: Failed to read README.md
+
+7 errors, 0[+1 allowed] warning, and 1 note
+hint: Some diagnostics are overridable. See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

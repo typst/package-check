@@ -4,17 +4,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use codespan_reporting::{
-    diagnostic::{Diagnostic, Severity},
-    files::Files,
-};
+use codespan_reporting::files::Files;
 use jwt_simple::prelude::*;
 use pr::{PullRequest, PullRequestUpdate};
 use tracing::{debug, warn};
+use typst::syntax::VirtualRoot;
 use typst::syntax::package::PackageSpec;
-use typst::syntax::{FileId, VirtualRoot};
 
-use crate::check::{self, Diagnostics, Result, TryExt};
+use crate::check::codes::{self, Code, Output};
+use crate::check::diagnostics::{Diagnostic, Docs, Severity};
+use crate::check::{self, Result, TryExt};
 use crate::workspace::{SystemPackages, Workspace};
 use crate::world::SystemWorld;
 
@@ -183,7 +182,7 @@ pub async fn run_github_check(
                     },
                 )
                 .await
-                .error("github/api/pull/update", "Failed to update pull request")?;
+                .error(Code::GithubApiPullUpdate, "Failed to update pull request")?;
         }
     }
 
@@ -209,24 +208,30 @@ pub async fn run_github_check(
                 )
                 .await
                 .error(
-                    "github/api/check-run/create",
+                    Code::GithubApiCheckRunCreate,
                     "Failed to create a new check run",
                 )?
         };
 
         if touches_outside_of_packages {
-            api_client.update_check_run(
-                repository.owner(),
-                repository.name(),
-                check_run.id,
-                false,
-                CheckRunOutput {
-                    title: "This PR does too many things",
-                    summary: "A PR should either change packages/, or the rest of the repository, but not both.",
-                    annotations: &[],
-                },
-            ).await
-            .error("github/api/check-run/cancel", "Failed to cancel a check run because the branch does too many things")?;
+            api_client
+                .update_check_run(
+                    repository.owner(),
+                    repository.name(),
+                    check_run.id,
+                    false,
+                    CheckRunOutput {
+                        title: "This PR does too many things",
+                        summary: "A PR should either change packages/, \
+                                  or the rest of the repository, but not both.",
+                        annotations: &[],
+                    },
+                )
+                .await
+                .error(
+                    Code::GithubApiCheckRunCreate,
+                    "Failed to cancel a check run because the branch does too many things",
+                )?;
             continue;
         }
 
@@ -298,7 +303,7 @@ pub async fn run_github_check(
             }
         }
 
-        let (world, diags) = match check::all_checks(
+        let res = check::all_checks(
             workspace,
             Some(package),
             PathBuf::new()
@@ -308,38 +313,38 @@ pub async fn run_github_check(
                 .join(package.version.to_string()),
             false,
         )
-        .await
-        {
-            Ok(x) => x,
-            Err(e) => {
-                api_client
-                    .update_check_run(
-                        repository.owner(),
-                        repository.name(),
-                        check_run.id,
-                        false,
-                        CheckRunOutput {
-                            title: "Fatal error",
-                            summary: &format!(
-                                "The following error was encountered:\n\n{}",
-                                e.message
-                            ),
-                            annotations: &[],
-                        },
-                    )
-                    .await
-                    .error("github/api/check-run/fatal", "Failed to report fatal error")?;
-                return Err(e);
-            }
-        };
+        .await;
+
+        if let Err(err) = &res {
+            api_client
+                .update_check_run(
+                    repository.owner(),
+                    repository.name(),
+                    check_run.id,
+                    false,
+                    CheckRunOutput {
+                        title: &format!("Fatal error [{}]", err.code.ty()),
+                        summary: &format!(
+                            "The following error was encountered:\n\n{}",
+                            err.format_message_with_hints()
+                        ),
+                        annotations: &[],
+                    },
+                )
+                .await
+                .error(Code::GithubApiCheckRunFatal, "Failed to report fatal error")?;
+        }
+
+        let (checks, diags) = res?;
+        let output = codes::process_diagnostics(&checks, diags);
 
         // Diagnostics that can't be attached to a file (for instance because
         // they have no label or point to a directory) are listed in the
         // summary instead, so that they don't silently disappear.
         let mut annotations = Vec::new();
         let mut unplaced = Vec::new();
-        for diag in diags.errors().iter().chain(diags.warnings()) {
-            match diagnostic_to_annotation(&world, package, diag) {
+        for diag in output.denied.all() {
+            match diagnostic_to_annotation(&checks.worlds.package, package, diag) {
                 Some(annotation) => annotations.push(annotation),
                 None => unplaced.push(diag),
             }
@@ -347,37 +352,37 @@ pub async fn run_github_check(
         let suppressed = annotations.len().saturating_sub(MAX_ANNOTATIONS);
         annotations.truncate(MAX_ANNOTATIONS);
 
+        let success = output.denied.errors().is_empty() && output.denied.warnings().is_empty();
+        let title = if output.denied.is_empty() {
+            "All good!".to_owned()
+        } else {
+            [Severity::Error, Severity::Warning, Severity::Note]
+                .into_iter()
+                .map(|severity| {
+                    let num = output.denied.get(severity).len();
+                    format!("{num} {severity}{}", plural(num))
+                })
+                .fold(String::new(), |mut acc, x| {
+                    acc.push_str(", ");
+                    acc.push_str(&x);
+                    acc
+                })
+        };
+        let output = CheckRunOutput {
+            title: &title,
+            summary: &summary(package, &output, suppressed, &unplaced),
+            annotations: &annotations,
+        };
         api_client
             .update_check_run(
                 repository.owner(),
                 repository.name(),
                 check_run.id,
-                diags.errors().is_empty() && diags.warnings().is_empty(),
-                CheckRunOutput {
-                    title: &if diags.all().next().is_none() {
-                        "All good!".to_owned()
-                    } else {
-                        [
-                            (diags.errors(), "error"),
-                            (diags.warnings(), "warning"),
-                            (diags.infos(), "note"),
-                        ]
-                        .iter()
-                        .map(|(diags, kind)| {
-                            format!("{} {}{}", diags.len(), kind, plural(diags.len()))
-                        })
-                        .fold(String::new(), |mut acc, x| {
-                            acc.push_str(", ");
-                            acc.push_str(&x);
-                            acc
-                        })
-                    },
-                    summary: &summary(package, &diags, suppressed, &unplaced),
-                    annotations: &annotations,
-                },
+                success,
+                output,
             )
             .await
-            .error("github/api/check-run/finalize", "Failed to send report")?;
+            .error(Code::GithubApiCheckRunFinalize, "Failed to send report")?;
     }
 
     Ok(())
@@ -433,122 +438,150 @@ fn update_description_checks(
 /// Builds the summary of the check run.
 fn summary(
     package: &PackageSpec,
-    diags: &Diagnostics,
+    output: &Output,
     suppressed: usize,
-    unplaced: &[&Diagnostic<FileId>],
+    unplaced: &[&Diagnostic],
 ) -> String {
-    let errors = diags.errors().len();
-    let warnings = diags.warnings().len();
+    let errors = output.denied.errors().len();
+    let warnings = output.denied.warnings().len();
+    let notes = output.denied.notes().len();
 
     let mut summary = String::new();
-    write!(
+    writeln!(
         summary,
         "Our bots have automatically run some checks on your packages. \
-         They found {errors} error{} and {warnings} warning{}.\n\n",
+         They found {errors} error{}, {warnings} warning{}, and {notes} notes{}.\n",
         plural(errors),
         plural(warnings),
+        plural(notes),
     )
     .unwrap();
 
     if warnings > 0 {
-        summary.push_str(
-            "Warnings are suggestions, your package can still be accepted even \
-             if you prefer not to fix them.\n\n",
-        );
+        writeln!(
+            summary,
+            "Please either fix all errors and warnings, or explicitly \
+             allow them in the `typst.toml` manifest using the \
+             `[tool.package-check.lints]` configuration.\n\
+             See: {}\n",
+            Docs::PACKAGE_CHECK,
+        )
+        .unwrap();
     }
 
+    summary.push_str(
+        "Once the automated checks pass, a human being will review the package.\n\
+         If you think there is an issue with the package check, please write \
+         a message and ping us by including `@typst/package-review`",
+    );
+
     if suppressed > 0 {
-        write!(
+        writeln!(
             summary,
             "Only the first {MAX_ANNOTATIONS} annotations are shown. \
-             {suppressed} additional annotation{} suppressed.\n\n",
+             {suppressed} additional annotation{} suppressed.\n",
             if suppressed == 1 { " was" } else { "s were" },
         )
         .unwrap();
     }
 
-    summary.push_str("A human being will soon review your package, too.");
-
     if !unplaced.is_empty() {
-        summary.push_str("\n\n");
-        write_unplaced_summary(&mut summary, package, unplaced).unwrap();
+        summary.push_str(
+            "\nThere are a few diagnostics which we could \
+             not show inline with your changes. These are listed here:\n",
+        );
+        for diag in unplaced {
+            write_summary_diagnostic(&mut summary, package, diag).unwrap();
+        }
+    }
+
+    if !output.allowed.is_empty() {
+        writeln!(
+            summary,
+            "\n\n<details>\n\
+             <summary>{} diagnostic{} were allowed</summary>\n\n",
+            output.allowed.len(),
+            plural(output.allowed.len()),
+        )
+        .unwrap();
+        for diag in output.allowed.all() {
+            write_summary_diagnostic(&mut summary, package, diag).unwrap();
+        }
+        summary.push_str("</details>\n");
     }
 
     summary
 }
 
 /// Emits diagnostics that could not be turned into annotations as part of the summary.
-fn write_unplaced_summary(
+fn write_summary_diagnostic(
     mut f: impl Write,
     package: &PackageSpec,
-    diags: &[&Diagnostic<FileId>],
+    diag: &Diagnostic,
 ) -> fmt::Result {
-    writeln!(
-        f,
-        "There are a few diagnostics which we could \
-         not show inline with your changes. These are listed here:",
-    )?;
+    let severity = match diag.severity {
+        Severity::Error => "Error",
+        Severity::Warning => "Warning",
+        Severity::Note => "Note",
+    };
+    let code = diag.code.ty().as_str();
+    write!(f, "- **{severity}** [`{code}`]")?;
 
-    for diag in diags {
-        let severity = match diag.severity {
-            Severity::Error | Severity::Bug => "Error",
-            Severity::Warning => "Warning",
-            Severity::Note | Severity::Help => "Note",
+    if let Some(label) = diag.label {
+        let file_package = match label.file.root() {
+            VirtualRoot::Package(p) => p,
+            VirtualRoot::Project => package,
         };
-        write!(f, "- **{severity}**")?;
-        if let Some(code) = &diag.code {
-            write!(f, " [`{code}`]")?;
+        let path = label.file.vpath().get_without_slash();
+        if file_package == package {
+            write!(f, " in `{path}`")?;
+        } else {
+            write!(f, " in `{file_package}/{path}`")?;
         }
-
-        if let Some(label) = diag.labels.first() {
-            let file_package = match label.file_id.root() {
-                VirtualRoot::Package(p) => p,
-                VirtualRoot::Project => package,
-            };
-            let path = label.file_id.vpath().get_without_slash();
-            if file_package == package {
-                write!(f, " in `{path}`")?;
-            } else {
-                write!(f, " in `{file_package}/{path}`")?;
-            }
-        }
-        write!(f, ": {}", diag.message)?;
-
-        writeln!(f)?;
     }
-
+    for (i, line) in diag.message.lines().enumerate() {
+        let prefix = if i == 0 { ": " } else { "  " };
+        writeln!(f, "{prefix}{line}")?;
+    }
+    for hint in diag.hints() {
+        for (i, line) in hint.lines().enumerate() {
+            let prefix = if i == 0 { "= hint: " } else { "  " };
+            writeln!(f, "  {prefix}{line}")?;
+        }
+    }
     Ok(())
 }
 
 fn diagnostic_to_annotation(
     world: &SystemWorld,
     package: &PackageSpec,
-    diag: &Diagnostic<FileId>,
+    diag: &Diagnostic,
 ) -> Option<Annotation> {
-    let label = diag.labels.first()?;
-    let start_line = world.line_index(label.file_id, label.range.start).ok()?;
-    let end_line = world.line_index(label.file_id, label.range.end).ok()?;
+    let label = diag.label?;
+    let start_line = world.line_index(label.file, label.range.start).ok()?;
+    let end_line = world.line_index(label.file, label.range.end).ok()?;
     let (start_column, end_column) = if start_line == end_line {
         let start = world
-            .column_number(label.file_id, start_line, label.range.start)
+            .column_number(label.file, start_line, label.range.start)
             .ok();
         let end = world
-            .column_number(label.file_id, start_line, label.range.end)
+            .column_number(label.file, start_line, label.range.end)
             .ok();
         (start, end)
     } else {
         (None, None)
     };
-    let package = match label.file_id.root() {
+    let package = match label.file.root() {
         VirtualRoot::Package(p) => p,
         VirtualRoot::Project => package,
     };
+    let message = diag.format_message_with_hints();
     Some(Annotation {
         path: Path::new("packages")
             .join(package.namespace.to_string())
             .join(package.name.to_string())
             .join(package.version.to_string())
-            .join(label.file_id.vpath().get_without_slash())
+            .join(label.file.vpath().get_without_slash())
             .to_str()?
             .to_owned(),
         // Lines are 1-indexed on GitHub but not for codespan
@@ -557,12 +590,19 @@ fn diagnostic_to_annotation(
         start_column,
         end_column,
         annotation_level: match diag.severity {
-            Severity::Help | Severity::Note => AnnotationLevel::Notice,
+            Severity::Note => AnnotationLevel::Notice,
             Severity::Warning => AnnotationLevel::Warning,
-            Severity::Error | Severity::Bug => AnnotationLevel::Failure,
+            Severity::Error => AnnotationLevel::Failure,
         },
-        title: diag.code.clone(),
-        message: diag.message.clone(),
+        title: {
+            let overridable = if diag.code.data().is_some() {
+                "[overridable] "
+            } else {
+                ""
+            };
+            Some(format!("{overridable}{}", diag.code.ty()))
+        },
+        message,
     })
 }
 

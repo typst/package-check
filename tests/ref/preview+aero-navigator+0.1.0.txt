@@ -1,8 +1,10 @@
-warning[files/manual/unlinked]: This file seems to be a manual/documentation, but isn't linked in the readme. It will be inacessible on Typst Universe.
+[overridable] warning[files/manual/unlinked]: This file seems to be a manual/documentation, but isn't linked in the readme. It will be inacessible on Typst Universe.
   ┌─ docs/manual.pdf:1:0
   │
 1 │ 
   │ ^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude
 
 error[readme/image/missing-alt]: Missing alternative description for image. Please add a short description to make this image more accessible.
    ┌─ README.md:16:0
@@ -11,4 +13,8 @@ error[readme/image/missing-alt]: Missing alternative description for image. Plea
 17 │ │   <img src="./thumbnail.svg">
 18 │ │ </picture>
    │ ╰──────────^
+   │  
+   = hint: See https://github.com/typst/packages/blob/main/docs/documentation.md#alternative-descriptions-for-images
+
+1 error, 1 warning, and 0 notes
 

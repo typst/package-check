@@ -1,36 +1,216 @@
+use std::path::Path;
+
 use codespan_reporting::term;
+use termcolor::{Color, ColorSpec, WriteColor};
+use tracing::error;
 use typst::syntax::VirtualRoot;
 use typst::syntax::{FileId, Source};
 
-use crate::check::{Diagnostics, Exclude};
+use crate::check::codes::{CodeType, Output, Overridable, SelectorType};
+use crate::check::diagnostics::{Diagnostic, Docs, Severity};
 use crate::world::SystemWorld;
 
-/// Print diagnostic messages to the terminal.
-pub fn print_diagnostics(
-    world: SystemWorld,
-    diags: &Diagnostics,
-    json: bool,
-) -> Result<(), codespan_reporting::files::Error> {
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub enum Show {
+    Denied,
+    Allowed,
+    All,
+}
+
+impl Show {
+    fn allowed(self) -> bool {
+        match self {
+            Show::Allowed | Show::All => true,
+            Show::Denied => false,
+        }
+    }
+
+    fn denied(self) -> bool {
+        match self {
+            Show::Denied | Show::All => true,
+            Show::Allowed => false,
+        }
+    }
+}
+
+/// Print a check header for a package to the writer.
+pub fn write_header(mut w: impl WriteColor, package_dir: &Path, show: Show) -> std::io::Result<()> {
+    w.set_color(
+        ColorSpec::new()
+            .set_bold(true)
+            .set_intense(true)
+            .set_fg(Some(Color::Green)),
+    )?;
+    w.write_all(b"Checking ")?;
+    w.reset()?;
+    writeln!(w, "`{}`", package_dir.display())?;
+
+    if show == Show::Allowed {
+        w.set_color(
+            ColorSpec::new()
+                .set_intense(true)
+                .set_fg(Some(Color::Black)),
+        )?;
+        writeln!(w, "  (only showing allowed diagnostics)")?;
+        w.reset()?;
+    }
+
+    Ok(())
+}
+
+/// Print output to the writer.
+pub fn write_output(
+    mut w: impl WriteColor,
+    world: &SystemWorld,
+    output: &Output,
+    show: Show,
+) -> std::io::Result<()> {
+    if show.allowed() {
+        for diag in output.allowed.all().rev() {
+            write_diagnostic(&mut w, world, diag, true)?;
+        }
+    }
+
+    if show.denied() {
+        for diag in output.denied.all().rev() {
+            write_diagnostic(&mut w, world, diag, false)?;
+        }
+    }
+
+    write_allowed_count(&mut w, output, show, Severity::Error)?;
+    w.write_all(b", ")?;
+    write_allowed_count(&mut w, output, show, Severity::Warning)?;
+    w.write_all(b", and ")?;
+    write_allowed_count(&mut w, output, show, Severity::Note)?;
+    w.write_all(b"\n")?;
+
+    if output.has_overridable {
+        w.set_color(
+            ColorSpec::new()
+                .set_bold(true)
+                .set_intense(true)
+                .set_fg(Some(Color::Cyan)),
+        )?;
+        w.write_all(b"hint")?;
+        w.reset()?;
+        w.write_all(b": Some diagnostics are overridable. See: ")?;
+        w.set_color(ColorSpec::new().set_underline(true))?;
+        writeln!(w, "{}", Docs::PACKAGE_CHECK)?;
+        w.reset()?;
+    }
+
+    w.write_all(b"\n")?;
+
+    Ok(())
+}
+
+fn write_allowed_count(
+    mut w: impl WriteColor,
+    output: &Output,
+    show: Show,
+    severity: Severity,
+) -> std::io::Result<()> {
+    let denied = output.denied.get(severity).len();
+    let mut allowed = output.allowed.get(severity).len();
+
+    write!(w, "{denied}")?;
+
+    if show.allowed() && allowed > 0 {
+        w.set_color(
+            ColorSpec::new()
+                .set_intense(true)
+                .set_fg(Some(Color::Black)),
+        )?;
+        write!(w, "[+{allowed} allowed]")?;
+        w.reset()?;
+    } else {
+        allowed = 0;
+    }
+
+    let plural = if denied + allowed != 1 { "s" } else { "" };
+    write!(w, " {severity}{plural}")?;
+
+    Ok(())
+}
+
+/// Print output to the writer.
+pub fn write_diagnostic(
+    mut w: impl WriteColor,
+    world: &SystemWorld,
+    diag: &Diagnostic,
+    allowed: bool,
+) -> std::io::Result<()> {
+    if allowed {
+        w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Cyan)))?;
+        w.write_all(b"[allowed] ")?;
+        w.reset()?;
+    } else if diag.code.ty().overridable() != Overridable::Never {
+        w.set_color(ColorSpec::new().set_bold(true).set_fg(Some(Color::Cyan)))?;
+        w.write_all(b"[overridable] ")?;
+        w.reset()?;
+    }
+
     let config = term::Config {
         tab_width: 2,
         ..Default::default()
     };
 
-    // We should be able to print diagnostics even on excluded files. If we
-    // don't remove the exclusion, it will fail to read and display the file
-    // contents.
-    let mut world = world.exclude(Exclude::empty());
+    let mut diag = diag.into();
+    if let Err(err) = term::emit_to_write_style(&mut w, &config, world, &diag) {
+        if let CodespanError::Io(io) = err {
+            return Err(io);
+        }
 
-    for diagnostic in diags.all().rev() {
-        if json {
-            json::emit(&mut std::io::stdout(), &mut world, diagnostic)?;
-        } else {
-            term::emit_to_write_style(
-                &mut term::termcolor::StandardStream::stdout(term::termcolor::ColorChoice::Auto),
-                &config,
-                &world,
-                diagnostic,
-            )?;
+        // Formatting diagnostics should only fail, if there was an
+        // issue reading the file or the span of inside the file.
+        error!("Failed to resolve label ({err}):\n{diag:#?}");
+        diag.labels.clear();
+        if let Err(CodespanError::Io(err)) =
+            term::emit_to_write_style(&mut w, &config, world, &diag)
+        {
+            return Err(err);
+        }
+    }
+
+    Ok(())
+}
+
+/// Print this diagnostic as a fatal error to the writer.
+pub fn write_fatal_error(mut w: impl WriteColor, diag: &Diagnostic) -> std::io::Result<()> {
+    w.set_color(
+        ColorSpec::new()
+            .set_bold(true)
+            .set_intense(true)
+            .set_fg(Some(Color::Red)),
+    )?;
+    write!(w, "fatal error [{}]", diag.code.ty())?;
+    w.reset()?;
+    if let Some(label) = diag.label {
+        write!(w, " in `{}`", label.file.vpath().get_without_slash())?;
+    }
+    writeln!(w, ": {}", diag.format_message_with_hints())
+}
+
+pub fn write_lints(mut w: impl WriteColor) -> std::io::Result<()> {
+    writeln!(w, "These are all overridable lints.")?;
+    w.write_all(b"See: ")?;
+    w.set_color(ColorSpec::new().set_underline(true))?;
+    writeln!(w, "{}", Docs::PACKAGE_CHECK)?;
+    w.reset()?;
+
+    for (ty, scope) in [
+        (SelectorType::Project, "Project"),
+        (SelectorType::File, "File"),
+        (SelectorType::Text, "Text"),
+    ] {
+        writeln!(w, "\n{scope} level")?;
+
+        for code in CodeType::variants() {
+            if code.overridable().selector_type() == Some(ty) {
+                w.set_color(ColorSpec::new().set_fg(Some(Color::Cyan)))?;
+                writeln!(w, "  {code}")?;
+                w.reset()?;
+            }
         }
     }
 
@@ -101,81 +281,5 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
                 CodespanError::IndexTooLarge { given, max }
             }
         })
-    }
-}
-
-mod json {
-    use std::io::Write;
-
-    use codespan_reporting::diagnostic::{Diagnostic, Severity};
-    use serde::Serialize;
-
-    use crate::cli::CodespanResult;
-
-    #[derive(Serialize)]
-    struct JsonDiagnostic<'a> {
-        kind: &'a str,
-        message: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        location: Option<Location>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        code: Option<&'a str>,
-    }
-
-    #[derive(Serialize)]
-    struct Location {
-        file: String,
-        from: LineCol,
-        to: LineCol,
-    }
-
-    #[derive(Serialize)]
-    struct LineCol {
-        line: usize,
-        column: usize,
-    }
-
-    pub fn emit<'a, F: Copy + std::fmt::Debug>(
-        w: &mut impl Write,
-        files: &'a mut impl codespan_reporting::files::Files<'a, FileId = F>,
-        diag: &Diagnostic<F>,
-    ) -> CodespanResult<()> {
-        let location = if diag.labels.is_empty() {
-            None
-        } else {
-            let file_id = diag.labels[0].file_id;
-            let start_line = files.line_index(file_id, diag.labels[0].range.start)?;
-            let end_line = files.line_index(file_id, diag.labels[0].range.end)?;
-
-            Some(Location {
-                file: files.name(file_id)?.to_string(),
-                from: LineCol {
-                    line: files.line_number(file_id, start_line)?,
-                    column: files.column_number(file_id, start_line, diag.labels[0].range.start)?,
-                },
-                to: LineCol {
-                    line: files.line_number(file_id, end_line)?,
-                    column: files.column_number(file_id, end_line, diag.labels[0].range.end)?,
-                },
-            })
-        };
-        let code = diag.code.as_deref();
-        serde_json::to_writer(
-            &mut *w,
-            &JsonDiagnostic {
-                kind: match diag.severity {
-                    Severity::Help | Severity::Note => "note",
-                    Severity::Warning => "warning",
-                    Severity::Error | Severity::Bug => "error",
-                },
-                location,
-                message: &diag.message,
-                code,
-            },
-        )
-        .unwrap();
-        writeln!(w).unwrap();
-
-        Ok(())
     }
 }

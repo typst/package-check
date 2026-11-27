@@ -1,54 +1,64 @@
 use std::path::PathBuf;
 
-use codespan_reporting::diagnostic::Label;
-use typst::syntax::DiagSpan;
-use typst::{
-    WorldExt,
-    syntax::{FileId, package::PackageSpec},
-};
+use typst::syntax::package::PackageSpec;
 
+use crate::check::files::Files;
 use crate::check::manifest::{Manifest, Worlds};
 use crate::check::readme::Readme;
 use crate::workspace::Workspace;
-use crate::world::SystemWorld;
 
+pub mod codes;
 mod compile;
-mod diagnostics;
+pub mod diagnostics;
 mod files;
 mod imports;
 mod kebab_case;
 mod manifest;
 mod path;
 mod readme;
+mod toml;
 pub mod urls;
 
 pub use diagnostics::{Diagnostics, Result, TryExt};
 pub use manifest::Exclude;
+
+pub struct Checks {
+    pub worlds: Worlds,
+    pub manifest: Manifest,
+    pub readme: Option<Readme>,
+    pub files: Files,
+}
 
 pub async fn all_checks(
     workspace: &Workspace,
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
     offline: bool,
-) -> Result<(SystemWorld, Diagnostics)> {
-    let (worlds, manifest, _, mut diags) = offline_checks(workspace, package_spec, package_dir)?;
+) -> Result<(Checks, Diagnostics)> {
+    let (checks, mut diags) = offline_checks(workspace, package_spec, package_dir)?;
     if !offline {
-        urls::check(&mut diags, &manifest).await;
+        // TODO: consider checking a fixed number of readme links.
+        urls::check(&mut diags, &checks.manifest).await;
     }
 
     diags.sort();
 
-    Ok((worlds.package, diags))
+    Ok((checks, diags))
 }
 
 pub fn offline_checks(
     workspace: &Workspace,
     package_spec: Option<&PackageSpec>,
     package_dir: PathBuf,
-) -> Result<(Worlds, Manifest, Option<Readme>, Diagnostics)> {
+) -> Result<(Checks, Diagnostics)> {
     let mut diags = Diagnostics::default();
 
     let (manifest, worlds) = manifest::check(workspace, &package_dir, &mut diags, package_spec)?;
+
+    let res = readme::check(&worlds.package, &mut diags);
+    let readme = diags.maybe_emit(res);
+
+    let files = files::check(&mut diags, &package_dir, &manifest, &readme);
 
     compile::check(&mut diags, &worlds.package);
     if let Some(template_world) = &worlds.template {
@@ -61,11 +71,6 @@ pub fn offline_checks(
         diags.extend(template_diags, template_dir);
     }
 
-    let res = readme::check(&worlds.package, &mut diags);
-    let readme = diags.maybe_emit(res);
-
-    files::check(&mut diags, &package_dir, &manifest, &readme);
-
     kebab_case::check(&mut diags, &worlds.package);
 
     let res = imports::check(&mut diags, &package_dir, &worlds.package);
@@ -73,11 +78,11 @@ pub fn offline_checks(
 
     diags.sort();
 
-    Ok((worlds, manifest, readme, diags))
-}
-
-/// Create a label for a span.
-fn label(world: &SystemWorld, span: impl Into<DiagSpan>) -> Option<Label<FileId>> {
-    let span = span.into();
-    Some(Label::primary(span.id()?, world.range(span)?))
+    let checks = Checks {
+        worlds,
+        manifest,
+        readme,
+        files,
+    };
+    Ok((checks, diags))
 }
