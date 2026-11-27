@@ -7,7 +7,7 @@ use clap::Parser;
 use tracing_subscriber::EnvFilter;
 use typst::syntax::package::PackageSpec;
 use typst_package_check::check::codes::{Code, process_diagnostics};
-use typst_package_check::check::{Exclude, TryExt, all_checks};
+use typst_package_check::check::{TryExt, all_checks};
 use typst_package_check::github::AppState;
 use typst_package_check::github::api::pr::PullRequestEvent;
 use typst_package_check::github::api::{Installation, RepositoryId};
@@ -199,16 +199,12 @@ async fn run_cli(mut cmd: CheckCommand) -> ExitCode {
         let res = all_checks(&workspace, package_spec.as_ref(), package_dir, cmd.offline).await;
         match res {
             Ok((checks, diags)) => {
+                let world = &checks.worlds.package;
                 let output = process_diagnostics(&checks, diags);
-
-                // Remove the exclude, so reading excluded files doesn't error.
-                // Otherwise printing some diagnostics might fail.
-                let world = checks.worlds.package.exclude(Exclude::empty());
-
                 if cmd.json {
-                    json::write_output(buf.deref_mut(), &world, &output).unwrap();
+                    json::write_output(buf.deref_mut(), world, &output).unwrap();
                 } else {
-                    cli::write_output(buf.deref_mut(), &world, &output, cmd.show.into()).unwrap();
+                    cli::write_output(buf.deref_mut(), world, &output, cmd.show.into()).unwrap();
                 }
 
                 if !output.denied.errors().is_empty() {

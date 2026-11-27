@@ -28,6 +28,18 @@ pub struct Worlds {
     pub template: Option<SystemWorld>,
 }
 
+impl Worlds {
+    pub fn map<F>(self, mut f: F) -> Self
+    where
+        F: FnMut(SystemWorld) -> SystemWorld,
+    {
+        Self {
+            package: f(self.package),
+            template: self.template.map(f),
+        }
+    }
+}
+
 /// A partially parsed manifest with spanned fields.
 #[derive(Debug, Clone)]
 pub struct Manifest {
@@ -183,6 +195,7 @@ pub fn check(
         WorldRoot::Package(package_dir.to_owned()),
         target_features(package_check.as_deref()),
         package_spec.clone(),
+        package.exclude.val.clone(),
     );
 
     let template_world = world_for_template(
@@ -729,9 +742,10 @@ fn world_for_template(
         root,
         target_features(package_check.as_deref()),
         Some(package_spec),
+        package.exclude.val.clone(),
     );
 
-    Some(world.exclude(package.exclude.val.clone()))
+    Some(world)
 }
 
 fn dont_exclude_template_files(

@@ -74,6 +74,10 @@ pub fn offline_checks(
         diags.extend(template_diags, template_dir);
     }
 
+    // Clear the exclude, so reading excluded files doesn't error. Otherwise
+    // checking or later on reading some files to report diagnostics might fail.
+    let worlds = worlds.map(|w| w.with_exclude(Exclude::empty()));
+
     let res = imports::check(&mut diags, &package_dir, &worlds.package);
     diags.maybe_emit(res);
 

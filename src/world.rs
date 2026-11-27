@@ -51,6 +51,7 @@ impl SystemWorld {
         root: WorldRoot,
         features: Features,
         package_spec: Option<PackageSpec>,
+        exclude: Exclude,
     ) -> Self {
         let main = FileId::new(RootedPath::new(VirtualRoot::Project, input));
 
@@ -64,13 +65,13 @@ impl SystemWorld {
             slots: Mutex::new(HashMap::new()),
             now: typst_kit::datetime::Time::system(),
             package_spec,
-            exclude: Exclude::empty(),
+            exclude,
         }
     }
 
-    pub fn exclude(mut self, exclude: Exclude) -> Self {
-        self.exclude = exclude;
-        self
+    /// Set [`Self::exclude`].
+    pub fn with_exclude(self, exclude: Exclude) -> Self {
+        Self { exclude, ..self }
     }
 
     /// The root relative to which absolute paths are resolved.
