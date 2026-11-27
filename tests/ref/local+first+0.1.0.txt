@@ -20,12 +20,19 @@
   │
   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
-error[compile/error]: The following error was reported by the Typst compiler:
+error[compile/error]: Compile error[paged]:
 failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ template/main.typ:1:8
   │
 1 │ #import "@preview/first:0.1.0": add as add
   │         ^^^^^^^^^^^^^^^^^^^^^^
+
+error[compile/error]: Compile error[paged]:
+unknown variable: html
+  ┌─ lib.typ:7:1
+  │
+7 │ #html.p[Hello there.]
+  │  ^^^^
 
 error[files/fonts]: Font files are not allowed.
 
@@ -36,6 +43,14 @@ Delete them and instruct your users to install them manually, in your README and
   │ ^
   │
   = hint: See https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages
+
+error[manifest/tool/package-check/targets/duplicate]: duplicate compiler target `"paged"`
+   ┌─ typst.toml:13:20
+   │
+13 │ targets = ["paged", "paged"]
+   │                     ^^^^^^^
+   │
+   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 
 error[manifest/template/thumbnail/not-found]: This file does not exist.
   ┌─ typst.toml:8:12
@@ -71,6 +86,6 @@ error[manifest/package/license/missing]: Missing required field `package.license
 
 error[readme/io]: Failed to read README.md
 
-7 errors, 1[+1 allowed] warnings, and 1 note
+9 errors, 1[+1 allowed] warnings, and 1 note
 hint: Some diagnostics are overridable. See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

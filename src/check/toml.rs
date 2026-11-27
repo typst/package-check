@@ -491,6 +491,10 @@ pub struct Spanned<T> {
 }
 
 impl<T> Spanned<T> {
+    pub const fn new_const(val: T, span: Range<usize>) -> Self {
+        Self { val, span }
+    }
+
     pub fn new(val: T, span: impl Into<Range<usize>>) -> Self {
         Self {
             val,

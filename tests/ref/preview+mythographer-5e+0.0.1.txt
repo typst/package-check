@@ -40,14 +40,14 @@ Alternatively you can also link to a local file. This is  preferred if the linke
    │
    = hint: See https://github.com/typst/packages/blob/main/docs/documentation.md#linking-resources
 
-error[compile/error]: The following error was reported by the Typst compiler:
+error[compile/error]: Compile error[paged]:
 failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ @preview/mythographer-5e:0.0.1/lib/config.typ:3:8
   │
 3 │ #import "@preview/transl:0.1.1": transl
   │         ^^^^^^^^^^^^^^^^^^^^^^^
 
-error[compile/error]: The following error was reported by the Typst compiler:
+error[compile/error]: Compile error[paged]:
 failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ lib/config.typ:3:8
   │

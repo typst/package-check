@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::range::Range;
 use std::sync::LazyLock;
@@ -9,8 +9,10 @@ use regex_syntax::hir::{Hir, Look};
 use spdx::LicenseId;
 use toml_edit::{Item, TableLike};
 use tracing::debug;
+use typst::foundations::Target;
 use typst::syntax::package::{PackageSpec, PackageVersion};
 use typst::syntax::{FileId, RootedPath, VirtualPath};
+use typst::{Feature, Features};
 
 use crate::check::codes::{Code, CodeType, SelectorType};
 use crate::check::diagnostics::{Diagnostic, Docs, Label};
@@ -36,6 +38,13 @@ pub struct Manifest {
 }
 
 impl Manifest {
+    pub fn targets(&self) -> &[Spanned<Target>] {
+        self.package_check
+            .as_ref()
+            .and_then(|p| Some(p.targets.as_ref()?.as_slice()))
+            .unwrap_or(&PackageCheck::DEFAULT_TARGETS)
+    }
+
     pub fn template_path(&self) -> Option<&PackagePath> {
         Some(&self.template.as_ref()?.path.as_ref()?.val)
     }
@@ -62,7 +71,15 @@ pub struct Template {
 
 #[derive(Debug, Clone)]
 pub struct PackageCheck {
+    pub targets: Option<Spanned<Vec<Spanned<Target>>>>,
     pub lints: Option<Spanned<BTreeMap<CodeType, Spanned<Lint>>>>,
+}
+
+impl PackageCheck {
+    const DEFAULT_TARGETS: [Spanned<Target>; 1] = [Spanned::new_const(
+        Target::Paged,
+        Range { start: 0, end: 0 },
+    )];
 }
 
 #[derive(Debug, Clone)]
@@ -95,10 +112,7 @@ pub fn check(
     })?;
     let manifest = toml_edit::Document::parse(manifest_contents.as_str()).map_err(|err| {
         Diagnostic::error(Code::ManifestTomlSyntax)
-            .with_message(format!(
-                "Failed to parse manifest as TOML ({})",
-                err.message()
-            ))
+            .with_message(format!("Failed to parse manifest as TOML:\n{err}"))
             .with_docs_link(Docs::PACKAGE)
             .with_label(manifest_label(err.span().unwrap_or(0..0)))
     })?;
@@ -167,11 +181,18 @@ pub fn check(
         package.entrypoint.val.clone(),
         workspace.clone(),
         WorldRoot::Package(package_dir.to_owned()),
+        target_features(package_check.as_deref()),
         package_spec.clone(),
     );
 
-    let template_world =
-        world_for_template(workspace, package_dir, package_spec, &package, &template);
+    let template_world = world_for_template(
+        workspace,
+        package_dir,
+        package_spec,
+        &package,
+        &template,
+        &package_check,
+    );
 
     let manifest = Manifest {
         package,
@@ -183,6 +204,22 @@ pub fn check(
         template: template_world,
     };
     Ok((manifest, worlds))
+}
+
+fn target_features(package_check: Option<&PackageCheck>) -> Features {
+    package_check
+        .and_then(|p| p.targets.as_ref())
+        .map(|targets| {
+            targets
+                .iter()
+                .filter_map(|t| match t.val {
+                    Target::Paged => None,
+                    Target::Html => Some(Feature::Html),
+                    Target::Bundle => Some(Feature::Bundle),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn check_name(
@@ -674,6 +711,7 @@ fn world_for_template(
     package_spec: Option<PackageSpec>,
     package: &Spanned<Package>,
     template: &Option<Spanned<Template>>,
+    package_check: &Option<Spanned<PackageCheck>>,
 ) -> Option<SystemWorld> {
     let package_spec = package_spec?;
     let template = template.as_ref()?;
@@ -689,6 +727,7 @@ fn world_for_template(
         main.val.clone(),
         workspace.clone(),
         root,
+        target_features(package_check.as_deref()),
         Some(package_spec),
     );
 
@@ -783,6 +822,52 @@ fn check_tool(manifest: &mut toml::File) -> Option<Spanned<PackageCheck>> {
         .optional_field("package-check")?
         .expected_table(Code::ManifestToolPackageCheckType)?;
 
+    let targets = package_check
+        .optional_field("targets")
+        .and_then(|t| t.expected_array(Code::ManifestToolPackageCheckTargetsType))
+        .map(|t| {
+            let mut seen = HashSet::new();
+            t.validate(|parser, targets| {
+                if targets.is_empty() {
+                    Diagnostic::error(Code::ManifestToolPackageCheckTargetsEmpty)
+                        .with_message("The `targets` list must be non-empty")
+                        .emit_at(parser);
+                }
+            })
+            .parse_array(|t| {
+                let target = t
+                    .expect_str(Code::ManifestToolPackageCheckTargetsType)?
+                    .parse(|t| {
+                        let target = match t {
+                            "paged" => Target::Paged,
+                            "html" => Target::Html,
+                            "bundle" => Target::Bundle,
+                            _ => {
+                                return Err(Diagnostic::error(
+                                    Code::ManifestToolPackageCheckTargetsUnknown,
+                                )
+                                .with_message(format!("unknown compiler target `{t:?}`")));
+                            }
+                        };
+
+                        if !seen.insert(target) {
+                            return Err(Diagnostic::error(
+                                Code::ManifestToolPackageCheckTargetsDuplicate,
+                            )
+                            .with_message(format!("duplicate compiler target `{t:?}`")));
+                        }
+
+                        Ok(target)
+                    })?;
+                Ok(target.item)
+            })
+            .item
+        })
+        // Filter out empty arrays, otherwise no compile checks will be run.
+        // Do this after parsing array elements, since `parse_array` does
+        // `filter_map` internally.
+        .filter(|t| !t.is_empty());
+
     let lints = package_check
         .optional_field("lints")
         .and_then(|l| l.expected_table(Code::ManifestToolPackageCheckLintsType))
@@ -814,7 +899,7 @@ fn check_tool(manifest: &mut toml::File) -> Option<Spanned<PackageCheck>> {
         })
         .map(|lints| lints.item);
 
-    Some(package_check.item.map(|_| PackageCheck { lints }))
+    Some(package_check.item.map(|_| PackageCheck { targets, lints }))
 }
 
 fn span_across(a: Range<usize>, b: Range<usize>) -> Range<usize> {

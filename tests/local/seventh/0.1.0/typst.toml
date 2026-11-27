@@ -10,3 +10,6 @@ license = "CC0-1.0"
 thumbnail = "missing.png"
 path = "/template"
 entrypoint = "src/../../main.typ"
+
+[tool.package-check]
+targets = ["bundle"]
