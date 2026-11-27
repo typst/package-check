@@ -12,6 +12,14 @@
 2 │ #import "@local/second:0.1.0"
   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+[overridable] warning[manifest/package/compiler/patch]: The `compiler` field is a minimum version. Unless you explicitly require the latest patch release, changing it to `0.13.0` will allow using this package with a slightly outdated compiler.
+  ┌─ typst.toml:5:11
+  │
+5 │ compiler = "0.13.1"
+  │            ^^^^^^^^
+  │
+  = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
+
 error[compile/error]: The following error was reported by the Typst compiler:
 failed to download package (All packages are supposed to be present in the `packages` repository, or in the local cache.)
   ┌─ template/main.typ:1:8
@@ -30,9 +38,9 @@ Delete them and instruct your users to install them manually, in your README and
   = hint: See https://github.com/typst/packages/blob/main/docs/resources.md#fonts-are-not-supported-in-packages
 
 error[manifest/template/thumbnail/not-found]: This file does not exist.
-  ┌─ typst.toml:7:12
+  ┌─ typst.toml:8:12
   │
-7 │ thumbnail = "missing.png"
+8 │ thumbnail = "missing.png"
   │             ^^^^^^^^^^^^^
   │
   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#templates
@@ -63,6 +71,6 @@ error[manifest/package/license/missing]: Missing required field `package.license
 
 error[readme/io]: Failed to read README.md
 
-7 errors, 0[+1 allowed] warning, and 1 note
+7 errors, 1[+1 allowed] warnings, and 1 note
 hint: Some diagnostics are overridable. See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

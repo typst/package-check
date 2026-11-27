@@ -427,6 +427,7 @@ impl Docs {
     pub const THIRD_PARTY_META:  &str = "https://github.com/typst/packages/blob/main/docs/manifest.md#third-party-metadata";
     pub const WHAT_TO_EXCLUDE: &str = "https://github.com/typst/packages/blob/main/docs/tips.md#what-to-commit-what-to-exclude";
     pub const SPEC_IMPORTS: &str = "https://github.com/typst/packages/blob/main/docs/typst.md#use-package-specifications-in-imports";
+    pub const CODE_STYLE: &str = "https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files";
     pub const LICENSE: &str = "https://github.com/typst/packages/blob/main/docs/licensing.md";
     pub const DOCS: &str = "https://github.com/typst/packages/blob/main/docs/documentation.md";
     pub const DOCS_LINKING_RESOURCES: &str = "https://github.com/typst/packages/blob/main/docs/documentation.md#linking-resources";

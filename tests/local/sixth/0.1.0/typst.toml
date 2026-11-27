@@ -13,3 +13,4 @@ entrypoint = "example.typ"
 
 [tool.package-check.lints]
 "manifest/package/description/typst" = { allow = true }
+"src/kebab-case" = { allow.matches = ["beTter_suPreSs_ThIs"] }

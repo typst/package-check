@@ -97,6 +97,18 @@ impl SystemWorld {
     pub fn package_spec(&self) -> Option<&PackageSpec> {
         self.package_spec.as_ref()
     }
+
+    /// Returns all loaded sources are inside [`VirtualRoot::Project`].
+    pub fn project_sources(&self) -> Vec<Source> {
+        // Collect into `Vec` so we don't hold a lock over `slots`.
+        let ids = (self.slots.lock().keys())
+            .filter_map(|id| (id.root() == &VirtualRoot::Project).then_some(*id))
+            .collect::<Vec<_>>();
+
+        ids.into_iter()
+            .filter_map(|id| self.source(id).ok())
+            .collect()
+    }
 }
 
 impl World for SystemWorld {
