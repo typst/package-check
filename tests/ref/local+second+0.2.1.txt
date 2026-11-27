@@ -7,9 +7,9 @@
   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#writing-a-good-description
 
 [overridable] warning[src/kebab-case]: `Tick` is not in kebab-case
-  ┌─ lib.typ:1:5
+  ┌─ lib.typ:3:5
   │
-1 │ #let Tick(t) = calc.rem(t + 1, 60)
+3 │ #let Tick(t) = calc.rem(t + 1, 60)
   │      ^^^^
   │
   = hint: See https://github.com/typst/packages/blob/main/docs/typst.md#writing-high-quality-typst-files
@@ -17,14 +17,14 @@
 warning[exclude/readme]: Your README.md file should not be excluded.
   ┌─ typst.toml:7:10
   │
-7 │ exclude = ["LICENSE", "README.md", "ascii art.txt"]
-  │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 │ exclude = ["LICENSE", "README.md", "ascii art.txt", "excluded.typ"]
+  │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 warning[exclude/license]: Your LICENSE file should not be excluded.
   ┌─ typst.toml:7:10
   │
-7 │ exclude = ["LICENSE", "README.md", "ascii art.txt"]
-  │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+7 │ exclude = ["LICENSE", "README.md", "ascii art.txt", "excluded.typ"]
+  │           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[compile/error]: Compile error[html]:
 panicked with: hello from the html target
@@ -32,6 +32,13 @@ panicked with: hello from the html target
   │
 4 │ #panic("hello from the html target")
   │  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[compile/error]: Compile error[html]:
+failed to load file (This file exists but is excluded from your package.)
+  ┌─ lib.typ:1:8
+  │
+1 │ #import "src/excluded.typ"
+  │         ^^^^^^^^^^^^^^^^^^
 
 error[manifest/template/thumbnail/missing]: Missing required field `template.thumbnail`
    ┌─ typst.toml:11:0
@@ -57,6 +64,6 @@ error[manifest/package/compiler/type]: `package.compiler` should be a string
   │
   = hint: See https://github.com/typst/packages/blob/main/docs/manifest.md#package-metadata
 
-4 errors, 3[+1 allowed] warnings, and 0 notes
+5 errors, 3[+1 allowed] warnings, and 0 notes
 hint: Some diagnostics are overridable. See: https://github.com/typst/packages/blob/main/docs/manifest.md#package-check
 

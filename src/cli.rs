@@ -252,7 +252,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
         source
             .lines()
             .byte_to_line(given)
-            .map(|line| line + self.virtual_line(id))
+            .map(|line| line + self.virtual_line_shift(id))
             .ok_or_else(|| CodespanError::IndexTooLarge {
                 given,
                 max: source.lines().len_bytes(),
@@ -261,7 +261,7 @@ impl<'a> codespan_reporting::files::Files<'a> for SystemWorld {
 
     fn line_range(&'a self, id: FileId, given: usize) -> CodespanResult<std::ops::Range<usize>> {
         let source = self.source(id)?;
-        let given = given - self.virtual_line(id);
+        let given = given - self.virtual_line_shift(id);
         source
             .lines()
             .line_to_range(given)

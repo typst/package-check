@@ -16,31 +16,24 @@ use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
 use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
-use typst_kit::files::FsRoot;
+use typst_kit::files::{FileLoader, FileStore, FsRoot};
 
 use crate::check::Exclude;
+use crate::check::files::Ignored;
 use crate::workspace::Workspace;
 
 /// A world that provides access to the operating system.
 pub struct SystemWorld {
-    /// The workspace in which the package is checked.
-    workspace: Workspace,
-    /// The root relative to which absolute paths are resolved.
-    root: WorldRoot,
     /// The input path.
     main: FileId,
     /// Typst's standard library.
     library: LazyHash<Library>,
     /// Maps file ids to source files and buffers.
-    slots: Mutex<HashMap<FileId, FileSlot>>,
+    files: FileStore<CheckedLoader>,
     /// The current datetime if requested. This is stored here to ensure it is
     /// always the same within one compilation.
     /// Reset between compilations if not [`Now::Fixed`].
     now: typst_kit::datetime::Time,
-    /// The package specification of the currently checked package.
-    package_spec: Option<PackageSpec>,
-    /// Files that are considered excluded and should not be read from.
-    exclude: Exclude,
 }
 
 impl SystemWorld {
@@ -54,29 +47,42 @@ impl SystemWorld {
         exclude: Exclude,
     ) -> Self {
         let main = FileId::new(RootedPath::new(VirtualRoot::Project, input));
-
         let library = Library::builder().with_features(features).build();
-
-        Self {
+        let loader = CheckedLoader {
             workspace,
             root,
-            main,
-            library: LazyHash::new(library),
-            slots: Mutex::new(HashMap::new()),
-            now: typst_kit::datetime::Time::system(),
             package_spec,
             exclude,
+            ignored: Ignored::empty(),
+            virtual_sources: Mutex::new(HashMap::new()),
+        };
+        Self {
+            main,
+            library: LazyHash::new(library),
+            files: FileStore::new(loader),
+            now: typst_kit::datetime::Time::system(),
         }
     }
 
-    /// Set [`Self::exclude`].
-    pub fn with_exclude(self, exclude: Exclude) -> Self {
-        Self { exclude, ..self }
+    /// Set excluded files.
+    pub fn with_exclude(mut self, exclude: Exclude) -> Self {
+        // Reset the file store, so the new rules will apply.
+        self.files.reset();
+        self.files.loader_mut().exclude = exclude;
+        self
+    }
+
+    /// Set ignored files.
+    pub fn with_ignored(mut self, ignored: Ignored) -> Self {
+        // Reset the file store, so the new rules will apply.
+        self.files.reset();
+        self.files.loader_mut().ignored = ignored;
+        self
     }
 
     /// The root relative to which absolute paths are resolved.
     pub fn root(&self) -> &WorldRoot {
-        &self.root
+        &self.files.loader().root
     }
 
     /// Lookup a source file by id.
@@ -85,23 +91,32 @@ impl SystemWorld {
         self.source(id)
     }
 
-    pub fn virtual_source(&self, id: FileId, src: Bytes, line_shift: usize) -> FileResult<Source> {
-        self.slot(id, |slot| slot.virtual_source(src, line_shift))
+    pub fn virtual_source(
+        &self,
+        id: FileId,
+        bytes: Bytes,
+        line_shift: usize,
+    ) -> FileResult<Source> {
+        let virt = VirtualSource { line_shift, bytes };
+        self.files.loader().virtual_sources.lock().insert(id, virt);
+        self.files.source(id)
     }
 
-    pub fn virtual_line(&self, id: FileId) -> usize {
-        self.slot(id, |f| f.line_shift)
+    pub fn virtual_line_shift(&self, id: FileId) -> usize {
+        let sources = self.files.loader().virtual_sources.lock();
+        sources.get(&id).map(|virt| virt.line_shift).unwrap_or(0)
     }
 
     pub fn package_spec(&self) -> Option<&PackageSpec> {
-        self.package_spec.as_ref()
+        self.files.loader().package_spec.as_ref()
     }
 
     /// Returns all loaded sources are inside [`VirtualRoot::Project`].
-    pub fn project_sources(&self) -> Vec<Source> {
+    pub fn project_sources(&mut self) -> Vec<Source> {
         // Collect into `Vec` so we don't hold a lock over `slots`.
-        let ids = (self.slots.lock().keys())
-            .filter_map(|id| (id.root() == &VirtualRoot::Project).then_some(*id))
+        let (_, ids) = self.files.dependencies();
+        let ids = ids
+            .filter(|id| id.root() == &VirtualRoot::Project)
             .collect::<Vec<_>>();
 
         ids.into_iter()
@@ -116,7 +131,7 @@ impl World for SystemWorld {
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        self.workspace.fonts().book()
+        self.files.loader().workspace.fonts().book()
     }
 
     fn main(&self) -> FileId {
@@ -124,29 +139,15 @@ impl World for SystemWorld {
     }
 
     fn source(&self, id: FileId) -> FileResult<Source> {
-        self.slot(id, |slot| {
-            slot.source(
-                &self.workspace,
-                &self.root,
-                self.package_spec.as_ref(),
-                &self.exclude,
-            )
-        })
+        self.files.source(id)
     }
 
     fn file(&self, id: FileId) -> FileResult<Bytes> {
-        self.slot(id, |slot| {
-            slot.file(
-                &self.workspace,
-                &self.root,
-                self.package_spec.as_ref(),
-                &self.exclude,
-            )
-        })
+        self.files.file(id)
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.workspace.fonts().font(index)
+        self.files.loader().workspace.fonts().font(index)
     }
 
     fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
@@ -154,15 +155,91 @@ impl World for SystemWorld {
     }
 }
 
-impl SystemWorld {
-    /// Access the canonical slot for the given file id.
-    fn slot<F, T>(&self, id: FileId, f: F) -> T
-    where
-        F: FnOnce(&mut FileSlot) -> T,
-    {
-        let mut map = self.slots.lock();
-        f(map.entry(id).or_insert_with(|| FileSlot::new(id)))
+/// A [`FileLoader`] that checks for excluded and ignored files.
+struct CheckedLoader {
+    /// The workspace in which the package is checked.
+    workspace: Workspace,
+    /// The root relative to which absolute paths are resolved.
+    root: WorldRoot,
+    /// The package specification of the currently checked package.
+    package_spec: Option<PackageSpec>,
+    /// Files that are considered excluded and should not be read from.
+    exclude: Exclude,
+    /// Files that are ignored, due to bundling rules.
+    ignored: Ignored,
+
+    /// Virtual sources.
+    virtual_sources: Mutex<HashMap<FileId, VirtualSource>>,
+}
+
+impl FileLoader for CheckedLoader {
+    fn load(&self, id: FileId) -> FileResult<Bytes> {
+        if let Some(virt) = self.virtual_sources.lock().get(&id) {
+            Ok(virt.bytes.clone())
+        } else {
+            let path = self.resolve_system_path(id)?;
+            read_from_disk(&path).map(Bytes::new)
+        }
     }
+}
+
+impl CheckedLoader {
+    fn resolve_system_path(&self, id: FileId) -> FileResult<PathBuf> {
+        let _ = span!(Level::DEBUG, "Path resolution").enter();
+        debug!("File ID = {:?}", id);
+
+        // Determine the root path relative to which the file path will be resolved.
+        let mut resolved = None;
+        let root = match id.root() {
+            VirtualRoot::Project => self.root.world_dir(),
+            VirtualRoot::Package(spec) => {
+                // If the current package is imported, return the package dir
+                // directly, otherwise try to find the package:
+                // 1. relative to the current world's package dir.
+                // 2. inside the current git directory.
+                // 3. in the system wide package cache.
+                if Some(spec) == self.package_spec.as_ref() {
+                    self.root.package_dir()
+                } else if let Some(root) = find_relative_package(&self.root, spec) {
+                    resolved.insert(root).path()
+                } else {
+                    let root =
+                        find_in_repo_or_cache(&self.workspace, spec).map_err(FileError::Package)?;
+                    resolved.insert(root).path()
+                }
+            }
+        };
+
+        let realized_path = id.vpath().realize(root).map_err(FileError::from)?;
+
+        // NOTE: To be fully correct, we would need to read the exclude globs of
+        // the imported package and filter out files that are imported but
+        // excluded. Though these issues will most likely be discovered during
+        // package development.
+        if let Ok(relative_path) = realized_path.strip_prefix(self.root.package_dir()) {
+            if self.exclude.matches_relative_file(relative_path) {
+                debug!("This file is excluded");
+                return Err(FileError::Other(Some(
+                    "This file exists but is excluded from your package.".into(),
+                )));
+            }
+
+            if self.ignored.matches_relative_file(relative_path) {
+                debug!("This file is ignored");
+                return Err(FileError::Other(Some(
+                    "This file exists but is ignored from your package.".into(),
+                )));
+            }
+        }
+
+        debug!("Resolved to {}", realized_path.display());
+        Ok(realized_path)
+    }
+}
+
+struct VirtualSource {
+    line_shift: usize,
+    bytes: Bytes,
 }
 
 #[derive(Clone)]
@@ -210,198 +287,6 @@ impl WorldRoot {
         // 3. namespace
         self.package_dir().parent()?.parent()?.parent()
     }
-}
-
-/// Holds the processed data for a file ID.
-///
-/// Both fields can be populated if the file is both imported and read().
-struct FileSlot {
-    /// The slot's file id.
-    id: FileId,
-    /// The lazily loaded and incrementally updated source file.
-    source: SlotCell<Source>,
-    /// The lazily loaded raw byte buffer.
-    file: SlotCell<Bytes>,
-    line_shift: usize,
-}
-
-impl FileSlot {
-    /// Create a new file slot.
-    fn new(id: FileId) -> Self {
-        Self {
-            id,
-            file: SlotCell::new(),
-            source: SlotCell::new(),
-            line_shift: 0,
-        }
-    }
-
-    /// Retrieve the source for this file.
-    fn source(
-        &mut self,
-        workspace: &Workspace,
-        root: &WorldRoot,
-        override_spec: Option<&PackageSpec>,
-        exclude: &Exclude,
-    ) -> FileResult<Source> {
-        self.source.get_or_init(
-            || read(workspace, root, override_spec, exclude, self.id),
-            |data, prev| {
-                let text = decode_utf8(&data)?;
-                if let Some(mut prev) = prev {
-                    prev.replace(text);
-                    Ok(prev)
-                } else {
-                    Ok(Source::new(self.id, text.into()))
-                }
-            },
-        )
-    }
-
-    fn virtual_source(&mut self, src: Bytes, line_shift: usize) -> FileResult<Source> {
-        self.line_shift = line_shift;
-        self.source.get_or_init(
-            || Ok(src.to_vec()),
-            |data, prev| {
-                let text = decode_utf8(&data)?;
-                if let Some(mut prev) = prev {
-                    prev.replace(text);
-                    Ok(prev)
-                } else {
-                    Ok(Source::new(self.id, text.into()))
-                }
-            },
-        )
-    }
-
-    /// Retrieve the file's bytes.
-    fn file(
-        &mut self,
-        workspace: &Workspace,
-        root: &WorldRoot,
-        override_spec: Option<&PackageSpec>,
-        exclude: &Exclude,
-    ) -> FileResult<Bytes> {
-        self.file.get_or_init(
-            || read(workspace, root, override_spec, exclude, self.id),
-            |data, _| Ok(Bytes::new(data)),
-        )
-    }
-}
-
-/// Lazily processes data for a file.
-struct SlotCell<T> {
-    /// The processed data.
-    data: Option<FileResult<T>>,
-    /// A hash of the raw file contents / access error.
-    fingerprint: u128,
-    /// Whether the slot has been accessed in the current compilation.
-    accessed: bool,
-}
-
-impl<T: Clone> SlotCell<T> {
-    /// Creates a new, empty cell.
-    fn new() -> Self {
-        Self {
-            data: None,
-            fingerprint: 0,
-            accessed: false,
-        }
-    }
-
-    /// Gets the contents of the cell or initialize them.
-    fn get_or_init(
-        &mut self,
-        load: impl FnOnce() -> FileResult<Vec<u8>>,
-        f: impl FnOnce(Vec<u8>, Option<T>) -> FileResult<T>,
-    ) -> FileResult<T> {
-        // If we accessed the file already in this compilation, retrieve it.
-        if std::mem::replace(&mut self.accessed, true)
-            && let Some(data) = &self.data
-        {
-            return data.clone();
-        }
-
-        // Read and hash the file.
-        let result = load();
-        let fingerprint = typst::utils::hash128(&result);
-
-        // If the file contents didn't change, yield the old processed data.
-        if std::mem::replace(&mut self.fingerprint, fingerprint) == fingerprint
-            && let Some(data) = &self.data
-        {
-            return data.clone();
-        }
-
-        let prev = self.data.take().and_then(Result::ok);
-        let value = result.and_then(|data| f(data, prev));
-        self.data = Some(value.clone());
-
-        value
-    }
-}
-
-/// Reads a file from a `FileId`.
-fn read(
-    workspace: &Workspace,
-    root: &WorldRoot,
-    override_spec: Option<&PackageSpec>,
-    exclude: &Exclude,
-    id: FileId,
-) -> FileResult<Vec<u8>> {
-    let resolved = resolve_system_path(workspace, root, override_spec, exclude, id)?;
-    read_from_disk(&resolved)
-}
-
-/// Resolves the path of a file id on the system.
-fn resolve_system_path(
-    workspace: &Workspace,
-    root: &WorldRoot,
-    override_spec: Option<&PackageSpec>,
-    exclude: &Exclude,
-    id: FileId,
-) -> FileResult<PathBuf> {
-    let _ = span!(Level::DEBUG, "Path resolution").enter();
-    debug!("File ID = {:?}", id);
-
-    // Determine the root path relative to which the file path will be resolved.
-    let mut resolved = None;
-    let root = match id.root() {
-        VirtualRoot::Project => root.world_dir(),
-        VirtualRoot::Package(spec) => {
-            // If the current package is imported, return the package dir
-            // directly, otherwise try to find the package:
-            // 1. relative to the current world's package dir.
-            // 2. inside the current git directory.
-            // 3. in the system wide package cache.
-            if Some(spec) == override_spec {
-                root.package_dir()
-            } else if let Some(root) = find_relative_package(root, spec) {
-                resolved.insert(root).path()
-            } else {
-                let root = find_in_repo_or_cache(workspace, spec).map_err(FileError::Package)?;
-                resolved.insert(root).path()
-            }
-        }
-    };
-
-    let realized_path = id.vpath().realize(root).map_err(FileError::from)?;
-
-    // FIXME: To be fully correct, we would need to read the exclude globs
-    // of the imported package and filter out files that are imported but
-    // excluded. Though these issues will most likely be discovered during
-    // package development.
-    if let Ok(exclude_relative_path) = realized_path.strip_prefix(exclude.root())
-        && exclude.matches_relative_file(exclude_relative_path)
-    {
-        debug!("This file is excluded");
-        return Err(FileError::Other(Some(
-            "This file exists but is excluded from your package.".into(),
-        )));
-    }
-
-    debug!("Resolved to {}", realized_path.display());
-    Ok(realized_path)
 }
 
 // Try to find a package relative to the one that is being checked by the world.
@@ -457,12 +342,4 @@ fn read_from_disk(path: &Path) -> FileResult<Vec<u8>> {
     } else {
         std::fs::read(path).map_err(f)
     }
-}
-
-/// Decode UTF-8 with an optional BOM.
-fn decode_utf8(buf: &[u8]) -> FileResult<&str> {
-    // Remove UTF-8 BOM.
-    Ok(std::str::from_utf8(
-        buf.strip_prefix(b"\xef\xbb\xbf").unwrap_or(buf),
-    )?)
 }

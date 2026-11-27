@@ -739,8 +739,10 @@ async fn check_package(
             // summary instead, so that they don't silently disappear.
             let mut annotations = Vec::new();
             let mut unplaced = Vec::new();
+
+            let world = &checks.worlds.package;
             for diag in output.denied.all() {
-                match diagnostic_to_annotation(&checks.worlds.package, &package, diag) {
+                match diagnostic_to_annotation(world, &package, diag) {
                     Some(annotation) => annotations.push(annotation),
                     None => unplaced.push(diag),
                 }

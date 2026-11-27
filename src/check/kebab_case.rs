@@ -7,7 +7,7 @@ use crate::world::SystemWorld;
 
 /// This should be run after compiling the project, since it checks all loaded
 /// file slots of the world.
-pub fn check_project(world: &SystemWorld, diags: &mut Diagnostics) {
+pub fn check_project(world: &mut SystemWorld, diags: &mut Diagnostics) {
     for src in world.project_sources() {
         check_ast(world, diags, src.root(), false);
     }
