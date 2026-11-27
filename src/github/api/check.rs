@@ -1,6 +1,9 @@
 use std::fmt::Display;
 
+use http::StatusCode;
 use serde::{Deserialize, Serialize};
+
+use crate::github::api::{ApiError, ApiResult, AuthInstallation, GitHub, RepositoryId};
 
 #[derive(Debug, Deserialize, Clone, Copy)]
 #[serde(transparent)]
@@ -19,10 +22,10 @@ pub struct CheckRun {
 }
 
 #[derive(Debug, Serialize)]
-pub struct CheckRunOutput<'a> {
-    pub title: &'a str,
-    pub summary: &'a str,
-    pub annotations: &'a [Annotation],
+pub struct CheckRunOutput {
+    pub title: String,
+    pub summary: String,
+    pub annotations: Vec<Annotation>,
 }
 
 #[derive(Debug, Serialize)]
@@ -46,4 +49,34 @@ pub enum AnnotationLevel {
     Notice,
     Warning,
     Failure,
+}
+
+impl GitHub<AuthInstallation> {
+    #[tracing::instrument(skip(self))]
+    pub async fn create_check_run(
+        &self,
+        repo: &RepositoryId,
+        check_run_name: String,
+        head_sha: &str,
+        success: bool,
+        output: CheckRunOutput,
+    ) -> ApiResult<CheckRun> {
+        let response = self
+            .post(format!("repos/{repo}/check-runs"))
+            .json(&serde_json::json!({
+                "name": check_run_name,
+                "head_sha": head_sha,
+                "status": "completed",
+                "conclusion": if success { "success" } else { "failure" },
+                "output": output,
+            }))
+            .send()
+            .await?;
+
+        if response.status() != StatusCode::CREATED {
+            return Err(ApiError::UnexpectedResponse(response.text().await?));
+        }
+
+        Ok(response.json().await?)
+    }
 }

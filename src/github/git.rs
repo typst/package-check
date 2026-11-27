@@ -4,31 +4,19 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 
 use tracing::debug;
-use typst::syntax::package::{PackageSpec, PackageVersion};
 
 use crate::check::codes::Code;
 use crate::check::{Result, TryExt};
-use crate::workspace::Workspace;
 
-pub struct GitRepo<'a> {
-    dir: &'a Path,
+pub struct GitRepo {
+    dir: PathBuf,
 }
 
-impl<'a> GitRepo<'a> {
-    pub fn open(dir: &'a Path) -> Result<Self> {
+impl GitRepo {
+    pub fn open(dir: PathBuf) -> Result<Self> {
         let repo = GitRepo { dir };
         traced_git(["config", "--global", "--add", "safe.directory", repo.dir()?])?;
         Ok(repo)
-    }
-
-    pub fn commit_for_previous_version(
-        &self,
-        workspace: &Workspace,
-        spec: &PackageSpec,
-    ) -> Option<String> {
-        let prev_version = workspace.repo().find_previous_version(spec)?;
-        let last_manifest = workspace.repo().path_of(&prev_version).join("typst.toml");
-        self.commit_for_file(&last_manifest)
     }
 
     pub fn files_touched_by(&self, sha: impl AsRef<str>) -> Result<Vec<PathBuf>> {
@@ -86,34 +74,6 @@ impl<'a> GitRepo<'a> {
         self.dir
             .to_str()
             .error(Code::GitUtf8, "Directory name is not valid UTF-8")
-    }
-
-    pub fn has_previous_version(&self, package: &PackageSpec) -> Result<bool> {
-        let package_dir = PathBuf::from(self.dir()?)
-            .join("packages")
-            .join(package.namespace.as_str())
-            .join(package.name.as_str());
-        let mut all_versions = std::fs::read_dir(package_dir)
-            .error(Code::ListVersionsIo, "Failed to list versions")?;
-        while let Some(Ok(version)) = all_versions.next() {
-            if version.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                let version = version
-                    .file_name()
-                    .to_str()
-                    .error(
-                        Code::ListVersionsUtf8,
-                        "Can't convert directory name to string",
-                    )?
-                    .parse::<PackageVersion>()
-                    .error(Code::ListVersionsInvalid, "Invalid version number")?;
-
-                if version < package.version {
-                    return Ok(true);
-                }
-            }
-        }
-
-        Ok(false)
     }
 }
 
