@@ -31,9 +31,8 @@ fn typst_check_with_spec() {
         .unwrap();
 
     exec()
-        .current_dir("tests/packages")
-        .env("PACKAGES_DIR", ".")
         .check()
+        .arg("--packages-repo=tests/packages")
         .arg("@local/second:0.2.1")
         .must_fail()
         .stdout

@@ -194,17 +194,12 @@ impl CheckedLoader {
             VirtualRoot::Project => self.root.world_dir(),
             VirtualRoot::Package(spec) => {
                 // If the current package is imported, return the package dir
-                // directly, otherwise try to find the package:
-                // 1. relative to the current world's package dir.
-                // 2. inside the current git directory.
-                // 3. in the system wide package cache.
+                // directly, otherwise try to find the package in the workspace.
                 if Some(spec) == self.package_spec.as_ref() {
                     self.root.package_dir()
-                } else if let Some(root) = find_relative_package(&self.root, spec) {
-                    resolved.insert(root).path()
                 } else {
                     let root =
-                        find_in_repo_or_cache(&self.workspace, spec).map_err(FileError::Package)?;
+                        find_in_workspace(&self.workspace, spec).map_err(FileError::Package)?;
                     resolved.insert(root).path()
                 }
             }
@@ -289,29 +284,11 @@ impl WorldRoot {
     }
 }
 
-// Try to find a package relative to the one that is being checked by the world.
-fn find_relative_package(root: &WorldRoot, spec: &PackageSpec) -> Option<FsRoot> {
-    let dir = root.all_packages()?;
-    let mut buf = dir.to_path_buf();
-
-    buf.push(spec.namespace.as_str());
-    buf.push(spec.name.as_str());
-    buf.push(spec.version.to_string());
-
-    if !buf.exists() {
-        debug!(
-            "Expected package `{spec}` to be present in `{}`",
-            dir.display()
-        );
-        return None;
-    }
-
-    Some(FsRoot::new(buf))
-}
-
 /// Try to find a pacakge in current git directory or in the on-disk cache.
-fn find_in_repo_or_cache(workspace: &Workspace, spec: &PackageSpec) -> PackageResult<FsRoot> {
-    if let Some(root) = workspace.repo().packages().obtain(spec) {
+pub fn find_in_workspace(workspace: &Workspace, spec: &PackageSpec) -> PackageResult<FsRoot> {
+    if let Some(repo) = workspace.repo()
+        && let Some(root) = repo.packages().obtain(spec)
+    {
         return Ok(root);
     }
 

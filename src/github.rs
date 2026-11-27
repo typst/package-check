@@ -15,7 +15,7 @@ use crate::check::{self, Result, TryExt};
 use crate::github::api::check::CheckRun;
 use crate::github::api::pr::{Comment, PullRequest, PullRequestUpdate};
 use crate::github::api::{AuthInstallation, AuthJwt, GitHub, RepositoryId};
-use crate::workspace::{SystemPackages, Workspace};
+use crate::workspace::{System, Workspace};
 use crate::world::SystemWorld;
 
 pub mod api;
@@ -47,12 +47,13 @@ impl AppState {
             app_id: std::env::var("GITHUB_APP_IDENTIFIER")
                 .expect("GITHUB_APP_IDENTIFIER is not set."),
             workspace: Workspace::new(
-                std::env::var("PACKAGES_DIR")
-                    .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
-                    .expect("PACKAGES_DIR is not set.")
-                    .into(),
-                // Ignore system wide installed packages.
-                SystemPackages::empty(),
+                Some(
+                    std::env::var("TYPST_PACKAGES_REPO")
+                        .or_else(|_| std::env::var("GITHUB_WORKSPACE"))
+                        .expect("TYPST_PACKAGES_REPO is not set.")
+                        .into(),
+                ),
+                System::sandboxed(),
             ),
         }
     }
@@ -232,7 +233,7 @@ async fn check_pr(
     repo: &RepositoryId,
     pr: &PullRequest,
 ) -> Result<PrKind> {
-    let git_repo = GitRepo::open(workspace.repo().dir().to_owned())?;
+    let git_repo = GitRepo::open(workspace.repo().unwrap().dir().to_owned())?;
     let touched = touched(&git_repo)?;
     debug!(
         "This commit touched the following packages: {:#?}",
@@ -328,7 +329,7 @@ fn other_package_versions(
     // Read all package versions.
     for package in touched.packages.iter() {
         if let Entry::Vacant(vacant) = other_package_versions.entry(package.versionless()) {
-            let versions = workspace.repo().find_versions(package)?;
+            let versions = workspace.repo().unwrap().find_versions(package)?;
             vacant.insert(versions);
         }
     }
@@ -360,7 +361,7 @@ async fn different_package_authors(
         };
 
         let newest_spec = package.clone().at(*version);
-        let manifest = workspace.repo().manifest_path_of(&newest_spec);
+        let manifest = workspace.repo().unwrap().manifest_path_of(&newest_spec);
         let Some(previous_commit) = git_repo.commit_for_file(&manifest) else {
             continue;
         };
